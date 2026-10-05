@@ -1,0 +1,137 @@
+# CI (plan D20). Jobs run in the order set by .claude/rules/testing.md: static -> unit -> integration -> security.
+# Every third-party action is pinned to a full commit SHA; the trailing comment names the release. Dependabot
+# (.github/dependabot.yml) proposes SHA bumps weekly.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # One group per PR, so a new push cancels that PR's superseded run. Every other run (push to main, manual) gets a
+  # group of its own and is never cancelled or superseded.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  HUSKY: 0 # the `prepare` script must not install git hooks in CI
+  TURBO_TELEMETRY_DISABLED: 1
+
+jobs:
+  static:
+    name: Static checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 (pnpm version from packageManager)
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm check:pkg
+
+  unit:
+    name: Unit tests
+    needs: static
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
+  integration:
+    name: Integration tests
+    needs: unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Pull the pinned TimescaleDB image (about 4 GB) in its own step, so pull time and registry errors show up here
+      # rather than inside the test run. The tag comes from docker-compose.yml; a unit test keeps it equal to the
+      # Testcontainers constant (packages/database/test/integration/timescale-image.ts).
+      - run: docker compose pull --quiet postgres
+      # Testcontainers on the runner's Docker (preinstalled on ubuntu-24.04). turbo runs generate and build first: the
+      # packaging test loads dist/. Covers migrations (including the schema drift check), guards, constraints and both
+      # builds against a real database.
+      - run: pnpm test:integration
+
+  # e2e (Playwright: sign-in, broker connect with mocked OAuth, paper order, strategy deploy, P&L) arrives with
+  # apps/web. When enabled, `security` needs `e2e` instead of `integration`.
+  #
+  # e2e:
+  #   name: End-to-end tests
+  #   needs: integration
+  #   runs-on: ubuntu-24.04
+  #   timeout-minutes: 30
+  #   steps:
+  #     - checkout, pnpm/action-setup, setup-node, pnpm install --frozen-lockfile (as above)
+  #     - run: pnpm exec playwright install --with-deps chromium
+  #     - run: pnpm test:e2e
+
+  security:
+    name: Dependency audit
+    needs: integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      # Audits pnpm-lock.yaml (no install needed). Fails on any high or critical advisory without an active, unexpired
+      # exception in scripts/audit-exceptions.json (docs/06-SECURITY.md, "Dependency audit exceptions").
+      - run: pnpm audit:ci
+
+  # Image scan with Trivy, after the image build below exists. Pin the action by SHA when enabling it, and fail on
+  # HIGH,CRITICAL (.claude/rules/security.md).
+  #
+  # trivy:
+  #   name: Image scan
+  #   needs: build-images
+  #   runs-on: ubuntu-24.04
+  #   timeout-minutes: 15
+  #   steps:
+  #     - uses: aquasecurity/trivy-action@<sha> # vX.Y.Z
+  #       with: { image-ref: "...", severity: "HIGH,CRITICAL", exit-code: "1", ignore-unfixed: true }
+
+  # Image build for web, api and ai-engine (infra/docker/*.Dockerfile) arrives with the apps. Build on PRs without
+  # pushing; push to the registry only from main, granting `packages: write` to this job alone.
+  #
+  # build-images:
+  #   name: Build images
+  #   needs: security
+  #   runs-on: ubuntu-24.04
+  #   timeout-minutes: 30
+  #   steps:
+  #     - docker/setup-buildx-action and docker/build-push-action, pinned by SHA

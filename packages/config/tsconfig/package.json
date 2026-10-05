@@ -1,0 +1,10 @@
+{
+  "name": "@finlytics/tsconfig",
+  "version": "0.0.0",
+  "private": true,
+  "description": "TypeScript presets. Each extends the repo-root tsconfig.base.json, the single source of compiler flags.",
+  "files": [
+    "library.json",
+    "node.json"
+  ]
+}

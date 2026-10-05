@@ -68,13 +68,34 @@
   --font-mono: var(--font-mono);
 }
 
-html { background: var(--bg); color: var(--fg); font-family: var(--font-sans); }
-.tabular { font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+html {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+}
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
 
 /* No borders / shadows on controls — affordance via surface + ring */
-button, input, select, textarea { border: 0; box-shadow: none; outline: none; }
-:where(button, input, select, textarea, [role="button"]):focus-visible { box-shadow: 0 0 0 2px var(--ring); }
+button,
+input,
+select,
+textarea {
+  border: 0;
+  box-shadow: none;
+  outline: none;
+}
+:where(button, input, select, textarea, [role="button"]):focus-visible {
+  box-shadow: 0 0 0 2px var(--ring);
+}
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -7,7 +7,7 @@ Broker credentials/tokens (highest), order execution capability, user PII, strat
 | Threat | Control |
 |---|---|
 | Stolen session → place orders | httpOnly Secure cookies, 2FA required for live trading toggle, re-auth (step-up) for broker connect & kill-switch off, session revocation list |
-| IDOR on orders/strategies | repository scoping by `userId`, Prisma middleware guard, tests for cross-user access |
+| IDOR on orders/strategies | repository scoping by `userId`, Prisma middleware guard, tests for cross-user access; in the database, every relation between user-owned tables is a composite FK on `(id, userId)`, so a row can never reference another user's row |
 | Broker token exfiltration from DB | AES-256-GCM envelope encryption; master key outside DB (KMS); decrypt only in vault service; tokens never serialised |
 | Token exfiltration via logs | pino redaction + log review tests; error filter strips headers |
 | Malicious strategy code | `isolated-vm` / sandboxed Python worker, no net/fs, CPU/mem/time limits, output size cap |
@@ -19,6 +19,23 @@ Broker credentials/tokens (highest), order execution capability, user PII, strat
 | Replay of order requests | Idempotency-Key (SETNX 24 h) returning original response |
 | Insider/admin abuse | admin actions audited, 2FA + IP allowlist, least-privilege DB roles |
 | DDoS | Cloudflare, per-IP rate limits, WS connection cap per user, backpressure (volatile emits) |
+
+### Dependency audit exceptions
+CI's `security` job runs `pnpm audit:ci` (`scripts/audit.mjs`). It fails on any high or critical advisory that has no
+active exception in `scripts/audit-exceptions.json`, and on audit output it can't read (a registry error, for example).
+- **Keyed by GHSA id.** Each entry names the package and the severity it was reviewed at. It covers only that advisory,
+  and stops covering it if the severity is raised. pnpm's own `auditConfig` ignores have no expiry, so the script
+  rejects them.
+- **Reachability justification required.** `reason` shows why the vulnerable code can't be reached here: what pulls the
+  package in (`pnpm why -r <pkg>`), which code path loads it, and why no attacker-controlled input gets there. "Dev
+  dependency" alone is not a reason. `tracking` points at the upstream fix to watch.
+- **Expires in at most 90 days.** The script fails on an expired entry and on one dated more than 90 days ahead, so an
+  extension means re-checking the reason. An entry that no longer matches any advisory prints a warning: delete it.
+
+| Advisory | Package | Why it is unreachable | Expires | Tracking |
+|---|---|---|---|---|
+| GHSA-ggr8-5vv4-36mx (high) | deepmerge-ts 7.1.5 | Used only by `@prisma/config` (prisma CLI) to merge our own static `prisma.config.ts` at CLI time; no untrusted or recursive input reaches it, and the app never loads it | 2026-12-31 | [prisma/orm#30295](https://github.com/prisma/orm/issues/30295) |
+| GHSA-3f6p-5ww8-9rcr (high) | mysql2 3.15.3 | Used only by the prisma CLI, in Prisma Studio's MySQL executor. Our datasource is PostgreSQL and the runtime uses `@prisma/adapter-pg` + `pg`, so it never connects to MySQL | 2026-12-31 | [prisma/orm#30295](https://github.com/prisma/orm/issues/30295) |
 
 ## Crypto design (BrokerVaultService)
 ```

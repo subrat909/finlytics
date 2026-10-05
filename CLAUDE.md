@@ -89,10 +89,14 @@ docs/            architecture decisions (read before building a feature)
 ```
 pnpm i                     install
 pnpm dev                   turbo dev (web :3000, api :4000, ai-engine :8000)
-pnpm db:migrate            prisma migrate dev
+pnpm db:migrate            prisma migrate dev (args pass through: pnpm db:migrate --create-only --name <name>)
+pnpm db:seed               prisma db seed (idempotent; safe to re-run)
+pnpm db:status / db:deploy prisma migrate status / deploy
 pnpm db:studio             prisma studio
-pnpm lint / pnpm typecheck / pnpm test
-docker compose up -d       postgres+timescale, redis, grafana
+pnpm format:check / pnpm lint / pnpm typecheck / pnpm test
+pnpm test:integration      Testcontainers integration tests (needs Docker)
+pnpm check:pkg             publint + attw + require/import smoke tests on built packages
+docker compose up -d       postgres+timescale, redis, mailpit (grafana/prometheus: --profile observability)
 ```
 
 ## 6. How to work in this repo (for Claude)

@@ -4,8 +4,13 @@
 finlytics/
 ├── CLAUDE.md                      # master prompt
 ├── .claude/                       # rules, agents, commands, skills, settings (see .claude/README.md)
-├── package.json  pnpm-workspace.yaml  turbo.json  tsconfig.base.json  .nvmrc  .editorconfig
-├── .github/workflows/ci.yml       # lint → typecheck → test → e2e → scan → build images
+├── package.json  pnpm-workspace.yaml (workspaces + version catalog)  turbo.json  tsconfig.base.json  .nvmrc  .editorconfig
+├── eslint.config.mjs              # the only ESLint config: presets from packages/config/eslint-config, scoped by globs
+├── commitlint.config.mjs  .husky/ # pre-commit: lint-staged; commit-msg: Conventional Commits
+├── .prettierignore
+├── scripts/audit.mjs  audit-exceptions.json   # `pnpm audit:ci`: CI audit gate with expiring, GHSA-keyed exceptions
+├── .github/workflows/ci.yml       # static (format, lint, typecheck, check:pkg) → unit → integration → security; e2e, Trivy, images later
+├── .github/dependabot.yml         # weekly npm (prisma and vitest groups) + github-actions updates
 ├── docker-compose.yml  .env.example
 ├── docs/                          # architecture decisions, plans/
 ├── infra/
@@ -79,11 +84,12 @@ finlytics/
 │       └── tests/
 │
 └── packages/
-    ├── database/   prisma/schema.prisma  migrations/  seed.ts  src/client.ts
+    ├── database/   prisma/{schema.prisma, migrations/<timestamp>_<name>/, seed.ts, seed/, seed-data/*.json}
+    │               src/{index.ts, client.ts, env.ts, generated/ (Prisma client, gitignored)}
     ├── shared/     src/{schemas/*.ts (zod), types/, constants/ (exchanges, segments), instrument-key.ts, money.ts}
     ├── ui/         src/{styles/tokens.css, components/ (shadcn + ours), mui-theme.ts, hooks/, icons.ts}  .storybook/
     ├── broker-sdk/ src/{adapter.ts, types.ts, registry.ts, rate-limiter.ts, circuit-breaker.ts, brokers/{upstox,dhan}/, __tests__/}  README.md
-    ├── config/     eslint-config/  tsconfig/  prettier/
+    ├── config/     eslint-config/ (base, library, node)  tsconfig/ (library.json, node.json)  prettier/
     └── telemetry/  otel setup shared by web + api
 ```
 
@@ -91,3 +97,9 @@ finlytics/
 - Import aliases: `@finlytics/shared`, `@finlytics/ui`, `@finlytics/broker-sdk`, `@finlytics/database`; inside apps `@/`.
 - File names kebab-case; React components PascalCase exports; one component per file.
 - Feature folders own their state, hooks and API calls; pages only compose features.
+- Migrations: `packages/database/prisma/migrations/<YYYYMMDDHHMMSS>_<snake_case_name>/migration.sql`, the 14-digit UTC
+  timestamp Prisma generates. Create one with `pnpm db:migrate --create-only --name <name>`; never number folders by
+  hand (`0001_…` sorts before every timestamp, so it would run first). Custom SQL (TimescaleDB, triggers, CHECK
+  constraints) goes in its own migration, and every statement in it is idempotent.
+- Seed data: `packages/database/prisma/seed-data/*.json` (for example `market-holidays-2026.json`), validated by Zod in
+  `prisma/seed/` and loaded by `pnpm db:seed`. Each file records the official source it was taken from.

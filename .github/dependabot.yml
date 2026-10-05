@@ -1,0 +1,52 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Kolkata
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      # The CLI, the client and the adapter must stay on one exact version (plan D19).
+      prisma:
+        patterns:
+          - prisma
+          - "@prisma/*"
+      # vitest and its coverage provider are an exact pair.
+      vitest:
+        patterns:
+          - vitest
+          - "@vitest/*"
+    ignore:
+      # Majors that are deliberately held back (plan §2b, D21). Revisit by hand, not through dependabot.
+      - dependency-name: prisma # npm `latest` is 8.x, a different product
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@prisma/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: typescript # TS 7 has no stable API; typescript-eslint needs < 6.1
+        update-types: ["version-update:semver-major"]
+      - dependency-name: eslint # eslint-config-next 15 and the react/import/jsx-a11y plugins support only ESLint 9
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@eslint/js"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/node" # follows the Node major in .nvmrc
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Kolkata
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      actions:
+        patterns:
+          - "*"

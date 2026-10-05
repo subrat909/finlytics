@@ -1,0 +1,8 @@
+dist
+coverage
+.turbo
+pnpm-lock.yaml
+packages/database/src/generated
+CLAUDE.md
+.claude/
+docs/

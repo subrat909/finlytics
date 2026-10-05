@@ -1,4 +1,37 @@
 packages:
   - "apps/*"
   - "packages/*"
+  - "packages/config/*"
   - "!apps/ai-engine"
+
+# One version per dependency across the monorepo (plan D19). Reference an entry with "catalog:" in package.json.
+catalog:
+  typescript: "~6.0.3"
+  zod: "^4.6.5"
+  decimal.js: "^10.6.0"
+  # vitest and its coverage provider are an exact pair: always bump them together.
+  vitest: "5.0.3"
+  "@vitest/coverage-v8": "5.0.3"
+  tsdown: "0.23.0"
+  # The Prisma trio moves together, at exact versions. npm `latest` for prisma is an 8.x release candidate (a
+  # different product): never `pnpm add prisma` without a version.
+  prisma: "7.10.0"
+  "@prisma/client": "7.10.0"
+  "@prisma/adapter-pg": "7.10.0"
+  # Required by every package that uses the @finlytics/tsconfig node preset (`types: ["node"]`).
+  "@types/node": "^24.19.1"
+
+# pnpm 10 runs no dependency build scripts unless allowed here (install scripts are a common supply-chain attack
+# vector). Every package with a build script must be in exactly one list; `pnpm ignored-builds` shows unlisted ones.
+onlyBuiltDependencies:
+  # Downloads the schema engine binary that `prisma migrate` needs.
+  - "@prisma/engines"
+  - prisma
+  # Verifies the platform binary.
+  - esbuild
+ignoredBuiltDependencies:
+  # Optional native speed-ups pulled in by testcontainers (ssh2 → cpu-features); both fall back to plain JS.
+  - cpu-features
+  - ssh2
+  # Postinstall only prints a version notice.
+  - protobufjs

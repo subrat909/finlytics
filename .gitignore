@@ -4,6 +4,8 @@ node_modules/
 dist/
 .next/
 coverage/
+*.tsbuildinfo
+packages/database/src/generated/
 *.log
 .env
 .env.*
