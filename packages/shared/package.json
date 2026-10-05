@@ -1,0 +1,50 @@
+{
+  "name": "@finlytics/shared",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Browser-safe contracts shared by apps/web and apps/api: Prisma enum mirrors, canonical instrument keys, user settings, the problem-details error contract and exact money helpers, as Zod schemas. ESM and CJS.",
+  "type": "module",
+  "engines": {
+    "node": ">=24.11"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.cjs",
+  "types": "./dist/index.d.cts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "test": "vitest run --coverage",
+    "check:pkg": "publint --strict && attw --pack . && node test/pkg/smoke.mjs && node test/pkg/smoke.cjs"
+  },
+  "dependencies": {
+    "decimal.js": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@finlytics/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "fast-check": "^4.10.2",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
