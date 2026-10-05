@@ -1,0 +1,397 @@
+{
+  "year": 2025,
+  "calendars": {
+    "NSE": {
+      "sources": [
+        {
+          "id": "NSE/CMTR/65587",
+          "issuer": "National Stock Exchange of India Limited",
+          "title": "Trading holidays for the calendar year 2025",
+          "url": "https://nsearchives.nseindia.com/content/circulars/CMTR65587.pdf",
+          "publishedOn": "2024-12-13",
+          "retrievedOn": "2026-10-05"
+        },
+        {
+          "id": "NSE/FAOP/65588",
+          "issuer": "National Stock Exchange of India Limited",
+          "title": "Trading holidays for the calendar year 2025",
+          "url": "https://nsearchives.nseindia.com/content/circulars/FAOP65588.pdf",
+          "publishedOn": "2024-12-13",
+          "retrievedOn": "2026-10-05"
+        }
+      ],
+      "holidays": [
+        {
+          "date": "2025-02-26",
+          "name": "Mahashivratri",
+          "source": "NSE/FAOP/65588"
+        },
+        {
+          "date": "2025-03-14",
+          "name": "Holi",
+          "source": "NSE/FAOP/65588"
+        },
+        {
+          "date": "2025-03-31",
+          "name": "Id-Ul-Fitr (Ramadan Eid)",
+          "source": "NSE/FAOP/65588"
+        },
+        {
+          "date": "2025-04-10",
+          "name": "Shri Mahavir Jayanti",
+          "source": "NSE/FAOP/65588"
+        },
+        {
+          "date": "2025-04-14",
+          "name": "Dr. Baba Saheb Ambedkar Jayanti",
+          "source": "NSE/FAOP/65588"
+        },
+        {
+          "date": "2025-04-18",
+          "name": "Good Friday",
+          "source": "NSE/FAOP/65588"
+        },
+        {
+          "date": "2025-05-01",
+          "name": "Maharashtra Day",
+          "source": "NSE/FAOP/65588"
+        },
+        {
+          "date": "2025-08-15",
+          "name": "Independence Day",
+          "source": "NSE/FAOP/65588"
+        },
+        {
+          "date": "2025-08-27",
+          "name": "Ganesh Chaturthi",
+          "source": "NSE/FAOP/65588"
+        },
+        {
+          "date": "2025-10-02",
+          "name": "Mahatma Gandhi Jayanti/Dussehra",
+          "source": "NSE/FAOP/65588"
+        },
+        {
+          "date": "2025-10-21",
+          "name": "Diwali Laxmi Pujan",
+          "source": "NSE/FAOP/65588"
+        },
+        {
+          "date": "2025-10-22",
+          "name": "Diwali-Balipratipada",
+          "source": "NSE/FAOP/65588"
+        },
+        {
+          "date": "2025-11-05",
+          "name": "Prakash Gurpurb Sri Guru Nanak Dev",
+          "source": "NSE/FAOP/65588"
+        },
+        {
+          "date": "2025-12-25",
+          "name": "Christmas",
+          "source": "NSE/FAOP/65588"
+        }
+      ]
+    },
+    "BSE": {
+      "sources": [
+        {
+          "id": "20241213-30",
+          "issuer": "BSE Limited",
+          "title": "Trading Holidays for the Calendar Year 2025 for Equity, Equity Derivatives and SLB Segments",
+          "url": "https://www.bseindia.com/markets/MarketInfo/DispNewNoticesCirculars.aspx?page=20241213-30",
+          "publishedOn": "2024-12-13",
+          "retrievedOn": "2026-10-05"
+        }
+      ],
+      "holidays": [
+        {
+          "date": "2025-02-26",
+          "name": "Mahashivratri",
+          "source": "20241213-30"
+        },
+        {
+          "date": "2025-03-14",
+          "name": "Holi",
+          "source": "20241213-30"
+        },
+        {
+          "date": "2025-03-31",
+          "name": "Id-Ul-Fitr (Ramzan Id)",
+          "source": "20241213-30"
+        },
+        {
+          "date": "2025-04-10",
+          "name": "Shri Mahavir Jayanti",
+          "source": "20241213-30"
+        },
+        {
+          "date": "2025-04-14",
+          "name": "Dr.Baba Saheb Ambedkar Jayanti",
+          "source": "20241213-30"
+        },
+        {
+          "date": "2025-04-18",
+          "name": "Good Friday",
+          "source": "20241213-30"
+        },
+        {
+          "date": "2025-05-01",
+          "name": "Maharashtra Day",
+          "source": "20241213-30"
+        },
+        {
+          "date": "2025-08-15",
+          "name": "Independence Day",
+          "source": "20241213-30"
+        },
+        {
+          "date": "2025-08-27",
+          "name": "Ganesh Chaturthi",
+          "source": "20241213-30"
+        },
+        {
+          "date": "2025-10-02",
+          "name": "Mahatma Gandhi Jayanti/Dussehra",
+          "source": "20241213-30"
+        },
+        {
+          "date": "2025-10-21",
+          "name": "Diwali Laxmi Pujan",
+          "source": "20241213-30"
+        },
+        {
+          "date": "2025-10-22",
+          "name": "Diwali Balipratipada",
+          "source": "20241213-30"
+        },
+        {
+          "date": "2025-11-05",
+          "name": "Prakash Gurpurb Sri Guru Nanak Dev",
+          "source": "20241213-30"
+        },
+        {
+          "date": "2025-12-25",
+          "name": "Christmas",
+          "source": "20241213-30"
+        }
+      ]
+    },
+    "MCX": {
+      "sources": [
+        {
+          "id": "MCX/TRD/814/2024",
+          "issuer": "Multi Commodity Exchange of India Limited",
+          "title": "Trading Holidays for the Calendar Year 2025",
+          "url": "https://www.mcxindia.com/docs/default-source/circulars/english/2024/december/circular-814-2024gub7919944-a07e-4e62-b440-51fdece1c579.pdf",
+          "publishedOn": "2024-12-13",
+          "retrievedOn": "2026-10-05"
+        }
+      ],
+      "holidays": [
+        {
+          "date": "2025-01-01",
+          "name": "New Year Day",
+          "closure": "EVENING_SESSION",
+          "source": "MCX/TRD/814/2024"
+        },
+        {
+          "date": "2025-02-26",
+          "name": "Mahashivratri",
+          "closure": "MORNING_SESSION",
+          "source": "MCX/TRD/814/2024"
+        },
+        {
+          "date": "2025-03-14",
+          "name": "Holi (2nd day)",
+          "closure": "MORNING_SESSION",
+          "source": "MCX/TRD/814/2024"
+        },
+        {
+          "date": "2025-03-31",
+          "name": "Id-Ul-Fitr (Ramadan Eid)",
+          "closure": "MORNING_SESSION",
+          "source": "MCX/TRD/814/2024"
+        },
+        {
+          "date": "2025-04-10",
+          "name": "Shri Mahavir Jayanti",
+          "closure": "MORNING_SESSION",
+          "source": "MCX/TRD/814/2024"
+        },
+        {
+          "date": "2025-04-14",
+          "name": "Dr. Baba Saheb Ambedkar Jayanti",
+          "closure": "MORNING_SESSION",
+          "source": "MCX/TRD/814/2024"
+        },
+        {
+          "date": "2025-04-18",
+          "name": "Good Friday",
+          "closure": "FULL_DAY",
+          "source": "MCX/TRD/814/2024"
+        },
+        {
+          "date": "2025-05-01",
+          "name": "Maharashtra Day",
+          "closure": "MORNING_SESSION",
+          "source": "MCX/TRD/814/2024"
+        },
+        {
+          "date": "2025-08-15",
+          "name": "Independence Day",
+          "closure": "FULL_DAY",
+          "source": "MCX/TRD/814/2024"
+        },
+        {
+          "date": "2025-08-27",
+          "name": "Ganesh Chaturthi",
+          "closure": "MORNING_SESSION",
+          "source": "MCX/TRD/814/2024"
+        },
+        {
+          "date": "2025-10-02",
+          "name": "Mahatma Gandhi Jayanti/ Dassera",
+          "closure": "FULL_DAY",
+          "source": "MCX/TRD/814/2024"
+        },
+        {
+          "date": "2025-10-21",
+          "name": "Diwali Laxmi Pujan",
+          "closure": "FULL_DAY",
+          "source": "MCX/TRD/814/2024"
+        },
+        {
+          "date": "2025-10-22",
+          "name": "Diwali-Balipratipada",
+          "closure": "MORNING_SESSION",
+          "source": "MCX/TRD/814/2024"
+        },
+        {
+          "date": "2025-11-05",
+          "name": "Guru Nanak Jayanti",
+          "closure": "MORNING_SESSION",
+          "source": "MCX/TRD/814/2024"
+        },
+        {
+          "date": "2025-12-25",
+          "name": "Christmas",
+          "closure": "FULL_DAY",
+          "source": "MCX/TRD/814/2024"
+        }
+      ]
+    },
+    "CDS": {
+      "sources": [
+        {
+          "id": "NSE/CD/65903",
+          "issuer": "National Stock Exchange of India Limited",
+          "title": "Trading holidays for the calendar year 2025",
+          "url": "https://nsearchives.nseindia.com/content/circulars/CD65903.pdf",
+          "publishedOn": "2024-12-31",
+          "retrievedOn": "2026-10-05"
+        },
+        {
+          "id": "NSE/CD/70033",
+          "issuer": "National Stock Exchange of India Limited",
+          "title": "Trading Holiday - Update",
+          "url": "https://nsearchives.nseindia.com/content/circulars/CD70033.zip",
+          "publishedOn": "2025-09-04",
+          "retrievedOn": "2026-10-05"
+        }
+      ],
+      "holidays": [
+        {
+          "date": "2025-02-19",
+          "name": "Chatrapati Shivaji Maharaj Jayanti",
+          "source": "NSE/CD/65903"
+        },
+        {
+          "date": "2025-02-26",
+          "name": "Mahashivratri",
+          "source": "NSE/CD/65903"
+        },
+        {
+          "date": "2025-03-14",
+          "name": "Holi",
+          "source": "NSE/CD/65903"
+        },
+        {
+          "date": "2025-03-31",
+          "name": "Id-Ul-Fitr (Ramadan Eid)",
+          "source": "NSE/CD/65903"
+        },
+        {
+          "date": "2025-04-01",
+          "name": "Annual Bank Closing",
+          "source": "NSE/CD/65903"
+        },
+        {
+          "date": "2025-04-10",
+          "name": "Shri Mahavir Jayanti",
+          "source": "NSE/CD/65903"
+        },
+        {
+          "date": "2025-04-14",
+          "name": "Dr. Baba Saheb Ambedkar Jayanti",
+          "source": "NSE/CD/65903"
+        },
+        {
+          "date": "2025-04-18",
+          "name": "Good Friday",
+          "source": "NSE/CD/65903"
+        },
+        {
+          "date": "2025-05-01",
+          "name": "Maharashtra Day",
+          "source": "NSE/CD/65903"
+        },
+        {
+          "date": "2025-05-12",
+          "name": "Buddha Pournima",
+          "source": "NSE/CD/65903"
+        },
+        {
+          "date": "2025-08-15",
+          "name": "Independence Day/Parsi New Year",
+          "source": "NSE/CD/65903"
+        },
+        {
+          "date": "2025-08-27",
+          "name": "Ganesh Chaturthi",
+          "source": "NSE/CD/65903"
+        },
+        {
+          "date": "2025-09-08",
+          "name": "Id-E-Milad",
+          "source": "NSE/CD/70033"
+        },
+        {
+          "date": "2025-10-02",
+          "name": "Mahatma Gandhi Jayanti/Dussehra",
+          "source": "NSE/CD/65903"
+        },
+        {
+          "date": "2025-10-21",
+          "name": "Diwali Laxmi Pujan",
+          "source": "NSE/CD/65903"
+        },
+        {
+          "date": "2025-10-22",
+          "name": "Diwali-Balipratipada",
+          "source": "NSE/CD/65903"
+        },
+        {
+          "date": "2025-11-05",
+          "name": "Prakash Gurpurb Sri Guru Nanak Dev",
+          "source": "NSE/CD/65903"
+        },
+        {
+          "date": "2025-12-25",
+          "name": "Christmas",
+          "source": "NSE/CD/65903"
+        }
+      ]
+    }
+  }
+}
