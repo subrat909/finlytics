@@ -2,14 +2,63 @@
   "name": "@finlytics/database",
   "version": "0.0.1",
   "private": true,
-  "main": "src/client.ts",
+  "description": "Prisma schema, migrations and seed for Finlytics, plus the Prisma client bundled for ESM and CJS consumers.",
+  "type": "module",
+  "engines": {
+    "node": ">=24.11"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.cjs",
+  "types": "./dist/index.d.cts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "generate": "prisma generate",
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "check:pkg": "publint --strict && attw --pack . && node test/pkg/smoke.mjs && node test/pkg/smoke.cjs && node test/pkg/types.mjs",
     "migrate": "prisma migrate dev",
     "deploy": "prisma migrate deploy",
+    "status": "prisma migrate status",
     "studio": "prisma studio",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "prisma db seed"
   },
-  "dependencies": { "@prisma/client": "^7.0.0", "@prisma/adapter-pg": "^7.0.0", "pg": "^8.13.0", "dotenv": "^16.4.5" },
-  "devDependencies": { "prisma": "^7.0.0", "@types/pg": "^8.11.10", "tsx": "^4.19.1" }
+  "dependencies": {
+    "@prisma/adapter-pg": "catalog:",
+    "@prisma/client": "catalog:",
+    "dotenv": "^18.0.5",
+    "pg": "^8.23.1",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@finlytics/shared": "workspace:*",
+    "@finlytics/tsconfig": "workspace:*",
+    "@testcontainers/postgresql": "^12.2.0",
+    "@types/node": "catalog:",
+    "@types/pg": "^8.23.1",
+    "prisma": "catalog:",
+    "testcontainers": "^12.2.0",
+    "tsdown": "catalog:",
+    "tsx": "^4.23.15",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
 }

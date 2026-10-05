@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // The @finlytics/tsconfig node preset, referenced by workspace path. `prisma generate` reads this file with a bundled
+  // get-tsconfig that does not realpath pnpm symlinks: through node_modules/@finlytics/tsconfig, the preset's relative
+  // `extends` ("../../../tsconfig.base.json") would point inside this package and fail.
+  "extends": "../config/tsconfig/node.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "src",
+    "prisma",
+    "test",
+    "prisma.config.ts",
+    "tsdown.config.ts",
+    "vitest.config.ts",
+    "vitest.integration.config.ts"
+  ],
+  "exclude": ["dist", "node_modules"]
+}
