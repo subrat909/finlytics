@@ -1,0 +1,17 @@
+node_modules/
+.pnpm-store/
+.turbo/
+dist/
+.next/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+.claude/settings.local.json
+apps/web/public/charting_library/
+apps/web/public/datafeeds/
+apps/ai-engine/.venv/
+__pycache__/
+*.pyc
+.DS_Store

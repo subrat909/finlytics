@@ -1,0 +1,80 @@
+/* Finlytics design tokens — the ONLY place colours are defined. Tailwind maps these via @theme. */
+@import "tailwindcss";
+
+:root {
+  --primary: #4f46e5;
+  --primary-fg: #ffffff;
+  --accent: #06b6d4;
+  --profit: #059669;
+  --loss: #e11d48;
+  --warning: #d97706;
+  --info: #0284c7;
+  --violet: #7c3aed;
+  --orange: #ea580c;
+
+  --bg: #f8fafc;
+  --surface-1: #ffffff;
+  --surface-2: #f1f5f9;
+  --surface-3: #e2e8f0;
+  --fg: #0f172a;
+  --fg-muted: #64748b;
+  --ring: color-mix(in oklab, var(--primary) 60%, transparent);
+
+  --radius: 0.75rem;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --sidebar-w: 16rem;
+  --sidebar-w-collapsed: 4rem;
+}
+
+[data-theme="dark"] {
+  --primary: #818cf8;
+  --primary-fg: #0b0f19;
+  --accent: #22d3ee;
+  --profit: #34d399;
+  --loss: #fb7185;
+  --warning: #fbbf24;
+  --info: #38bdf8;
+  --violet: #a78bfa;
+  --orange: #fb923c;
+
+  --bg: #0b0f19;
+  --surface-1: #111827;
+  --surface-2: #1f2937;
+  --surface-3: #374151;
+  --fg: #f1f5f9;
+  --fg-muted: #9ca3af;
+}
+
+@theme inline {
+  --color-primary: var(--primary);
+  --color-primary-fg: var(--primary-fg);
+  --color-accent: var(--accent);
+  --color-profit: var(--profit);
+  --color-loss: var(--loss);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-violet: var(--violet);
+  --color-orange: var(--orange);
+  --color-bg: var(--bg);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-ring: var(--ring);
+  --radius-xl: var(--radius);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+html { background: var(--bg); color: var(--fg); font-family: var(--font-sans); }
+.tabular { font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+
+/* No borders / shadows on controls — affordance via surface + ring */
+button, input, select, textarea { border: 0; box-shadow: none; outline: none; }
+:where(button, input, select, textarea, [role="button"]):focus-visible { box-shadow: 0 0 0 2px var(--ring); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

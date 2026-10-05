@@ -1,0 +1,772 @@
+// Finlytics — PostgreSQL 16 + TimescaleDB
+// Conventions: cuid ids, userId scoping + (userId, createdAt) index on user-owned tables,
+// Decimal(18,4) for money/prices, Int for quantities, JSONB for flexible settings.
+// Hypertables (Tick, Candle, OptionChainSnapshot) are converted by migrations/*_timescale.sql.
+
+// Prisma 7: connection URL lives in prisma.config.ts; client uses @prisma/adapter-pg (driver adapter).
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────────────────────── Identity & Auth (Auth.js) ─────────────────────────────
+
+enum Role {
+  USER
+  PRO
+  ADMIN
+}
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  emailVerified  DateTime?
+  name           String?
+  image          String?
+  role           Role      @default(USER)
+  planId         String?
+  plan           Plan?     @relation(fields: [planId], references: [id])
+  passwordHash   String?   // argon2id, optional (OAuth users)
+  totpSecretEnc  String?   // encrypted
+  totpEnabled    Boolean   @default(false)
+  backupCodes    String[]  @default([]) // hashed
+  failedLogins   Int       @default(0)
+  lockedUntil    DateTime?
+  timezone       String    @default("Asia/Kolkata")
+  settings       Json      @default("{}") // appearance, trading defaults, notification prefs (validated by Zod)
+  deletedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  accounts         Account[]
+  sessions         Session[]
+  brokerAccounts   BrokerAccount[]
+  watchlists       Watchlist[]
+  strategies       Strategy[]
+  orders           Order[]
+  positions        Position[]
+  trades           Trade[]
+  alerts           Alert[]
+  notifications    Notification[]
+  channels         NotificationChannel[]
+  backtests        Backtest[]
+  agentRuns        AgentRun[]
+  agentSignals     AgentSignal[]
+  autoTradeConfig  AutoTradeConfig?
+  riskLimit        RiskLimit?
+  tradingControl   TradingControl?
+  auditLogs        AuditLog[]
+  dailyPnls        DailyPnl[]
+  apiKeys          ApiKey[]
+
+  @@index([planId])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  ip           String?
+  userAgent    String?
+  lastSeenAt   DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expires])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  userId     String
+  name       String
+  keyHash    String    @unique
+  prefix     String
+  scopes     String[]
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Plan {
+  id               String  @id @default(cuid())
+  code             String  @unique // free, pro, elite
+  name             String
+  priceInrMonthly  Decimal @db.Decimal(10, 2)
+  maxBrokerAccounts Int    @default(1)
+  maxWatchlists    Int     @default(3)
+  maxWatchlistItems Int    @default(50)
+  maxStrategiesLive Int    @default(1)
+  maxAlerts        Int     @default(10)
+  maxRtSubscriptions Int   @default(100)
+  backtestMinutesPerDay Int @default(30)
+  agentsEnabled    Boolean @default(false)
+  autoTradeEnabled Boolean @default(false)
+  users            User[]
+}
+
+// ───────────────────────────── Brokers ─────────────────────────────
+
+enum BrokerCode {
+  UPSTOX
+  DHAN
+  ZERODHA
+  ANGELONE
+  FYERS
+  SHOONYA
+  PAPER
+}
+
+enum BrokerAccountStatus {
+  PENDING
+  ACTIVE
+  NEEDS_RELOGIN
+  EXPIRED
+  REVOKED
+  ERROR
+}
+
+model BrokerAccount {
+  id                   String              @id @default(cuid())
+  userId               String
+  broker               BrokerCode
+  label                String
+  brokerClientIdEnc    String              // encrypted broker client/user id (PII)
+  encryptedCredentials Bytes               // envelope-encrypted JSON {accessToken, refreshToken?, apiKey?, ...}
+  encKeyWrapped        Bytes
+  encIv                Bytes
+  encKeyVersion        Int                 @default(1)
+  status               BrokerAccountStatus @default(PENDING)
+  tokenExpiresAt       DateTime?
+  lastLoginAt          DateTime?
+  lastError            String?
+  isDefault            Boolean             @default(false)
+  algoId               String?             // SEBI/exchange algo id tagging
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders               Order[]
+  positions            Position[]
+  trades               Trade[]
+  strategyDeployments  StrategyDeployment[]
+
+  @@unique([userId, broker, label])
+  @@index([userId, status])
+  @@index([status, tokenExpiresAt]) // token refresh job
+}
+
+// ───────────────────────────── Instruments & Market Data ─────────────────────────────
+
+enum Exchange {
+  NSE
+  BSE
+  MCX
+  NFO
+  BFO
+  CDS
+}
+
+enum Segment {
+  EQ
+  FUT
+  OPT
+  INDEX
+  COMMODITY
+  CURRENCY
+}
+
+enum OptionType {
+  CE
+  PE
+}
+
+model Instrument {
+  key           String      @id // canonical: NSE_FO|NIFTY|2025-10-30|24000|CE
+  exchange      Exchange
+  segment       Segment
+  symbol        String      // underlying/trading symbol
+  name          String
+  isin          String?
+  expiry        DateTime?   @db.Date
+  strike        Decimal?    @db.Decimal(18, 4)
+  optionType    OptionType?
+  lotSize       Int         @default(1)
+  tickSize      Decimal     @default(0.05) @db.Decimal(10, 4)
+  freezeQty     Int?
+  brokerTokens  Json        // { UPSTOX: "NSE_FO|12345", DHAN: "12345" }
+  isActive      Boolean     @default(true)
+  updatedAt     DateTime    @updatedAt
+
+  watchlistItems WatchlistItem[]
+  candles        Candle[]
+  ticks          Tick[]
+
+  @@index([symbol, segment, expiry, strike, optionType])
+  @@index([exchange, segment, isActive])
+  @@index([name]) // + pg_trgm GIN index in raw migration for search
+}
+
+// Hypertable, chunk 1 day, compressed after 2 days, retention 30 days
+model Tick {
+  instrumentKey String
+  ts            DateTime  @db.Timestamptz(3)
+  ltp           Decimal   @db.Decimal(18, 4)
+  volume        BigInt?
+  oi            BigInt?
+  bid           Decimal?  @db.Decimal(18, 4)
+  ask           Decimal?  @db.Decimal(18, 4)
+  instrument    Instrument @relation(fields: [instrumentKey], references: [key])
+
+  @@id([instrumentKey, ts])
+}
+
+enum Timeframe {
+  M1
+  M3
+  M5
+  M15
+  M30
+  H1
+  D1
+}
+
+// Hypertable, chunk 7 days (M1) / continuous aggregates generate M5+ from M1
+model Candle {
+  instrumentKey String
+  timeframe     Timeframe
+  ts            DateTime   @db.Timestamptz(0)
+  open          Decimal    @db.Decimal(18, 4)
+  high          Decimal    @db.Decimal(18, 4)
+  low           Decimal    @db.Decimal(18, 4)
+  close         Decimal    @db.Decimal(18, 4)
+  volume        BigInt     @default(0)
+  oi            BigInt?
+  instrument    Instrument @relation(fields: [instrumentKey], references: [key])
+
+  @@id([instrumentKey, timeframe, ts])
+  @@index([timeframe, ts])
+}
+
+// Hypertable, 1-minute snapshots of full chain for backtesting (stockmock-like). Rows JSONB per strike.
+model OptionChainSnapshot {
+  underlying String
+  expiry     DateTime @db.Date
+  ts         DateTime @db.Timestamptz(0)
+  spot       Decimal  @db.Decimal(18, 4)
+  futPrice   Decimal? @db.Decimal(18, 4)
+  rows       Json     // [{strike, ce:{ltp,iv,oi,vol,delta,gamma,theta,vega}, pe:{...}}]
+  pcr        Decimal? @db.Decimal(10, 4)
+  maxPain    Decimal? @db.Decimal(18, 4)
+
+  @@id([underlying, expiry, ts])
+  @@index([underlying, ts])
+}
+
+model MarketHoliday {
+  date     DateTime @id @db.Date
+  exchange Exchange
+  name     String
+}
+
+// ───────────────────────────── Watchlists ─────────────────────────────
+
+model Watchlist {
+  id        String          @id @default(cuid())
+  userId    String
+  name      String
+  color     String?
+  position  Int             @default(0)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     WatchlistItem[]
+
+  @@unique([userId, name])
+  @@index([userId, position])
+}
+
+model WatchlistItem {
+  id            String     @id @default(cuid())
+  watchlistId   String
+  instrumentKey String
+  position      Int
+  note          String?
+  watchlist     Watchlist  @relation(fields: [watchlistId], references: [id], onDelete: Cascade)
+  instrument    Instrument @relation(fields: [instrumentKey], references: [key])
+
+  @@unique([watchlistId, instrumentKey])
+  @@index([watchlistId, position])
+}
+
+// ───────────────────────────── Orders, Positions, Trades, P&L ─────────────────────────────
+
+enum OrderSide {
+  BUY
+  SELL
+}
+
+enum OrderType {
+  MARKET
+  LIMIT
+  SL
+  SL_M
+}
+
+enum ProductType {
+  INTRADAY
+  DELIVERY
+  MARGIN
+  CO
+  BO
+}
+
+enum Validity {
+  DAY
+  IOC
+}
+
+enum OrderStatus {
+  PENDING
+  OPEN
+  PARTIALLY_FILLED
+  FILLED
+  CANCELLED
+  REJECTED
+  EXPIRED
+  FAILED
+}
+
+enum OrderSource {
+  MANUAL
+  CHART
+  STRATEGY
+  AGENT
+  BASKET
+  SQUARE_OFF
+}
+
+model Order {
+  id               String        @id @default(cuid())
+  userId           String
+  brokerAccountId  String
+  brokerOrderId    String?
+  idempotencyKey   String        @unique
+  instrumentKey    String
+  side             OrderSide
+  type             OrderType
+  product          ProductType
+  validity         Validity      @default(DAY)
+  qty              Int
+  filledQty        Int           @default(0)
+  price            Decimal?      @db.Decimal(18, 4)
+  triggerPrice     Decimal?      @db.Decimal(18, 4)
+  avgFillPrice     Decimal?      @db.Decimal(18, 4)
+  status           OrderStatus   @default(PENDING)
+  statusMessage    String?
+  source           OrderSource   @default(MANUAL)
+  strategyDeploymentId String?
+  agentRunId       String?
+  tag              String?       // algoId / user tag
+  isPaper          Boolean       @default(false)
+  placedAt         DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  brokerAccount    BrokerAccount @relation(fields: [brokerAccountId], references: [id], onDelete: Cascade)
+  deployment       StrategyDeployment? @relation(fields: [strategyDeploymentId], references: [id])
+  agentRun         AgentRun?     @relation(fields: [agentRunId], references: [id])
+  trades           Trade[]
+
+  @@unique([brokerAccountId, brokerOrderId])
+  @@index([userId, placedAt(sort: Desc)])
+  @@index([userId, status])
+  @@index([strategyDeploymentId])
+}
+
+model Trade {
+  id              String        @id @default(cuid())
+  userId          String
+  brokerAccountId String
+  orderId         String
+  brokerTradeId   String?
+  instrumentKey   String
+  side            OrderSide
+  qty             Int
+  price           Decimal       @db.Decimal(18, 4)
+  charges         Decimal       @default(0) @db.Decimal(18, 4)
+  executedAt      DateTime
+  isPaper         Boolean       @default(false)
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  brokerAccount   BrokerAccount @relation(fields: [brokerAccountId], references: [id], onDelete: Cascade)
+  order           Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([brokerAccountId, brokerTradeId])
+  @@index([userId, executedAt(sort: Desc)])
+}
+
+// Current open positions (upserted from broker feed); history derived from trades
+model Position {
+  id              String        @id @default(cuid())
+  userId          String
+  brokerAccountId String
+  instrumentKey   String
+  product         ProductType
+  netQty          Int
+  buyQty          Int           @default(0)
+  sellQty         Int           @default(0)
+  buyAvg          Decimal       @default(0) @db.Decimal(18, 4)
+  sellAvg         Decimal       @default(0) @db.Decimal(18, 4)
+  realisedPnl     Decimal       @default(0) @db.Decimal(18, 4)
+  isPaper         Boolean       @default(false)
+  tradingDate     DateTime      @db.Date
+  updatedAt       DateTime      @updatedAt
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  brokerAccount   BrokerAccount @relation(fields: [brokerAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([brokerAccountId, instrumentKey, product, tradingDate, isPaper])
+  @@index([userId, tradingDate])
+}
+
+// Materialised per-day P&L for the calendar (updated by job at EOD + on trade)
+model DailyPnl {
+  userId        String
+  date          DateTime @db.Date
+  isPaper       Boolean  @default(false)
+  realised      Decimal  @default(0) @db.Decimal(18, 4)
+  charges       Decimal  @default(0) @db.Decimal(18, 4)
+  net           Decimal  @default(0) @db.Decimal(18, 4)
+  tradesCount   Int      @default(0)
+  winCount      Int      @default(0)
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, date, isPaper])
+}
+
+// ───────────────────────────── Strategies, Deployments, Backtests ─────────────────────────────
+
+enum StrategyKind {
+  NOCODE
+  CODE_TS
+  CODE_PY
+}
+
+model Strategy {
+  id          String       @id @default(cuid())
+  userId      String
+  name        String
+  description String?
+  kind        StrategyKind
+  definition  Json         // validated by StrategyDefinitionSchema
+  code        String?      // for CODE_* kinds
+  version     Int          @default(1)
+  isTemplate  Boolean      @default(false)
+  tags        String[]     @default([])
+  deletedAt   DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deployments StrategyDeployment[]
+  backtests   Backtest[]
+
+  @@unique([userId, name])
+  @@index([userId, updatedAt(sort: Desc)])
+  @@index([isTemplate])
+}
+
+enum DeploymentStatus {
+  STARTING
+  RUNNING
+  PAUSED
+  STOPPED
+  ERROR
+  COMPLETED
+}
+
+model StrategyDeployment {
+  id              String           @id @default(cuid())
+  strategyId      String
+  brokerAccountId String
+  isPaper         Boolean          @default(true)
+  status          DeploymentStatus @default(STARTING)
+  params          Json             @default("{}")
+  limits          Json             // {maxLossDay, maxPositions, maxOrderValue}
+  startedAt       DateTime         @default(now())
+  stoppedAt       DateTime?
+  lastError       String?
+  stats           Json             @default("{}") // live pnl, trades, etc.
+  strategy        Strategy         @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+  brokerAccount   BrokerAccount    @relation(fields: [brokerAccountId], references: [id], onDelete: Cascade)
+  orders          Order[]
+  runs            StrategyRunEvent[]
+
+  @@index([strategyId, status])
+  @@index([status]) // runner picks RUNNING
+}
+
+model StrategyRunEvent {
+  id           String             @id @default(cuid())
+  deploymentId String
+  ts           DateTime           @default(now())
+  level        String             // info|warn|error|signal|order
+  message      String
+  data         Json?
+  deployment   StrategyDeployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+
+  @@index([deploymentId, ts(sort: Desc)])
+}
+
+enum BacktestStatus {
+  QUEUED
+  RUNNING
+  DONE
+  FAILED
+}
+
+model Backtest {
+  id           String         @id @default(cuid())
+  userId       String
+  strategyId   String
+  definitionHash String
+  params       Json           // {from, to, capital, slippageBps, chargesProfile}
+  status       BacktestStatus @default(QUEUED)
+  progress     Int            @default(0)
+  metrics      Json?          // net, maxDD, winRate, sharpe, expectancy, profitFactor
+  equityCurve  Json?          // downsampled
+  dailyPnl     Json?          // calendar
+  tradesUrl    String?        // object storage for full trade list
+  error        String?
+  createdAt    DateTime       @default(now())
+  finishedAt   DateTime?
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  strategy     Strategy       @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([definitionHash])
+}
+
+// ───────────────────────────── Agents & Risk ─────────────────────────────
+
+enum AgentRunStatus {
+  RUNNING
+  DONE
+  FAILED
+  CANCELLED
+}
+
+model AgentRun {
+  id         String         @id @default(cuid())
+  userId     String
+  mode       String         // advise | auto
+  status     AgentRunStatus @default(RUNNING)
+  universe   String[]
+  regime     String?
+  bias       String?
+  plan       Json?
+  steps      Json           @default("[]") // reasoning trace per agent
+  costUsd    Decimal        @default(0) @db.Decimal(10, 4)
+  startedAt  DateTime       @default(now())
+  finishedAt DateTime?
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  signals    AgentSignal[]
+  orders     Order[]
+
+  @@index([userId, startedAt(sort: Desc)])
+}
+
+model AgentSignal {
+  id            String   @id @default(cuid())
+  userId        String
+  runId         String
+  agent         String   // news | global | crypto | commodities | chain | technical | orderflow | master
+  instrumentKey String?
+  type          String   // BUY | SELL | EXIT | HOLD | INFO
+  score         Decimal  @db.Decimal(5, 4)
+  confidence    Decimal  @db.Decimal(5, 4)
+  summary       String
+  evidence      Json?
+  ts            DateTime @default(now())
+  expiresAt     DateTime?
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  run           AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([userId, ts(sort: Desc)])
+  @@index([runId])
+}
+
+model AutoTradeConfig {
+  userId             String   @id
+  enabled            Boolean  @default(false)
+  brokerAccountId    String?
+  isPaper            Boolean  @default(true)
+  instruments        String[] @default([])
+  maxLossDay         Decimal  @default(0) @db.Decimal(18, 4)
+  maxOrderValue      Decimal  @default(0) @db.Decimal(18, 4)
+  maxOpenLots        Int      @default(0)
+  maxTradesDay       Int      @default(0)
+  tradeWindowStart   String   @default("09:20")
+  tradeWindowEnd     String   @default("15:15")
+  minConfidence      Decimal  @default(0.7) @db.Decimal(5, 4)
+  updatedAt          DateTime @updatedAt
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model RiskLimit {
+  userId          String   @id
+  maxLossDay      Decimal  @default(0) @db.Decimal(18, 4)
+  maxOrderValue   Decimal  @default(0) @db.Decimal(18, 4)
+  maxOpenPositions Int     @default(0)
+  maxOrdersPerSec Int      @default(5)
+  maxOrdersPerDay Int      @default(500)
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model TradingControl {
+  userId      String    @id
+  killSwitch  Boolean   @default(false)
+  reason      String?
+  trippedAt   DateTime?
+  trippedBy   String?   // user | risk | admin
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model GlobalControl {
+  id          Int      @id @default(1)
+  killSwitch  Boolean  @default(false)
+  reason      String?
+  updatedAt   DateTime @updatedAt
+}
+
+// ───────────────────────────── Alerts & Notifications ─────────────────────────────
+
+enum AlertKind {
+  PRICE
+  INDICATOR
+  OPTION_CHAIN
+  PNL
+  AGENT
+  NEWS
+  CUSTOM
+}
+
+enum AlertStatus {
+  ACTIVE
+  TRIGGERED
+  PAUSED
+  EXPIRED
+}
+
+model Alert {
+  id            String      @id @default(cuid())
+  userId        String
+  kind          AlertKind
+  name          String
+  instrumentKey String?
+  condition     Json        // {field:"ltp", op:">=", value:"24000"} | indicator expr | chain expr
+  repeat        Boolean     @default(false)
+  cooldownSec   Int         @default(60)
+  channels      String[]    @default(["IN_APP"]) // IN_APP, PUSH, EMAIL, TELEGRAM, SOUND
+  action        Json?       // optional auto action: {type:"ORDER", payload}
+  status        AlertStatus @default(ACTIVE)
+  expiresAt     DateTime?
+  lastTriggered DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  history       AlertEvent[]
+
+  @@index([userId, status])
+  @@index([status, instrumentKey]) // evaluator loads ACTIVE by instrument
+}
+
+model AlertEvent {
+  id      String   @id @default(cuid())
+  alertId String
+  ts      DateTime @default(now())
+  value   Json
+  alert   Alert    @relation(fields: [alertId], references: [id], onDelete: Cascade)
+
+  @@index([alertId, ts(sort: Desc)])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  body      String
+  severity  String   @default("info") // info|success|warning|error
+  category  String   // order|alert|agent|broker|system
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, readAt])
+}
+
+model NotificationChannel {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String   // PUSH | EMAIL | TELEGRAM
+  configEnc Bytes    // encrypted {endpoint, keys} | {chatId}
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+}
+
+// ───────────────────────────── Audit ─────────────────────────────
+
+// Append-only, partitioned by month via raw migration
+model AuditLog {
+  id         BigInt   @id @default(autoincrement())
+  userId     String?
+  actorType  String   // user | system | agent | admin
+  action     String   // order.place, broker.connect, killswitch.on ...
+  entityType String?
+  entityId   String?
+  ip         String?
+  userAgent  String?
+  requestId  String?
+  data       Json?
+  createdAt  DateTime @default(now())
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([action, createdAt(sort: Desc)])
+}
