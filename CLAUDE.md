@@ -96,6 +96,9 @@ pnpm db:studio             prisma studio
 pnpm format:check / pnpm lint / pnpm typecheck / pnpm test
 pnpm test:integration      Testcontainers integration tests (needs Docker)
 pnpm check:pkg             publint + attw + require/import smoke tests on built packages
+pnpm storybook             packages/ui Storybook at http://127.0.0.1:6006 (theme toolbar: light/dark)
+pnpm test:storybook        every story as a test in Chromium: render, play, a11y, design checks (light, dark, 360 px)
+pnpm test:visual           screenshots of every story vs committed baselines, in the pinned Playwright image (Docker)
 docker compose up -d       postgres+timescale, redis, mailpit (grafana/prometheus: --profile observability)
 ```
 

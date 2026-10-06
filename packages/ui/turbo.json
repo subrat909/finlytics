@@ -1,0 +1,16 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      // The package tests read the catalog (pnpm-workspace.yaml) and the CI image pin; baselines don't affect them.
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!test/visual/__screenshots__/**",
+        "$TURBO_ROOT$/pnpm-workspace.yaml",
+        "$TURBO_ROOT$/.github/workflows/ci.yml"
+      ],
+      "outputs": ["coverage/**"]
+    }
+  }
+}
