@@ -8,7 +8,14 @@
     "packages/config/*/*.js",
     "packages/config/*/*.json"
   ],
-  "globalPassThroughEnv": ["CI", "GITHUB_ACTIONS", "HUSKY", "DOCKER_HOST", "TESTCONTAINERS_*"],
+  "globalPassThroughEnv": [
+    "CI",
+    "GITHUB_ACTIONS",
+    "HUSKY",
+    "DOCKER_HOST",
+    "TESTCONTAINERS_*",
+    "PLAYWRIGHT_BROWSERS_PATH"
+  ],
   "tasks": {
     "build": { "dependsOn": ["^build", "generate"], "outputs": [".next/**", "!.next/cache/**", "dist/**"] },
     "generate": { "cache": false },
@@ -19,6 +26,14 @@
     "test": { "dependsOn": ["^build", "generate"], "outputs": ["coverage/**"] },
     "test:integration": { "dependsOn": ["^build", "generate"], "cache": false },
     "test:e2e": { "dependsOn": ["build"], "cache": false },
-    "check:pkg": { "dependsOn": ["build"] }
+    "check:pkg": { "dependsOn": ["build"] },
+    "storybook": { "cache": false, "persistent": true, "dependsOn": ["^build"] },
+    "build-storybook": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", "!test/**"],
+      "outputs": ["storybook-static/**"]
+    },
+    "test:storybook": { "dependsOn": ["^build"], "cache": false },
+    "test:visual": { "dependsOn": ["build-storybook"], "cache": false }
   }
 }

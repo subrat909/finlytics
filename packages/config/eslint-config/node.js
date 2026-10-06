@@ -1,14 +1,14 @@
 /**
  * Preset for code that runs on Node (packages/database, apps/api, repo tooling): Node globals, and built-ins
  * imported through the `node:` protocol so they can never be confused with npm packages. Applied on top of `base`.
+ *
+ * The protocol ban is the NODE_PROTOCOL restriction set (./restrictions.js). A Node preset that adds bans of its own
+ * (the planned `nest` preset) composes NODE_PROTOCOL with them in one restrict() call instead of repeating the list.
  */
-import { builtinModules } from "node:module";
 import globals from "globals";
 
 import { ALL_FILES } from "./base.js";
-
-/** Bare specifiers ("fs", "fs/promises", ...). Prefix-only modules ("node:test") have no bare form. */
-const BARE_BUILTINS = builtinModules.filter((name) => !name.startsWith("node:"));
+import { NODE_PROTOCOL, restrict } from "./restrictions.js";
 
 /** @type {import("eslint").Linter.Config[]} */
 export const node = [
@@ -16,17 +16,6 @@ export const node = [
     name: "finlytics/node",
     files: ALL_FILES,
     languageOptions: { globals: { ...globals.node } },
-    rules: {
-      "no-restricted-imports": "off",
-      "@typescript-eslint/no-restricted-imports": [
-        "error",
-        {
-          paths: BARE_BUILTINS.map((name) => ({
-            name,
-            message: `Use the node: protocol: import from "node:${name}".`,
-          })),
-        },
-      ],
-    },
   },
+  restrict("finlytics/node/restrictions", ALL_FILES, NODE_PROTOCOL),
 ];

@@ -1,6 +1,11 @@
 dist
 coverage
 .turbo
+storybook-static
+test-results
+playwright-report
+blob-report
+.vitest
 pnpm-lock.yaml
 packages/database/src/generated
 CLAUDE.md

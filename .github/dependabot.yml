@@ -21,6 +21,50 @@ updates:
         patterns:
           - vitest
           - "@vitest/*"
+      # Every Storybook package moves on one exact version (packages/ui).
+      storybook:
+        patterns:
+          - storybook
+          - "@storybook/*"
+      # Playwright and the CI image tag move together; a unit test keeps the tag, ci.yml and the packages equal. Bump
+      # the image (tag and digest) in .github/workflows/ci.yml and packages/ui/test/visual/playwright-image.json, then
+      # regenerate the visual baselines inside it.
+      playwright:
+        patterns:
+          - playwright
+          - "@playwright/*"
+      # tailwindcss and @tailwindcss/vite are an exact pair.
+      tailwind:
+        patterns:
+          - tailwindcss
+          - "@tailwindcss/*"
+      # react and react-dom are an exact pair; their types follow.
+      react:
+        patterns:
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
+      testing-library:
+        patterns:
+          - "@testing-library/*"
+      # apps/api: the Nest core packages and fastify are pinned exactly and must move together (one fastify copy;
+      # apps/api/test/unit/fastify-version.test.ts), with the Fastify plugins and the Nest integrations.
+      nestjs:
+        patterns:
+          - "@nestjs/*"
+          - fastify
+          - "@fastify/*"
+          - nestjs-zod
+          - nestjs-pino
+      pino:
+        patterns:
+          - pino
+          - "pino-*"
+      testcontainers:
+        patterns:
+          - testcontainers
+          - "@testcontainers/*"
     ignore:
       # Majors that are deliberately held back (plan §2b, D21). Revisit by hand, not through dependabot.
       - dependency-name: prisma # npm `latest` is 8.x, a different product
@@ -34,6 +78,10 @@ updates:
       - dependency-name: "@eslint/js"
         update-types: ["version-update:semver-major"]
       - dependency-name: "@types/node" # follows the Node major in .nvmrc
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@nestjs/*" # CLAUDE.md pins Nest 11 (plan phase-0-api-bootstrap A4)
+        update-types: ["version-update:semver-major"]
+      - dependency-name: fastify # must stay the version @nestjs/platform-fastify supports (plan D17)
         update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions

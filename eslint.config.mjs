@@ -8,7 +8,9 @@
  */
 import { base, prettier } from "@finlytics/eslint-config/base";
 import { library } from "@finlytics/eslint-config/library";
+import { nest } from "@finlytics/eslint-config/nest";
 import { node } from "@finlytics/eslint-config/node";
+import { reactLibrary } from "@finlytics/eslint-config/react";
 import { defineConfig, globalIgnores } from "eslint/config";
 
 export default defineConfig(
@@ -17,9 +19,14 @@ export default defineConfig(
       "**/dist/**",
       "**/coverage/**",
       "**/.turbo/**",
+      // Storybook and Playwright output (packages/ui).
+      "**/storybook-static/**",
+      "**/test-results/**",
+      "**/playwright-report/**",
+      "**/blob-report/**",
+      "**/.vitest/**",
       "packages/database/src/generated/**",
-      // Not packages yet. Remove each line when the package is scaffolded (ui in 0.4, broker-sdk in 1.1).
-      "packages/ui/**",
+      // Not a package yet. Remove the line when the package is scaffolded (broker-sdk in 1.1).
       "packages/broker-sdk/**",
     ],
     "finlytics/ignores",
@@ -36,12 +43,38 @@ export default defineConfig(
     extends: [node],
   },
   {
+    // The NestJS api: Node globals come from the node scope above; this adds no-console, empty @Module() classes and
+    // the api's bans (Prisma only through @finlytics/database, process.env only in src/config, the unscoped Prisma
+    // client only in its allowlisted folders). Its restrict() objects come later, so they decide for apps/api.
+    name: "finlytics/scope/nest",
+    files: ["apps/api/**"],
+    extends: [nest],
+  },
+  {
     // shared's check:pkg smoke scripts load the built package on Node (node:assert, require). Deliberately narrow:
-    // everything else in packages/shared, src/** included, keeps the browser-safe `library` rules.
+    // everything else in packages/shared, src/** included, keeps the browser-safe `library` rules. The node preset's
+    // restrict() object replaces all of the library preset's no-restricted-* rules for these files.
     name: "finlytics/scope/shared-pkg-smoke",
     files: ["packages/shared/test/pkg/**"],
     extends: [node],
-    rules: { "no-restricted-globals": "off" },
+  },
+  {
+    // packages/ui code that runs in the browser: components, hooks, unit tests (jsdom) and the Storybook preview.
+    name: "finlytics/scope/ui",
+    files: ["packages/ui/src/**", "packages/ui/.storybook/{preview.tsx,vitest.setup.ts,design-checks.ts}"],
+    extends: [reactLibrary],
+  },
+  {
+    // packages/ui tooling that runs on Node: Vite/Vitest/Playwright configs, Storybook's main.ts, and the token,
+    // package and visual tests.
+    name: "finlytics/scope/ui-tooling",
+    files: [
+      "packages/ui/*.config.ts",
+      "packages/ui/.storybook/main.ts",
+      "packages/ui/test/**",
+      "packages/ui/scripts/**",
+    ],
+    extends: [node],
   },
   prettier, // keep last
 );

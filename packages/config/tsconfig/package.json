@@ -5,6 +5,7 @@
   "description": "TypeScript presets. Each extends the repo-root tsconfig.base.json, the single source of compiler flags.",
   "files": [
     "library.json",
-    "node.json"
+    "node.json",
+    "react-library.json"
   ]
 }

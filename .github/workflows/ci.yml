@@ -1,4 +1,5 @@
-# CI (plan D20). Jobs run in the order set by .claude/rules/testing.md: static -> unit -> integration -> security.
+# CI (plan D20). Jobs run in the order set by .claude/rules/testing.md: static -> unit -> integration and ui (in
+# parallel) -> security.
 # Every third-party action is pinned to a full commit SHA; the trailing comment names the release. Dependabot
 # (.github/dependabot.yml) proposes SHA bumps weekly.
 name: CI
@@ -8,6 +9,13 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      update_snapshots:
+        # CI is the source of truth for packages/ui's visual baselines: if they diff here only because they were made
+        # under emulation (Apple silicon), run the workflow on the branch with this set, then commit the artifact.
+        description: "UI: regenerate the visual baselines and upload them as the ui-visual-baselines artifact"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -74,14 +82,67 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Pull the pinned TimescaleDB image (about 4 GB) in its own step, so pull time and registry errors show up here
-      # rather than inside the test run. The tag comes from docker-compose.yml; a unit test keeps it equal to the
-      # Testcontainers constant (packages/database/test/integration/timescale-image.ts).
-      - run: docker compose pull --quiet postgres
+      # Pull the pinned TimescaleDB (about 4 GB) and Redis images in their own step, so pull time and registry errors
+      # show up here rather than inside the test run. The tags come from docker-compose.yml; unit tests keep them equal
+      # to the Testcontainers constants (packages/database/src/testing/images.ts, apps/api/test/integration/containers.ts).
+      - run: docker compose pull --quiet postgres redis
       # Testcontainers on the runner's Docker (preinstalled on ubuntu-24.04). turbo runs generate and build first: the
       # packaging test loads dist/. Covers migrations (including the schema drift check), guards, constraints and both
       # builds against a real database.
       - run: pnpm test:integration
+
+  # packages/ui: every story as a test in Chromium, then visual regression in both themes (phase 0.4, D15 and D18). Runs
+  # inside the pinned Playwright image (tag and digest), the one environment the screenshot baselines are valid in; a
+  # unit test keeps the tag equal to the @playwright/test version (packages/ui/test/package/playwright-version.test.ts).
+  ui:
+    name: UI (stories as tests, visual regression)
+    needs: unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+      options: --ipc=host
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      # The container runs as root, not as the checkout's owner: without this, git (and turbo's file hashing) refuses
+      # the repository as "dubious ownership".
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo run test:storybook build-storybook --filter=@finlytics/ui
+      # Already inside the image, so scripts/visual.mjs runs Playwright directly against the build above.
+      - name: Visual regression
+        if: ${{ !inputs.update_snapshots }}
+        run: pnpm turbo run test:visual --filter=@finlytics/ui
+      # Manual runs with update_snapshots (workflow_dispatch): rewrite every baseline that differs or is missing, in
+      # this job's image on CI's own runner, and upload the whole set for review and commit.
+      - name: Regenerate the visual baselines
+        if: ${{ inputs.update_snapshots }}
+        run: pnpm turbo run test:visual --filter=@finlytics/ui -- --update-snapshots
+      - name: Upload the regenerated baselines
+        if: ${{ !cancelled() && inputs.update_snapshots }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ui-visual-baselines
+          path: packages/ui/test/visual/__screenshots__/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Upload the visual diffs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ui-visual-diffs
+          path: |
+            packages/ui/test-results/
+            packages/ui/playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
 
   # e2e (Playwright: sign-in, broker connect with mocked OAuth, paper order, strategy deploy, P&L) arrives with
   # apps/web. When enabled, `security` needs `e2e` instead of `integration`.
@@ -98,7 +159,7 @@ jobs:
 
   security:
     name: Dependency audit
-    needs: integration
+    needs: [integration, ui]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
