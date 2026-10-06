@@ -13,8 +13,8 @@ globs: ["apps/web/**", "packages/ui/**"]
 
 ## Design system (`packages/ui`) — tokens first
 - Colours only via CSS variables defined in `packages/ui/src/styles/tokens.css` (`--color-primary`, `--color-profit`, `--color-loss`, `--surface-1..3`, …). Tailwind maps them (`bg-surface-2`, `text-profit`). Never write hex in components.
-- Theme: `data-theme="light|dark"` on `<html>`, `next-themes`, system default, no flash (script in `<head>`).
-- **No borders and no box-shadows on buttons and inputs.** Affordance comes from filled surfaces, hover tint (`hover:bg-surface-3`), and a 2px focus ring (`focus-visible:ring-2 ring-primary/60`). Cards use `bg-surface-1` with 12–16px radius, no border.
+- Theme: `data-theme="light|dark"` on `<html>`, `next-themes`, system default, no flash (the ui `ThemeProvider` renders next-themes' blocking pre-paint script at the top of `<body>`, before any content).
+- **No borders and no box-shadows on buttons and inputs.** Affordance comes from filled surfaces, hover tint (`hover:bg-surface-3`), and a 2px focus outline in solid primary (`focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring`; never `outline-hidden`, never `transition-colors`). Cards use `bg-surface-1` with 12–16px radius, no border.
 - Typography: Inter (UI) + JetBrains Mono (numbers, prices, P&L). Tabular numerals (`font-variant-numeric: tabular-nums`) on every numeric cell.
 - Icons: lucide-react, 16/20 px, coloured by semantic token. Emoji allowed in empty states and toasts only.
 - shadcn/ui components live in `packages/ui/src/components/*` and are re-exported; MUI is used only for `@mui/x-data-grid` (orders/positions tables) and `@mui/icons-material` where lucide lacks an icon. Wrap MUI in our theme bridge (`packages/ui/src/mui-theme.ts`) so tokens stay single-sourced.
@@ -44,5 +44,5 @@ globs: ["apps/web/**", "packages/ui/**"]
 - Top progress bar (`nextjs-toploader`) on route change; button spinners for mutations; skeleton-shimmer respects theme.
 
 ## Component rules
-- Props typed with explicit interfaces; `forwardRef`; `cva` variants; `className` merge via `cn()`.
-- Each component: `index.ts` export, Storybook story, basic a11y test (vitest + testing-library + axe).
+- Props typed with explicit interfaces; React 19 `ref` prop (no `forwardRef`); `asChild` instead of `as`; `data-slot` on every part; `cva` variants; `className` merge via `cn()`.
+- Each component: an entry in `packages/ui/package.json` `exports`, Storybook story, basic a11y test (vitest + testing-library + axe).

@@ -4,6 +4,7 @@ Professional, multi-broker algorithmic trading platform for Indian markets: Trad
 Greeks, strategy builder + code strategies, stockmock-style backtesting, agentic AI orchestrator, alerts, live P&L.
 
 **Start here (in order):**
+
 1. `docs/09-CLAUDE-CODE-WORKFLOW.md` — setup, which model/mode to use, daily loop.
 2. `CLAUDE.md` — the master prompt Claude follows.
 3. `docs/01-ARCHITECTURE.md` → `02-FOLDER-STRUCTURE.md` → `03-DATABASE-SCHEMA.md` → `04-API-DESIGN.md` → `05-UI-ARCHITECTURE.md` → `06-SECURITY.md` → `07-AGENTIC-ORCHESTRATOR.md`.

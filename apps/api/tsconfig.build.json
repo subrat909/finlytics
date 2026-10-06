@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // The emitted app: src/ only, without unit tests, into dist/ with source maps (run with --enable-source-maps).
+  // TypeScript 6 defaults rootDir to the tsconfig's folder, so it is set explicitly.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist",
+    "sourceMap": true
+  },
+  "include": ["src"],
+  "exclude": ["src/**/__tests__/**", "dist", "coverage", "node_modules"]
+}

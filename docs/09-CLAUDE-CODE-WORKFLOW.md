@@ -1,11 +1,23 @@
 # 09 — Working with Claude Code on Finlytics (beginner guide)
 
 ## 1. One-time setup (15 minutes)
-1. Install: Node 20+ (`nvm install 20`), pnpm (`corepack enable && corepack prepare pnpm@9 --activate`), Docker Desktop, Python 3.12 + `uv` (`pip install uv`), Git, VS Code.
+1. Install: Node 24 (`nvm install` reads `.nvmrc`; `engines` requires ≥ 24.11), pnpm 10.34.6 (pinned with its integrity hash by `packageManager` in `package.json`: run `corepack enable`, or use any pnpm ≥ 10, which switches to the pinned version by itself; dependency build scripts run only for packages allowlisted in `pnpm-workspace.yaml`), Docker Desktop, Python 3.12 + `uv` (`pip install uv`), Git, VS Code.
 2. Install Claude Code: `npm i -g @anthropic-ai/claude-code`, then `claude` once to log in with your Max plan.
 3. Unzip this kit as the project root, `cd finlytics`, `git init && git add -A && git commit -m "chore: kickoff kit"`.
+   Then `pnpm i`. It also installs the git hooks: pre-commit runs lint-staged (ESLint + Prettier on staged files) and
+   commit-msg rejects messages that aren't Conventional Commits (`feat(scope): …`, `fix: …`, `chore: …`).
 4. Copy `.env.example` → `.env` and fill the few dev values (AUTH_SECRET: `openssl rand -base64 32`; MASTER_KEY same).
-5. `docker compose up -d` (Postgres+Timescale, Redis, Mailpit).
+   The api's variables (`APP_ROLE`, `API_*`, `DB_*`) are in the `apps/api` block of `.env.example`. Each has a
+   development default, so local work needs no change; their production rules are in docs/04 §7 "Environment".
+   `pnpm dev` starts the api with `APP_ROLE=http` set explicitly, and a variable set in the environment wins over the
+   same one in `.env`. So an `APP_ROLE` that `.env` sets for another tool doesn't need changing.
+5. `docker compose up -d` (Postgres+Timescale, Redis, Mailpit). Every port is bound to 127.0.0.1: Postgres 5432,
+   Redis 6379, Mailpit 8025 (UI) and 1025 (SMTP); Grafana 3001 and Prometheus 9090 start only with
+   `--profile observability`. If 5432 or 6379 is already taken, set `POSTGRES_HOST_PORT` / `REDIS_HOST_PORT` in `.env`
+   and use the same ports in `DATABASE_URL`, `DATABASE_DIRECT_URL` and `REDIS_URL`.
+   For the design system (packages/ui): run `pnpm --filter @finlytics/ui exec playwright install chromium` once, so
+   `pnpm test:storybook` can run the stories in Chromium. `pnpm test:visual` needs Docker: it runs in the pinned
+   Playwright image, as linux/amd64 (emulated on Apple silicon), the only place its screenshot baselines are valid.
 6. Run `claude` in the repo. It reads `CLAUDE.md` automatically. Type `/init`? **No** — we already have CLAUDE.md; skip it.
 7. Verify config: `/agents` lists 7 agents; `/help` shows the project commands (`/plan-feature`, …).
 
@@ -20,7 +32,9 @@
 
 Rules of thumb:
 - **Plan with the strongest model, build with Sonnet, review with the strongest model.** The subagent files in
-  `.claude/agents/` already pin models this way; `/model` sets the main conversation's model.
+  `.claude/agents/` pin architect, broker-integrator, quant-engineer and security-auditor to Opus. backend-engineer,
+  frontend-engineer and code-reviewer use `model: inherit`, so they follow `/model`: stay on Opus for maximum quality,
+  or switch to `/model sonnet` to build faster and use less of your plan's quota.
 - Use **Plan mode for anything touching more than 3 files**. Approve the plan, then let it run.
 - Work on a **git branch per feature** (`git switch -c feat/watchlists`). Commit after every green `/review`.
 - Keep context small: `/clear` between features; `/compact` when the conversation gets long.

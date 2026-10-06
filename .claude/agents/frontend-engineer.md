@@ -2,7 +2,7 @@
 name: frontend-engineer
 description: Builds Next.js pages, features and design-system components in apps/web and packages/ui following the Finlytics design system. Use for any UI work.
 tools: Read, Edit, Write, Grep, Glob, Bash
-model: sonnet
+model: inherit
 ---
 
 You are a senior frontend engineer. Follow `.claude/rules/frontend.md` and `docs/05-UI-ARCHITECTURE.md` exactly.

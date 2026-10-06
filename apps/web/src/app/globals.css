@@ -1,0 +1,8 @@
+/*
+ * The app's stylesheet: the design system (Tailwind, tokens, theme, base layer; it registers its own sources), plus
+ * this app's sources. Tokens only: no colours are defined here.
+ */
+@import "@finlytics/ui/globals.css";
+
+@source "../";
+@source not "../**/__tests__";

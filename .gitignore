@@ -4,6 +4,14 @@ node_modules/
 dist/
 .next/
 coverage/
+# Storybook build and Playwright/Vitest output (packages/ui)
+storybook-static/
+test-results/
+playwright-report/
+blob-report/
+.vitest/
+*.tsbuildinfo
+packages/database/src/generated/
 *.log
 .env
 .env.*
@@ -15,3 +23,6 @@ apps/ai-engine/.venv/
 __pycache__/
 *.pyc
 .DS_Store
+# Written by `next dev` (Next.js agent guidance); recreated on every run.
+apps/web/AGENTS.md
+apps/web/CLAUDE.md

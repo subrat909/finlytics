@@ -1,33 +1,55 @@
 {
   "name": "finlytics",
   "private": true,
-  "packageManager": "pnpm@9.12.0",
-  "engines": { "node": ">=20.11" },
+  "packageManager": "pnpm@10.34.6+sha512.7e1ae66a83a9143c118cc1944f37cc4f2b8acddeda4b001cfa78908f6e46e45e15292739ca6c9d026426cc757e9318cc98c5551d6a16c165097b0028ba87b4e6",
+  "engines": {
+    "node": ">=24.11"
+  },
+  "prettier": "@finlytics/prettier-config",
   "scripts": {
     "dev": "turbo dev",
     "build": "turbo build",
-    "lint": "turbo lint",
+    "lint": "turbo lint lint:root",
+    "lint:root": "eslint --max-warnings=0 \"*.{js,mjs,cjs}\" \"scripts/*.mjs\"",
     "typecheck": "turbo typecheck",
     "test": "turbo test",
+    "test:integration": "turbo test:integration",
     "test:e2e": "turbo test:e2e",
-    "db:migrate": "pnpm --filter @finlytics/database migrate",
-    "db:generate": "pnpm --filter @finlytics/database generate",
-    "db:studio": "pnpm --filter @finlytics/database studio",
-    "db:seed": "pnpm --filter @finlytics/database seed",
+    "test:storybook": "turbo test:storybook",
+    "test:visual": "turbo test:visual",
+    "storybook": "pnpm --filter @finlytics/ui storybook",
+    "check:pkg": "turbo check:pkg",
+    "db:generate": "pnpm --filter @finlytics/database run generate",
+    "db:migrate": "pnpm --filter @finlytics/database run migrate",
+    "db:deploy": "pnpm --filter @finlytics/database run deploy",
+    "db:status": "pnpm --filter @finlytics/database run status",
+    "db:studio": "pnpm --filter @finlytics/database run studio",
+    "db:seed": "pnpm --filter @finlytics/database run seed",
     "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "audit:ci": "node scripts/audit.mjs",
     "prepare": "husky"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@commitlint/cli": "^21.2.3",
+    "@commitlint/config-conventional": "^21.2.3",
     "@finlytics/eslint-config": "workspace:*",
+    "@finlytics/prettier-config": "workspace:*",
     "@finlytics/tsconfig": "workspace:*",
-    "husky": "^9.1.6",
-    "lint-staged": "^15.2.10",
-    "prettier": "^3.3.3",
-    "turbo": "^2.2.3",
-    "typescript": "^5.6.3"
+    "eslint": "^9.39.5",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.6.0",
+    "prettier": "^3.9.9",
+    "publint": "^0.3.25",
+    "turbo": "^2.11.7",
+    "typescript": "catalog:"
   },
   "lint-staged": {
-    "*.{ts,tsx,js,json,md,css}": "prettier --write",
-    "*.{ts,tsx}": "eslint --fix"
+    "*.{ts,tsx,mts,cts}": [
+      "eslint --fix --max-warnings=0 --no-warn-ignored",
+      "prettier --write"
+    ],
+    "*.{js,mjs,cjs,json,md,css,yml,yaml}": "prettier --write"
   }
 }

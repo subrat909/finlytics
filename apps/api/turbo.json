@@ -1,0 +1,22 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // `pnpm dev`: tsc --watch emits dist/ (the dev:compile sidecar) and node --watch restarts on every emit. A rebuilt
+    // @finlytics/shared or @finlytics/database dist restarts it too: node --watch follows required files.
+    "dev": {
+      "dependsOn": ["^build", "build"],
+      "with": ["dev:compile"],
+      "persistent": true,
+      "cache": false
+    },
+    "dev:compile": {
+      "persistent": true,
+      "cache": false
+    },
+    // The build smoke test runs dist/main.js; the harness loads @finlytics/database/testing from its dist.
+    "test:integration": {
+      "dependsOn": ["$TURBO_EXTENDS$", "build"]
+    }
+  }
+}

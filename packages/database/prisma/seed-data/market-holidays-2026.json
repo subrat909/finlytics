@@ -1,0 +1,471 @@
+{
+  "year": 2026,
+  "calendars": {
+    "NSE": {
+      "sources": [
+        {
+          "id": "NSE/CMTR/71775",
+          "issuer": "National Stock Exchange of India Limited",
+          "title": "Trading holidays for the calendar year 2026",
+          "url": "https://nsearchives.nseindia.com/content/circulars/CMTR71775.pdf",
+          "publishedOn": "2025-12-12",
+          "retrievedOn": "2026-10-05"
+        },
+        {
+          "id": "NSE/FAOP/71777",
+          "issuer": "National Stock Exchange of India Limited",
+          "title": "Trading holidays for the calendar year 2026",
+          "url": "https://nsearchives.nseindia.com/content/circulars/FAOP71777.pdf",
+          "publishedOn": "2025-12-12",
+          "retrievedOn": "2026-10-05"
+        },
+        {
+          "id": "NSE/CMTR/72260",
+          "issuer": "National Stock Exchange of India Limited",
+          "title": "Trading Holiday on January 15, 2026 on account of Municipal Corporation Election in Maharashtra in Capital Market Segment",
+          "url": "https://nsearchives.nseindia.com/content/circulars/CMTR72260.pdf",
+          "publishedOn": "2026-01-12",
+          "retrievedOn": "2026-10-05"
+        },
+        {
+          "id": "NSE/FAOP/72262",
+          "issuer": "National Stock Exchange of India Limited",
+          "title": "Trading Holiday on January 15, 2026 on account of Municipal Corporation Election in Maharashtra in Futures & Options Segment",
+          "url": "https://nsearchives.nseindia.com/content/circulars/FAOP72262.pdf",
+          "publishedOn": "2026-01-12",
+          "retrievedOn": "2026-10-05"
+        }
+      ],
+      "holidays": [
+        {
+          "date": "2026-01-15",
+          "name": "Municipal Corporation Election in Maharashtra",
+          "source": "NSE/FAOP/72262"
+        },
+        {
+          "date": "2026-01-26",
+          "name": "Republic Day",
+          "source": "NSE/FAOP/71777"
+        },
+        {
+          "date": "2026-03-03",
+          "name": "Holi",
+          "source": "NSE/FAOP/71777"
+        },
+        {
+          "date": "2026-03-26",
+          "name": "Shri Ram Navami",
+          "source": "NSE/FAOP/71777"
+        },
+        {
+          "date": "2026-03-31",
+          "name": "Shri Mahavir Jayanti",
+          "source": "NSE/FAOP/71777"
+        },
+        {
+          "date": "2026-04-03",
+          "name": "Good Friday",
+          "source": "NSE/FAOP/71777"
+        },
+        {
+          "date": "2026-04-14",
+          "name": "Dr. Baba Saheb Ambedkar Jayanti",
+          "source": "NSE/FAOP/71777"
+        },
+        {
+          "date": "2026-05-01",
+          "name": "Maharashtra Day",
+          "source": "NSE/FAOP/71777"
+        },
+        {
+          "date": "2026-05-28",
+          "name": "Bakri Id",
+          "source": "NSE/FAOP/71777"
+        },
+        {
+          "date": "2026-06-26",
+          "name": "Muharram",
+          "source": "NSE/FAOP/71777"
+        },
+        {
+          "date": "2026-09-14",
+          "name": "Ganesh Chaturthi",
+          "source": "NSE/FAOP/71777"
+        },
+        {
+          "date": "2026-10-02",
+          "name": "Mahatma Gandhi Jayanti",
+          "source": "NSE/FAOP/71777"
+        },
+        {
+          "date": "2026-10-20",
+          "name": "Dussehra",
+          "source": "NSE/FAOP/71777"
+        },
+        {
+          "date": "2026-11-10",
+          "name": "Diwali-Balipratipada",
+          "source": "NSE/FAOP/71777"
+        },
+        {
+          "date": "2026-11-24",
+          "name": "Prakash Gurpurb Sri Guru Nanak Dev",
+          "source": "NSE/FAOP/71777"
+        },
+        {
+          "date": "2026-12-25",
+          "name": "Christmas",
+          "source": "NSE/FAOP/71777"
+        }
+      ]
+    },
+    "BSE": {
+      "sources": [
+        {
+          "id": "20251212-8",
+          "issuer": "BSE Limited",
+          "title": "Trading Holidays for the Calendar Year 2026 for Equity and Equity Derivatives Segments",
+          "url": "https://www.bseindia.com/markets/MarketInfo/DispNewNoticesCirculars.aspx?page=20251212-8",
+          "publishedOn": "2025-12-12",
+          "retrievedOn": "2026-10-05"
+        },
+        {
+          "id": "20260112-8",
+          "issuer": "BSE Limited",
+          "title": "Trading Holiday on account of Municipal Corporation Elections in Maharashtra 2026",
+          "url": "https://www.bseindia.com/markets/MarketInfo/DispNewNoticesCirculars.aspx?page=20260112-8",
+          "publishedOn": "2026-01-12",
+          "retrievedOn": "2026-10-05"
+        }
+      ],
+      "holidays": [
+        {
+          "date": "2026-01-15",
+          "name": "Municipal Corporation Elections in Maharashtra",
+          "source": "20260112-8"
+        },
+        {
+          "date": "2026-01-26",
+          "name": "Republic Day",
+          "source": "20251212-8"
+        },
+        {
+          "date": "2026-03-03",
+          "name": "Holi",
+          "source": "20251212-8"
+        },
+        {
+          "date": "2026-03-26",
+          "name": "Shri Ram Navami",
+          "source": "20251212-8"
+        },
+        {
+          "date": "2026-03-31",
+          "name": "Shri Mahavir Jayanti",
+          "source": "20251212-8"
+        },
+        {
+          "date": "2026-04-03",
+          "name": "Good Friday",
+          "source": "20251212-8"
+        },
+        {
+          "date": "2026-04-14",
+          "name": "Dr.Baba Saheb Ambedkar Jayanti",
+          "source": "20251212-8"
+        },
+        {
+          "date": "2026-05-01",
+          "name": "Maharashtra Day",
+          "source": "20251212-8"
+        },
+        {
+          "date": "2026-05-28",
+          "name": "Bakri Id",
+          "source": "20251212-8"
+        },
+        {
+          "date": "2026-06-26",
+          "name": "Muharram",
+          "source": "20251212-8"
+        },
+        {
+          "date": "2026-09-14",
+          "name": "Ganesh Chaturthi",
+          "source": "20251212-8"
+        },
+        {
+          "date": "2026-10-02",
+          "name": "Mahatma Gandhi Jayanti",
+          "source": "20251212-8"
+        },
+        {
+          "date": "2026-10-20",
+          "name": "Dussehra",
+          "source": "20251212-8"
+        },
+        {
+          "date": "2026-11-10",
+          "name": "Diwali Balipratipada",
+          "source": "20251212-8"
+        },
+        {
+          "date": "2026-11-24",
+          "name": "Prakash Gurpurb Sri Guru Nanak Dev",
+          "source": "20251212-8"
+        },
+        {
+          "date": "2026-12-25",
+          "name": "Christmas",
+          "source": "20251212-8"
+        }
+      ]
+    },
+    "MCX": {
+      "sources": [
+        {
+          "id": "MCX/TRD/636/2025",
+          "issuer": "Multi Commodity Exchange of India Limited",
+          "title": "Trading Holidays for the Calendar Year 2026",
+          "url": "https://www.mcxindia.com/docs/default-source/circulars/english/2025/december/circular-636-2025guc877eb08-5a12-46b1-9aee-d233258a4887.pdf",
+          "publishedOn": "2025-12-15",
+          "retrievedOn": "2026-10-05"
+        },
+        {
+          "id": "MCX/TRD/017/2026",
+          "issuer": "Multi Commodity Exchange of India Limited",
+          "title": "Trading Holiday on account of Municipal Corporation Election in Maharashtra on January 15, 2026",
+          "url": "https://www.mcxindia.com/docs/default-source/circulars/english/2026/january/circular-017---2026gu39024.pdf",
+          "publishedOn": "2026-01-12",
+          "retrievedOn": "2026-10-05"
+        }
+      ],
+      "holidays": [
+        {
+          "date": "2026-01-01",
+          "name": "New Year Day",
+          "closure": "EVENING_SESSION",
+          "source": "MCX/TRD/636/2025"
+        },
+        {
+          "date": "2026-01-15",
+          "name": "Municipal Corporation Election in Maharashtra",
+          "closure": "MORNING_SESSION",
+          "source": "MCX/TRD/017/2026"
+        },
+        {
+          "date": "2026-01-26",
+          "name": "Republic Day",
+          "closure": "FULL_DAY",
+          "source": "MCX/TRD/636/2025"
+        },
+        {
+          "date": "2026-03-03",
+          "name": "Holi (2nd day)",
+          "closure": "MORNING_SESSION",
+          "source": "MCX/TRD/636/2025"
+        },
+        {
+          "date": "2026-03-26",
+          "name": "Shri Ram Navmi",
+          "closure": "MORNING_SESSION",
+          "source": "MCX/TRD/636/2025"
+        },
+        {
+          "date": "2026-03-31",
+          "name": "Shri Mahavir Jayanti",
+          "closure": "MORNING_SESSION",
+          "source": "MCX/TRD/636/2025"
+        },
+        {
+          "date": "2026-04-03",
+          "name": "Good Friday",
+          "closure": "FULL_DAY",
+          "source": "MCX/TRD/636/2025"
+        },
+        {
+          "date": "2026-04-14",
+          "name": "Dr. Baba Saheb Ambedkar Jayanti",
+          "closure": "MORNING_SESSION",
+          "source": "MCX/TRD/636/2025"
+        },
+        {
+          "date": "2026-05-01",
+          "name": "Maharashtra Day",
+          "closure": "MORNING_SESSION",
+          "source": "MCX/TRD/636/2025"
+        },
+        {
+          "date": "2026-05-28",
+          "name": "Bakri Id",
+          "closure": "MORNING_SESSION",
+          "source": "MCX/TRD/636/2025"
+        },
+        {
+          "date": "2026-06-26",
+          "name": "Moharram",
+          "closure": "MORNING_SESSION",
+          "source": "MCX/TRD/636/2025"
+        },
+        {
+          "date": "2026-09-14",
+          "name": "Ganesh Chaturthi",
+          "closure": "MORNING_SESSION",
+          "source": "MCX/TRD/636/2025"
+        },
+        {
+          "date": "2026-10-02",
+          "name": "Mahatma Gandhi Jayanti",
+          "closure": "FULL_DAY",
+          "source": "MCX/TRD/636/2025"
+        },
+        {
+          "date": "2026-10-20",
+          "name": "Dassera",
+          "closure": "MORNING_SESSION",
+          "source": "MCX/TRD/636/2025"
+        },
+        {
+          "date": "2026-11-10",
+          "name": "Diwali-Balipratipada",
+          "closure": "MORNING_SESSION",
+          "source": "MCX/TRD/636/2025"
+        },
+        {
+          "date": "2026-11-24",
+          "name": "Guru Nanak Jayanti",
+          "closure": "MORNING_SESSION",
+          "source": "MCX/TRD/636/2025"
+        },
+        {
+          "date": "2026-12-25",
+          "name": "Christmas",
+          "closure": "FULL_DAY",
+          "source": "MCX/TRD/636/2025"
+        }
+      ]
+    },
+    "CDS": {
+      "sources": [
+        {
+          "id": "NSE/CD/71962",
+          "issuer": "National Stock Exchange of India Limited",
+          "title": "Trading holidays for the calendar year 2026",
+          "url": "https://nsearchives.nseindia.com/content/circulars/CD71962.pdf",
+          "publishedOn": "2025-12-23",
+          "retrievedOn": "2026-10-05"
+        },
+        {
+          "id": "NSE/CD/72233",
+          "issuer": "National Stock Exchange of India Limited",
+          "title": "Trading Holiday on January 15, 2026 on account of Municipal Corporation Election in Maharashtra",
+          "url": "https://nsearchives.nseindia.com/content/circulars/CD72233.pdf",
+          "publishedOn": "2026-01-09",
+          "retrievedOn": "2026-10-05"
+        }
+      ],
+      "holidays": [
+        {
+          "date": "2026-01-15",
+          "name": "Municipal Corporation Election in Maharashtra",
+          "source": "NSE/CD/72233"
+        },
+        {
+          "date": "2026-01-26",
+          "name": "Republic Day",
+          "source": "NSE/CD/71962"
+        },
+        {
+          "date": "2026-02-19",
+          "name": "Chatrapati Shivaji Maharaj Jayanti",
+          "source": "NSE/CD/71962"
+        },
+        {
+          "date": "2026-03-03",
+          "name": "Holi",
+          "source": "NSE/CD/71962"
+        },
+        {
+          "date": "2026-03-19",
+          "name": "Gudi Padwa",
+          "source": "NSE/CD/71962"
+        },
+        {
+          "date": "2026-03-26",
+          "name": "Shri Ram Navami",
+          "source": "NSE/CD/71962"
+        },
+        {
+          "date": "2026-03-31",
+          "name": "Shri Mahavir Jayanti",
+          "source": "NSE/CD/71962"
+        },
+        {
+          "date": "2026-04-01",
+          "name": "Annual Bank Closing",
+          "source": "NSE/CD/71962"
+        },
+        {
+          "date": "2026-04-03",
+          "name": "Good Friday",
+          "source": "NSE/CD/71962"
+        },
+        {
+          "date": "2026-04-14",
+          "name": "Dr. Baba Saheb Ambedkar Jayanti",
+          "source": "NSE/CD/71962"
+        },
+        {
+          "date": "2026-05-01",
+          "name": "Maharashtra Day / Buddha Pournima",
+          "source": "NSE/CD/71962"
+        },
+        {
+          "date": "2026-05-28",
+          "name": "Bakri Id",
+          "source": "NSE/CD/71962"
+        },
+        {
+          "date": "2026-06-26",
+          "name": "Muharram",
+          "source": "NSE/CD/71962"
+        },
+        {
+          "date": "2026-08-26",
+          "name": "Id-E-Milad",
+          "source": "NSE/CD/71962"
+        },
+        {
+          "date": "2026-09-14",
+          "name": "Ganesh Chaturthi",
+          "source": "NSE/CD/71962"
+        },
+        {
+          "date": "2026-10-02",
+          "name": "Mahatma Gandhi Jayanti",
+          "source": "NSE/CD/71962"
+        },
+        {
+          "date": "2026-10-20",
+          "name": "Dussehra",
+          "source": "NSE/CD/71962"
+        },
+        {
+          "date": "2026-11-10",
+          "name": "Diwali-Balipratipada",
+          "source": "NSE/CD/71962"
+        },
+        {
+          "date": "2026-11-24",
+          "name": "Prakash Gurpurb Sri Guru Nanak Dev",
+          "source": "NSE/CD/71962"
+        },
+        {
+          "date": "2026-12-25",
+          "name": "Christmas",
+          "source": "NSE/CD/71962"
+        }
+      ]
+    }
+  }
+}

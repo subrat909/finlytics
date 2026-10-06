@@ -1,0 +1,19 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // Cached on its real inputs: an uncached generate rewrote src/generated on every turbo run, which made a running
+    // `tsdown --watch` (pnpm dev) rebuild dist/ under concurrent tests.
+    "generate": {
+      "cache": true,
+      "inputs": ["prisma/schema.prisma", "prisma.config.ts"],
+      "outputs": ["src/generated/**"]
+    },
+    "test": {
+      "outputs": []
+    },
+    "test:integration": {
+      "dependsOn": ["$TURBO_EXTENDS$", "build"]
+    }
+  }
+}

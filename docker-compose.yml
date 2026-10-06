@@ -1,12 +1,14 @@
 name: finlytics
+# Host ports are bound to 127.0.0.1 and overridable from the root .env (POSTGRES_HOST_PORT, REDIS_HOST_PORT).
 services:
   postgres:
-    image: timescale/timescaledb-ha:pg16
+    # Pinned: a floating tag would change the TimescaleDB extension version under an existing volume.
+    image: timescale/timescaledb-ha:pg16.15-ts2.30.2
     environment:
       POSTGRES_USER: finlytics
       POSTGRES_PASSWORD: finlytics
       POSTGRES_DB: finlytics
-    ports: ["5432:5432"]
+    ports: ["127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"]
     volumes:
       - pgdata:/home/postgres/pgdata/data
     healthcheck:
@@ -16,19 +18,24 @@ services:
       retries: 10
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.4-alpine
     command: ["redis-server", "--appendonly", "yes", "--maxmemory", "1gb", "--maxmemory-policy", "allkeys-lru"]
-    ports: ["6379:6379"]
+    ports: ["127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"]
     volumes:
       - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   mailpit:
     image: axllent/mailpit
-    ports: ["8025:8025", "1025:1025"]
+    ports: ["127.0.0.1:8025:8025", "127.0.0.1:1025:1025"]
 
   grafana:
     image: grafana/grafana:11.2.0
-    ports: ["3001:3000"]
+    ports: ["127.0.0.1:3001:3000"]
     environment:
       GF_SECURITY_ADMIN_PASSWORD: admin
     volumes:
@@ -37,7 +44,7 @@ services:
 
   prometheus:
     image: prom/prometheus:v2.54.1
-    ports: ["9090:9090"]
+    ports: ["127.0.0.1:9090:9090"]
     volumes:
       - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml
     profiles: ["observability"]

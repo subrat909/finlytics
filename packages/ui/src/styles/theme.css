@@ -1,0 +1,131 @@
+/*
+ * The Tailwind v4 theme (plan D3–D5): maps the tokens in tokens.css to utilities, bridges shadcn's names to ours,
+ * and adds the font, radius and animation scales. No colour values here: tokens.css owns them.
+ */
+
+/* `dark:` follows <html data-theme="dark"> (and dark islands), not prefers-color-scheme (plan D4). Components rarely
+   need it: tokens switch by themselves. It keeps generated shadcn `dark:` classes working. */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+@theme {
+  /* Tokens only: Tailwind's default palette is removed, so bg-red-500, text-white and bg-black/50 generate nothing. */
+  --color-*: initial;
+
+  /* Skeleton shimmer; components apply it under motion-safe only. */
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+
+  @keyframes shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+}
+
+/* `inline`: utilities reference the token variables themselves (bg-primary is `var(--primary)`), so they follow the
+   theme of the element they're on. */
+@theme inline {
+  /* Finlytics tokens. */
+  --color-bg: var(--bg);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-primary: var(--primary);
+  --color-primary-fg: var(--primary-fg);
+  --color-highlight: var(--highlight);
+  --color-profit: var(--profit);
+  --color-profit-fg: var(--profit-fg);
+  --color-loss: var(--loss);
+  --color-loss-fg: var(--loss-fg);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-violet: var(--violet);
+  --color-orange: var(--orange);
+  --color-ring: var(--ring);
+
+  /* shadcn bridge: the utility names generated components use, mapped to our tokens (plan D5). */
+  --color-background: var(--bg);
+  --color-foreground: var(--fg);
+  --color-card: var(--surface-1);
+  --color-card-foreground: var(--fg);
+  --color-popover: var(--surface-1);
+  --color-popover-foreground: var(--fg);
+  --color-primary-foreground: var(--primary-fg);
+  --color-secondary: var(--surface-2);
+  --color-secondary-foreground: var(--fg);
+  --color-muted: var(--surface-2);
+  --color-muted-foreground: var(--fg-muted);
+  --color-accent: var(--surface-3); /* shadcn's "accent" is the hover surface (hover:bg-accent) */
+  --color-accent-foreground: var(--fg);
+  --color-destructive: var(--loss);
+  --color-destructive-foreground: var(--loss-fg);
+  --color-border: var(--surface-3);
+  --color-input: var(--surface-2);
+
+  /* Type: self-hosted variable fonts (plan D13). Next.js sets --font-inter and --font-jetbrains-mono through
+     next/font/local; elsewhere (Storybook) the fontsource family names apply. */
+  --font-sans: var(--font-inter, "Inter Variable"), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono, "JetBrains Mono Variable"), ui-monospace, SFMono-Regular, monospace;
+
+  /* Radius scale from --radius (12px): controls rounded-xl (12px), cards rounded-2xl (16px). */
+  --radius-sm: calc(var(--radius) - 6px);
+  --radius-md: calc(var(--radius) - 4px);
+  --radius-lg: calc(var(--radius) - 2px);
+  --radius-xl: var(--radius);
+  --radius-2xl: calc(var(--radius) + 4px);
+}
+
+/* Tabular numerals in the mono face, for every price, quantity and P&L cell (frontend.md). */
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
+
+/* The skeleton's moving highlight: a band of the text colour at 8%, transparent elsewhere, painted over whatever
+   background the skeleton has (surface-2, or surface-3 on a surface-2 row), so a tinted skeleton keeps its tint. An
+   opaque gradient would paint over the background colour and hide it. Skeleton pairs it with animate-shimmer (which
+   moves the background position), both under motion-safe only; with reduced motion the skeleton is flat.
+   Inside @supports: for browsers without color-mix(), Tailwind would add a fallback declaration that replaces the mix
+   with its first colour, an opaque --fg band. Behind the same test, those browsers get a flat skeleton instead (and
+   Tailwind's fallback, now nested in the block, never applies). */
+@utility shimmer {
+  background-size: 400% 100%;
+
+  @supports (color: color-mix(in lab, red, red)) {
+    background-image: linear-gradient(
+      90deg,
+      transparent 25%,
+      color-mix(in oklab, var(--fg) 8%, transparent) 50%,
+      transparent 75%
+    );
+  }
+}
+
+/*
+ * shadcn's raw variable names, for generated code that reads variables directly (Sonner, charts). Aliases only, no
+ * values. Declared on every theme root so a themed island resolves them against its own tokens (plan D4).
+ */
+:root,
+[data-theme] {
+  --background: var(--bg);
+  --foreground: var(--fg);
+  --card: var(--surface-1);
+  --card-foreground: var(--fg);
+  --popover: var(--surface-1);
+  --popover-foreground: var(--fg);
+  --primary-foreground: var(--primary-fg);
+  --secondary: var(--surface-2);
+  --secondary-foreground: var(--fg);
+  --muted: var(--surface-2);
+  --muted-foreground: var(--fg-muted);
+  --accent: var(--surface-3);
+  --accent-foreground: var(--fg);
+  --destructive: var(--loss);
+  --destructive-foreground: var(--loss-fg);
+  --border: var(--surface-3);
+  --input: var(--surface-2);
+}

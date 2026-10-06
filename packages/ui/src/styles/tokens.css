@@ -1,36 +1,54 @@
-/* Finlytics design tokens — the ONLY place colours are defined. Tailwind maps these via @theme. */
-@import "tailwindcss";
+/*
+ * Finlytics design tokens: the ONLY place colours are defined (plan D3, D6). Raw values only; theme.css maps them to
+ * Tailwind utilities and shadcn's names, base.css applies them to the document.
+ *
+ * Rules, enforced by test/tokens:
+ * - A colour token is a 6-digit hex value or a var() alias of another token, and is defined for both themes.
+ * - Text pairs meet 4.5:1 and non-text pairs (focus outline, checked state) 3:1 in both themes
+ *   (the matrix is test/tokens/contrast-pairs.ts). Change a value, and the test tells you which pairs it breaks.
+ * - No colour literal anywhere else in src.
+ *
+ * Light is the default (`:root`, so visitors without JavaScript get it); dark applies with <html data-theme="dark">.
+ * Each theme also applies to any element with its own data-theme attribute (a themed island).
+ */
 
-:root {
+/* Light: the default theme, and light islands. */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  /* Brand and semantic accents: text on bg, surface-1 and surface-2. */
   --primary: #4f46e5;
-  --primary-fg: #ffffff;
-  --accent: #06b6d4;
-  --profit: #059669;
-  --loss: #e11d48;
-  --warning: #d97706;
-  --info: #0284c7;
+  --highlight: #0e7490; /* cyan: links, chips, watchlist icons (renamed from --accent, which shadcn uses for hover) */
+  --profit: #047857;
+  --loss: #be123c;
+  --warning: #b45309;
+  --info: #0369a1;
   --violet: #7c3aed;
-  --orange: #ea580c;
+  --orange: #c2410c;
 
+  /* Text on the filled primary, Buy (profit) and Sell (loss) buttons, and on their /90 hover. */
+  --primary-fg: #ffffff;
+  --profit-fg: #ffffff;
+  --loss-fg: #ffffff;
+
+  /* Surfaces: page, cards, controls and hover. */
   --bg: #f8fafc;
   --surface-1: #ffffff;
   --surface-2: #f1f5f9;
   --surface-3: #e2e8f0;
-  --fg: #0f172a;
-  --fg-muted: #64748b;
-  --ring: color-mix(in oklab, var(--primary) 60%, transparent);
 
-  --radius: 0.75rem;
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-  --sidebar-w: 16rem;
-  --sidebar-w-collapsed: 4rem;
+  /* Text. */
+  --fg: #0f172a;
+  --fg-muted: #56657a;
 }
 
+/* Dark. */
 [data-theme="dark"] {
+  color-scheme: dark;
+
   --primary: #818cf8;
-  --primary-fg: #0b0f19;
-  --accent: #22d3ee;
+  --highlight: #22d3ee;
   --profit: #34d399;
   --loss: #fb7185;
   --warning: #fbbf24;
@@ -38,43 +56,31 @@
   --violet: #a78bfa;
   --orange: #fb923c;
 
+  --primary-fg: #0b0f19;
+  --profit-fg: #0b0f19;
+  --loss-fg: #0b0f19;
+
   --bg: #0b0f19;
   --surface-1: #111827;
   --surface-2: #1f2937;
   --surface-3: #374151;
+
   --fg: #f1f5f9;
-  --fg-muted: #9ca3af;
+  --fg-muted: #aab3c0;
 }
 
-@theme inline {
-  --color-primary: var(--primary);
-  --color-primary-fg: var(--primary-fg);
-  --color-accent: var(--accent);
-  --color-profit: var(--profit);
-  --color-loss: var(--loss);
-  --color-warning: var(--warning);
-  --color-info: var(--info);
-  --color-violet: var(--violet);
-  --color-orange: var(--orange);
-  --color-bg: var(--bg);
-  --color-surface-1: var(--surface-1);
-  --color-surface-2: var(--surface-2);
-  --color-surface-3: var(--surface-3);
-  --color-fg: var(--fg);
-  --color-fg-muted: var(--fg-muted);
-  --color-ring: var(--ring);
-  --radius-xl: var(--radius);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-mono);
+/*
+ * Derived tokens. Declared on every theme root, not only on :root: a custom property inherits its computed value, so
+ * an alias resolved on <html> would carry the page theme's colour into a themed island (plan D4).
+ */
+:root,
+[data-theme] {
+  --ring: var(--primary); /* the focus outline: solid primary, never translucent (plan D7) */
 }
 
-html { background: var(--bg); color: var(--fg); font-family: var(--font-sans); }
-.tabular { font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
-
-/* No borders / shadows on controls — affordance via surface + ring */
-button, input, select, textarea { border: 0; box-shadow: none; outline: none; }
-:where(button, input, select, textarea, [role="button"]):focus-visible { box-shadow: 0 0 0 2px var(--ring); }
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+/* Shape and layout; the same in both themes. */
+:root {
+  --radius: 0.75rem; /* controls rounded-xl (12px), cards rounded-2xl (16px); see theme.css */
+  --sidebar-w: 16rem;
+  --sidebar-w-collapsed: 4rem;
 }

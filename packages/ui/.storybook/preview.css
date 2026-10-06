@@ -1,0 +1,12 @@
+/*
+ * Storybook's stylesheet: the design system (globals.css), plus the stories that globals.css keeps out of consumers'
+ * builds with its `@source not` lines. Stories use classes no component does (layout wrappers, the Foundations pages),
+ * so Storybook scans them again here. Paths are relative to this file.
+ * A positive @source re-includes files only where it's at least as specific as the exclusion: the glob of story files
+ * undoes the stories exclusion, but the Foundations stories need their own line, because globals.css excludes that
+ * whole folder. test/tokens/theme.test.ts checks that every story is scanned.
+ */
+@import "../src/styles/globals.css";
+
+@source "../src/**/*.stories.tsx";
+@source "../src/foundations/*.stories.tsx";

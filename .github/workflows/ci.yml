@@ -1,0 +1,234 @@
+# CI (plan D20). Jobs run in the order set by .claude/rules/testing.md: static -> unit -> integration and ui (in
+# parallel) -> e2e (after integration) -> security.
+# Every third-party action is pinned to a full commit SHA; the trailing comment names the release. Dependabot
+# (.github/dependabot.yml) proposes SHA bumps weekly.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      update_snapshots:
+        # CI is the source of truth for packages/ui's visual baselines: if they diff here only because they were made
+        # under emulation (Apple silicon), run the workflow on the branch with this set, then commit the artifact.
+        description: "UI: regenerate the visual baselines and upload them as the ui-visual-baselines artifact"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  # One group per PR, so a new push cancels that PR's superseded run. Every other run (push to main, manual) gets a
+  # group of its own and is never cancelled or superseded.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  HUSKY: 0 # the `prepare` script must not install git hooks in CI
+  TURBO_TELEMETRY_DISABLED: 1
+
+jobs:
+  static:
+    name: Static checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 (pnpm version from packageManager)
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm check:pkg
+
+  unit:
+    name: Unit tests
+    needs: static
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
+  integration:
+    name: Integration tests
+    needs: unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Pull the pinned TimescaleDB (about 4 GB) and Redis images in their own step, so pull time and registry errors
+      # show up here rather than inside the test run. The tags come from docker-compose.yml; unit tests keep them equal
+      # to the Testcontainers constants (packages/database/src/testing/images.ts, apps/api/test/integration/containers.ts).
+      - run: docker compose pull --quiet postgres redis
+      # Testcontainers on the runner's Docker (preinstalled on ubuntu-24.04). turbo runs generate and build first: the
+      # packaging test loads dist/. Covers migrations (including the schema drift check), guards, constraints and both
+      # builds against a real database.
+      - run: pnpm test:integration
+
+  # packages/ui: every story as a test in Chromium, then visual regression in both themes (phase 0.4, D15 and D18). Runs
+  # inside the pinned Playwright image (tag and digest), the one environment the screenshot baselines are valid in; a
+  # unit test keeps the tag equal to the @playwright/test version (packages/ui/test/package/playwright-version.test.ts).
+  ui:
+    name: UI (stories as tests, visual regression)
+    needs: unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+      options: --ipc=host
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      # The container runs as root, not as the checkout's owner: without this, git (and turbo's file hashing) refuses
+      # the repository as "dubious ownership".
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo run test:storybook build-storybook --filter=@finlytics/ui
+      # Already inside the image, so scripts/visual.mjs runs Playwright directly against the build above.
+      - name: Visual regression
+        if: ${{ !inputs.update_snapshots }}
+        run: pnpm turbo run test:visual --filter=@finlytics/ui
+      # Manual runs with update_snapshots (workflow_dispatch): rewrite every baseline that differs or is missing, in
+      # this job's image on CI's own runner, and upload the whole set for review and commit.
+      - name: Regenerate the visual baselines
+        if: ${{ inputs.update_snapshots }}
+        run: pnpm turbo run test:visual --filter=@finlytics/ui -- --update-snapshots
+      - name: Upload the regenerated baselines
+        if: ${{ !cancelled() && inputs.update_snapshots }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ui-visual-baselines
+          path: packages/ui/test/visual/__screenshots__/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Upload the visual diffs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ui-visual-diffs
+          path: |
+            packages/ui/test-results/
+            packages/ui/playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # apps/web end to end (phase 0.6): Playwright in Chromium against the built api and `next dev`, with postgres, redis
+  # and mailpit from docker-compose.yml (the same images and ports as local development). Later phases add broker
+  # connect (mocked OAuth), paper orders, strategy deploy and P&L to the same suite.
+  e2e:
+    name: End-to-end tests
+    needs: integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # CI-only values for throwaway services on the runner; AUTH_SECRET is generated per run below.
+      DATABASE_URL: postgresql://finlytics:finlytics@127.0.0.1:5432/finlytics
+      REDIS_URL: redis://127.0.0.1:6379
+      AUTH_URL: http://localhost:3000
+      EMAIL_SERVER: smtp://127.0.0.1:1025
+      EMAIL_FROM: Finlytics CI <no-reply@finlytics.local>
+      API_INTERNAL_URL: http://127.0.0.1:4000
+      API_ALLOWED_ORIGINS: http://localhost:3000
+      MAILPIT_URL: http://127.0.0.1:8025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Generate a per-run AUTH_SECRET
+        run: |
+          secret="$(openssl rand -base64 32)"
+          echo "::add-mask::$secret"
+          echo "AUTH_SECRET=$secret" >> "$GITHUB_ENV"
+      - run: docker compose up --detach --wait postgres redis mailpit
+      - run: pnpm db:deploy
+      - run: pnpm --filter @finlytics/web exec playwright install --with-deps chromium
+      # turbo builds shared, database and the api first; Playwright starts the api (dist/main.js) and `next dev`.
+      - run: pnpm test:e2e
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-e2e-report
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  security:
+    name: Dependency audit
+    needs: [integration, ui, e2e]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      # Audits pnpm-lock.yaml (no install needed). Fails on any high or critical advisory without an active, unexpired
+      # exception in scripts/audit-exceptions.json (docs/06-SECURITY.md, "Dependency audit exceptions").
+      - run: pnpm audit:ci
+
+  # Image scan with Trivy, after the image build below exists. Pin the action by SHA when enabling it, and fail on
+  # HIGH,CRITICAL (.claude/rules/security.md).
+  #
+  # trivy:
+  #   name: Image scan
+  #   needs: build-images
+  #   runs-on: ubuntu-24.04
+  #   timeout-minutes: 15
+  #   steps:
+  #     - uses: aquasecurity/trivy-action@<sha> # vX.Y.Z
+  #       with: { image-ref: "...", severity: "HIGH,CRITICAL", exit-code: "1", ignore-unfixed: true }
+
+  # Image build for web, api and ai-engine (infra/docker/*.Dockerfile) arrives with the apps. Build on PRs without
+  # pushing; push to the registry only from main, granting `packages: write` to this job alone.
+  #
+  # build-images:
+  #   name: Build images
+  #   needs: security
+  #   runs-on: ubuntu-24.04
+  #   timeout-minutes: 30
+  #   steps:
+  #     - docker/setup-buildx-action and docker/build-push-action, pinned by SHA

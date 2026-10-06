@@ -149,14 +149,7 @@ export interface OrderFeed extends EventEmitter {
 
 export class BrokerError extends Error {
   constructor(
-    public readonly code:
-      | "AUTH"
-      | "RATE_LIMIT"
-      | "REJECTED"
-      | "NETWORK"
-      | "TIMEOUT"
-      | "NOT_FOUND"
-      | "UNKNOWN",
+    public readonly code: "AUTH" | "RATE_LIMIT" | "REJECTED" | "NETWORK" | "TIMEOUT" | "NOT_FOUND" | "UNKNOWN",
     message: string,
     public readonly retryable = false,
     public readonly brokerCode?: string,
@@ -171,7 +164,11 @@ export interface BrokerAdapter {
 
   // 1. auth
   startAuth(state: string, redirectUri: string): AuthStart;
-  exchangeToken(input: { code?: string; fields?: Record<string, string>; redirectUri?: string }): Promise<BrokerCredentials>;
+  exchangeToken(input: {
+    code?: string;
+    fields?: Record<string, string>;
+    redirectUri?: string;
+  }): Promise<BrokerCredentials>;
   // 2.
   refreshToken(creds: BrokerCredentials): Promise<BrokerCredentials>;
   // 3.
