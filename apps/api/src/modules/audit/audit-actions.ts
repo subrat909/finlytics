@@ -6,11 +6,27 @@
  * | Action            | Written by                         | `data`                         |
  * |-------------------|------------------------------------|--------------------------------|
  * | `settings.update` | `PATCH /v1/me/settings` (0.5)      | `{ changed: string[] }` (dot paths of the fields that changed) |
+ * | `broker.connect`  | `POST /v1/brokers/{upstox,dhan,paper}`, the Upstox callback (1.2) | `{ broker, status, reconnect }` |
+ * | `broker.relogin`  | `POST /v1/brokers/:id/relogin` (1.2) | `{ broker }`                 |
+ * | `broker.update`   | `PATCH /v1/brokers/:id` (1.2)      | `{ changed: string[] }`        |
+ * | `broker.delete`   | `DELETE /v1/brokers/:id` (1.2)     | `{ broker }`                   |
+ * | `broker.expire`   | broker-token-expiry job, a broker refusing a token (system) | `{ broker, reason }` |
+ * | `instruments.sync`| `POST /v1/admin/instruments/sync` (1.2) | `{ brokers: string[] }`   |
  *
- * Later phases add, with their first writer: auth events (0.6), `broker.connect` (1.2), `order.place|modify|cancel`
+ * Never put credentials, tokens or broker client ids in `data`.
+ *
+ * Later phases add, with their first writer: auth events (0.6), `order.place|modify|cancel`
  * (2.1), `killswitch.on|off` (2.1), `strategy.deploy` (4.3), `autotrade.enable` (5.4).
  */
-export const AUDIT_ACTIONS = Object.freeze(["settings.update"] as const);
+export const AUDIT_ACTIONS = Object.freeze([
+  "settings.update",
+  "broker.connect",
+  "broker.relogin",
+  "broker.update",
+  "broker.delete",
+  "broker.expire",
+  "instruments.sync",
+] as const);
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
 const KNOWN: ReadonlySet<string> = new Set(AUDIT_ACTIONS);

@@ -19,10 +19,18 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary"],
-      // Gated: the code unit tests own. src/infra, src/bootstrap, repositories and controllers are covered by the
-      // integration tests instead (plan D16).
+      // Gated: the code unit tests own. src/infra, src/bootstrap, repositories, controllers, Socket.IO gateways and
+      // their server adapter are covered by the integration tests instead (plan D16).
       include: ["src/common/**", "src/config/**", "src/modules/**"],
-      exclude: ["**/__tests__/**", "**/*.module.ts", "**/dto/**", "**/*.repository.ts", "**/*.controller.ts"],
+      exclude: [
+        "**/__tests__/**",
+        "**/*.module.ts",
+        "**/dto/**",
+        "**/*.repository.ts",
+        "**/*.controller.ts",
+        "**/*.gateway.ts",
+        "**/*-io.adapter.ts",
+      ],
       thresholds: { lines: 80, functions: 80, branches: 80, statements: 80 },
     },
   },

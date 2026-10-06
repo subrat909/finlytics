@@ -74,7 +74,12 @@ describe("OpenAPI", () => {
       for (const [path, item] of Object.entries(document.paths)) {
         for (const [method, operation] of Object.entries(item)) {
           const where = `${method} ${path}`;
-          const isPublic = path.startsWith("/health/") || /^\/v1\/__test__\/(slow|boom|db|bigint|guarded)/.test(path);
+          // Public: the health probes, the broker OAuth callback (the browser arrives from the broker; the signed state
+          // and the session cookie are checked by the handler) and the test probes.
+          const isPublic =
+            path.startsWith("/health/") ||
+            path === "/v1/brokers/upstox/callback" ||
+            /^\/v1\/__test__\/(slow|boom|db|bigint|guarded)/.test(path);
           if (isPublic) expect(operation.security, where).toEqual([]);
           else expect(operation.security, where).toBeUndefined();
           expect(operation.responses["default"]?.content?.[PROBLEM_JSON_MEDIA_TYPE]?.schema?.$ref, where).toBe(

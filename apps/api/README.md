@@ -12,7 +12,8 @@ curl -i http://127.0.0.1:4000/health/live
 open http://127.0.0.1:4000/docs       # Swagger UI; the OpenAPI 3.1 document is /docs/json (never in production)
 ```
 
-`pnpm dev` loads the repo-root `.env` (`node --env-file-if-exists`); nothing else does. It sets `APP_ROLE=http` itself,
+`pnpm dev` loads the repo-root `.env` (`node --env-file-if-exists`); nothing else does. It sets
+`APP_ROLE=http,gateway,feed,worker` itself (REST and Socket.IO `/rt` on one port, the paper market feed, job workers),
 and a variable set in the environment wins over `.env`, so an `APP_ROLE` that `.env` sets for another tool doesn't
 matter. The process validates its environment before Nest starts and exits 1 with one `VARIABLE: reason` line per
 problem, never a value. `NODE_ENV` must be set explicitly unless `API_HOST` is loopback. Every variable and its
@@ -29,17 +30,18 @@ curl -i -X PATCH -H 'content-type: application/json' --cookie "authjs.session-to
 
 ## Layout
 
-| Path                | What                                                                                                                            |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `src/main.ts`       | validates the environment, then starts the process role (`APP_ROLE`, only `http` so far)                                        |
-| `src/app.module.ts` | `AppModule.forRoot(env)`: global guards (CSRF → session → rate limit → auth), Zod pipe, idempotency and serializer interceptors |
-| `src/bootstrap/`    | Fastify options, HTTP hardening and OpenAPI (`/docs`), shared by main.ts and the tests                                          |
-| `src/config/`       | the environment schema and loader; app code reads `ConfigService<Env, true>`                                                    |
-| `src/common/`       | problem+json errors, logging, the validation pipe, CSRF, rate limiting (GCRA in Redis), idempotency, decorators                 |
-| `src/infra/`        | Prisma (tenancy-guarded `db`), Redis (`keys.ts` builds every key), readiness and shutdown                                       |
-| `src/modules/`      | `health`, `auth` (Auth.js sessions), `users` (`GET /v1/me`), `settings` (`GET`/`PATCH /v1/me/settings`), `audit`                |
-| `test/integration/` | Testcontainers TimescaleDB + Redis, apps built by the production bootstrap                                                      |
-| `test/support/`     | test-only routes the harness adds (never compiled into `dist`)                                                                  |
+| Path                | What                                                                                                                              |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `src/main.ts`       | validates the environment, then starts the process roles (`APP_ROLE`: `http`, `gateway`, `feed`, `worker`; `src/role-modules.ts`) |
+| `src/feed/`         | the shared market feed (`feed` role): leader lock, paper simulator or Upstox, subscription reconcile, tick writes to Redis        |
+| `src/app.module.ts` | `AppModule.forRoot(env)`: global guards (CSRF → session → rate limit → auth), Zod pipe, idempotency and serializer interceptors   |
+| `src/bootstrap/`    | Fastify options, HTTP hardening and OpenAPI (`/docs`), shared by main.ts and the tests                                            |
+| `src/config/`       | the environment schema and loader; app code reads `ConfigService<Env, true>`                                                      |
+| `src/common/`       | problem+json errors, logging, the validation pipe, CSRF, rate limiting (GCRA in Redis), idempotency, decorators                   |
+| `src/infra/`        | Prisma (tenancy-guarded `db`), Redis (`keys.ts` builds every key), readiness and shutdown                                         |
+| `src/modules/`      | `health`, `auth` (Auth.js sessions), `users` (`GET /v1/me`), `settings` (`GET`/`PATCH /v1/me/settings`), `audit`                  |
+| `test/integration/` | Testcontainers TimescaleDB + Redis, apps built by the production bootstrap                                                        |
+| `test/support/`     | test-only routes the harness adds (never compiled into `dist`)                                                                    |
 
 New module: copy an existing one (`controller → service → repository`, DTOs from `@finlytics/shared`; see
 `.claude/skills/nest-module/SKILL.md`). Guards are global; opt out with `@Public()`. Query through `this.prisma.db`.

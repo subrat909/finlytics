@@ -11,6 +11,8 @@ const production = loadEnv({
   NODE_ENV: "production",
   API_ALLOWED_ORIGINS: "https://app.finlytics.in",
   API_TRUST_PROXY: "10.0.0.0/8",
+  MASTER_KEY: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+  API_PUBLIC_URL: "https://app.finlytics.in",
 });
 
 describe("Fastify options", () => {

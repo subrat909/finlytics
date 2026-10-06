@@ -24,16 +24,24 @@ import { ZodValidationPipe } from "./common/pipes/zod-validation.pipe";
 import { RateLimitGuard } from "./common/rate-limit/rate-limit.guard";
 import { RateLimitModule } from "./common/rate-limit/rate-limit.module";
 import { configModule } from "./config/config.module";
+import { hasRole } from "./config/env.schema";
 import type { Env } from "./config/env.schema";
 import { LifecycleModule } from "./infra/lifecycle/lifecycle.module";
 import { PrismaModule } from "./infra/prisma/prisma.module";
 import { RedisModule } from "./infra/redis/redis.module";
 import { AuthGuard } from "./modules/auth/auth.guard";
 import { AuthModule } from "./modules/auth/auth.module";
+import { BrokersModule } from "./modules/brokers/brokers.module";
 import { SessionGuard } from "./modules/auth/session.guard";
+import { CandlesModule } from "./modules/candles/candles.module";
 import { HealthModule } from "./modules/health/health.module";
+import { InstrumentsModule } from "./modules/instruments/instruments.module";
+import { QuotesModule } from "./modules/quotes/quotes.module";
 import { SettingsModule } from "./modules/settings/settings.module";
+import { UdfModule } from "./modules/udf/udf.module";
 import { UsersModule } from "./modules/users/users.module";
+import { WatchlistsModule } from "./modules/watchlists/watchlists.module";
+import { roleModules } from "./role-modules";
 
 type ImportableModule = Type | DynamicModule | Promise<DynamicModule> | ForwardReference;
 
@@ -62,8 +70,20 @@ export class AppModule {
         IdempotencyModule,
         AuthModule,
         HealthModule,
-        UsersModule,
-        SettingsModule,
+        // The `http` role's REST feature modules; `gateway`, `feed` and `worker` add theirs (role-modules.ts).
+        ...(hasRole(env, "http")
+          ? [
+              UsersModule,
+              SettingsModule,
+              CandlesModule,
+              UdfModule,
+              BrokersModule,
+              InstrumentsModule,
+              WatchlistsModule,
+              QuotesModule,
+            ]
+          : []),
+        ...roleModules(env),
         ...(options.extraImports ?? []),
       ],
       providers: [

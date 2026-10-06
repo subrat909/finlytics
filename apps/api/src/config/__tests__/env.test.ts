@@ -16,6 +16,8 @@ const PRODUCTION = Object.freeze({
   NODE_ENV: "production",
   API_ALLOWED_ORIGINS: "https://app.finlytics.in",
   API_TRUST_PROXY: "10.0.0.0/8",
+  MASTER_KEY: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+  API_PUBLIC_URL: "https://app.finlytics.in",
 });
 
 /** The `VARIABLE: reason` lines loadEnv throws for `source`. */
@@ -35,7 +37,7 @@ describe("loadEnv", () => {
 
     expect(env).toMatchObject({
       NODE_ENV: "development",
-      APP_ROLE: "http",
+      APP_ROLE: ["http"],
       API_HOST: "127.0.0.1",
       API_PORT: 4000,
       API_LOG_LEVEL: "info",
@@ -123,6 +125,8 @@ describe("loadEnv", () => {
     expect(issuesOf({ ...REQUIRED, NODE_ENV: "production" })).toEqual([
       "API_TRUST_PROXY: must be set explicitly in production: false or the proxies' IPs/CIDRs",
       "API_ALLOWED_ORIGINS: is required in production",
+      "MASTER_KEY: is required in production",
+      "API_PUBLIC_URL: is required in production",
     ]);
     expect(
       issuesOf({ ...PRODUCTION, API_ALLOWED_ORIGINS: "https://app.finlytics.in,http://app.finlytics.in" }),
@@ -271,7 +275,59 @@ describe("loadEnv", () => {
     expect(loadEnv({ ...REQUIRED, NODE_ENV: "test", API_HOST: "0.0.0.0" }).API_HOST).toBe("0.0.0.0");
     expect(loadEnv({ ...REQUIRED, NODE_ENV: "test", API_HOST: "::" }).API_HOST).toBe("::");
     expect(loadEnv({ ...REQUIRED, NODE_ENV: "test", API_HOST: "api.internal" }).API_HOST).toBe("api.internal");
-    expect(issuesOf({ ...REQUIRED, APP_ROLE: "gateway" })).toEqual(["APP_ROLE: must be http"]);
+    expect(issuesOf({ ...REQUIRED, APP_ROLE: "web" })).toEqual([
+      "APP_ROLE: must be a comma-separated list of http, gateway, feed, worker",
+    ]);
+  });
+
+  it("reads APP_ROLE as a comma list of roles, each once, in a fixed order", () => {
+    expect(loadEnv({ ...REQUIRED, APP_ROLE: "worker, http,gateway,feed,http" }).APP_ROLE).toEqual([
+      "http",
+      "gateway",
+      "feed",
+      "worker",
+    ]);
+    expect(loadEnv({ ...REQUIRED, APP_ROLE: "gateway" }).APP_ROLE).toEqual(["gateway"]);
+    expect(issuesOf({ ...REQUIRED, APP_ROLE: "http,," })).toEqual([
+      "APP_ROLE: must be a comma-separated list of http, gateway, feed, worker",
+    ]);
+  });
+
+  it("defaults the market feed to an always-on paper simulator outside production", () => {
+    const env = loadEnv(REQUIRED);
+    expect(env).toMatchObject({
+      MARKET_FEED_SOURCE: "paper",
+      MARKET_FEED_ALWAYS_ON: true,
+      MARKET_FEED_PAPER_SEED: 1,
+      MARKET_FEED_PAPER_TICK_MS: 250,
+      RT_UNSUB_GRACE_MS: 30_000,
+    });
+    expect(env.MARKET_FEED_ACCOUNT_ID).toBeUndefined();
+  });
+
+  it("keeps one role per process and an explicit feed source in production", () => {
+    expect(issuesOf({ ...PRODUCTION, APP_ROLE: "http,gateway", MARKET_FEED_SOURCE: "paper" })).toEqual([
+      "APP_ROLE: must name one role per process in production",
+    ]);
+    expect(issuesOf({ ...PRODUCTION, APP_ROLE: "gateway" })).toEqual([
+      "MARKET_FEED_SOURCE: must be set in production when APP_ROLE is feed or gateway",
+    ]);
+    const env = loadEnv({ ...PRODUCTION, APP_ROLE: "feed", MARKET_FEED_SOURCE: "paper" });
+    expect(env.MARKET_FEED_ALWAYS_ON).toBe(false);
+    expect(loadEnv(PRODUCTION).APP_ROLE).toEqual(["http"]);
+  });
+
+  it("requires the feed account for an upstox feed", () => {
+    expect(issuesOf({ ...REQUIRED, APP_ROLE: "feed", MARKET_FEED_SOURCE: "upstox" })).toEqual([
+      "MARKET_FEED_ACCOUNT_ID: is required when MARKET_FEED_SOURCE is upstox and APP_ROLE includes feed",
+    ]);
+    expect(
+      loadEnv({ ...REQUIRED, APP_ROLE: "feed", MARKET_FEED_SOURCE: "upstox", MARKET_FEED_ACCOUNT_ID: "cmabc123" })
+        .MARKET_FEED_ACCOUNT_ID,
+    ).toBe("cmabc123");
+    expect(issuesOf({ ...REQUIRED, MARKET_FEED_SOURCE: "dhan" })).toEqual([
+      "MARKET_FEED_SOURCE: must be paper or upstox",
+    ]);
   });
 
   it("names the problem when a value isn't a string", () => {
@@ -284,6 +340,40 @@ describe("loadEnv", () => {
     expect(issues).toEqual([
       "API_TRUST_PROXY: must be false or the proxies' comma-separated IPs/CIDRs",
       "API_ALLOWED_ORIGINS: must be comma-separated origins (scheme://host[:port], no path, no wildcard)",
+    ]);
+  });
+});
+
+describe("vault and public URL variables", () => {
+  it("accepts a 32-byte base64 master key and an origin, defaulting the public URL in development", () => {
+    const env = loadEnv({ ...REQUIRED, MASTER_KEY: PRODUCTION.MASTER_KEY, API_PUBLIC_URL: "http://localhost:3000/" });
+
+    expect(env.MASTER_KEY).toBe(PRODUCTION.MASTER_KEY);
+    expect(env.API_PUBLIC_URL).toBe("http://localhost:3000");
+    expect(loadEnv(REQUIRED).MASTER_KEY).toBeUndefined();
+    expect(loadEnv(REQUIRED).API_PUBLIC_URL).toBe("http://localhost:3000");
+  });
+
+  it("rejects a master key that isn't 32 bytes of base64, and a public URL with a path, never echoing values", () => {
+    const issues = issuesOf({
+      ...REQUIRED,
+      MASTER_KEY: "c2hvcnQta2V5",
+      API_PUBLIC_URL: "https://app.finlytics.in/app",
+    });
+
+    expect(issues).toEqual([
+      "MASTER_KEY: must be 32 bytes, base64-encoded (openssl rand -base64 32)",
+      "API_PUBLIC_URL: must be an http(s) origin (scheme://host[:port], no path)",
+    ]);
+    expect(issues.join(" ")).not.toContain("c2hvcnQta2V5");
+  });
+
+  it("requires an https public URL in production", () => {
+    expect(issuesOf({ ...PRODUCTION, API_PUBLIC_URL: "http://app.finlytics.in" })).toEqual([
+      "API_PUBLIC_URL: must use https:// in production",
+    ]);
+    expect(issuesOf({ ...PRODUCTION, MASTER_KEY: "bad" })).toEqual([
+      "MASTER_KEY: must be 32 bytes, base64-encoded (openssl rand -base64 32)",
     ]);
   });
 });

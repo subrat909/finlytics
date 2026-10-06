@@ -19,7 +19,11 @@ describe("redisKeys", () => {
     expect(redisKeys.quoteChannel("NSE_EQ|RELIANCE")).toBe("q:NSE_EQ|RELIANCE");
     expect(redisKeys.ticks("UPSTOX")).toBe("ticks:UPSTOX");
     expect(redisKeys.subscriptions("NSE_EQ|RELIANCE")).toBe("subs:NSE_EQ|RELIANCE");
-    expect(redisKeys.feedLease("DHAN")).toBe("lease:feed:DHAN");
+    expect(redisKeys.subscriptions("NSE_INDEX|NIFTY 50")).toBe("subs:NSE_INDEX|NIFTY 50");
+    expect(redisKeys.subscriptionsWanted("PAPER")).toBe("subs:wanted:PAPER");
+    expect(redisKeys.feedLock("DHAN")).toBe("lock:feed:DHAN");
+    expect(redisKeys.feedStatus("UPSTOX")).toBe("feed:status:UPSTOX");
+    expect(redisKeys.candleCoverage("M1", "NSE_EQ|RELIANCE")).toBe("candles:cov:M1:NSE_EQ|RELIANCE");
   });
 
   it("refuses segments that could forge another key", () => {
@@ -27,6 +31,7 @@ describe("redisKeys", () => {
     expect(() => redisKeys.idempotency("u1:other", "abcdefghijklmnop")).toThrow(/userId/);
     expect(() => redisKeys.rateLimitByUser("", "u1")).toThrow(/policy/);
     expect(() => redisKeys.quote("NSE EQ")).toThrow(/instrumentKey/);
+    expect(() => redisKeys.subscriptions("NSE_EQ|A:B")).toThrow(/instrumentKey/);
     expect(() => redisKeys.rateLimitByIp("public", "1.2.3.4 x")).toThrow(/ip/);
     expect(() => redisKeys.rateLimitByIp("public", "u:evil")).toThrow(/ip/);
     expect(() => redisKeys.rateLimitByIp("public", "2001:db8::/32")).toThrow(/ip/);

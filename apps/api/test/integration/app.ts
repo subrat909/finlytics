@@ -50,6 +50,8 @@ export const PRODUCTION_ENV = Object.freeze({
   API_ALLOWED_ORIGINS: "https://app.finlytics.test",
   API_TRUST_PROXY: "false",
   API_SHUTDOWN_DRAIN_MS: "0",
+  MASTER_KEY: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+  API_PUBLIC_URL: "https://app.finlytics.test",
 });
 
 export interface TestApp {

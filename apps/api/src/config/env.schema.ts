@@ -36,9 +36,34 @@ export const TRANSACTION_LIMITS = Object.freeze({
 /** API_HOST values that accept connections from this machine only. */
 export const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(["127.0.0.1", "::1", "localhost"]);
 
-/** The process roles. 1.4 adds `gateway` and `feed`, later `worker`. */
-export const APP_ROLES = ["http"] as const;
+/**
+ * The process roles (phase 1 plan P1), as a comma list: `http` (REST), `gateway` (Socket.IO `/rt`), `feed` (the shared
+ * market feed, one leader per broker) and `worker` (BullMQ processors). Development runs all four in one process;
+ * production runs one role per process.
+ */
+export const APP_ROLES = ["http", "gateway", "feed", "worker"] as const;
 export type AppRole = (typeof APP_ROLES)[number];
+
+/** Where the shared market feed comes from (plan P2): the deterministic simulator, or Upstox's market WebSocket. */
+export const MARKET_FEED_SOURCES = ["paper", "upstox"] as const;
+export type MarketFeedSource = (typeof MARKET_FEED_SOURCES)[number];
+
+const APP_ROLE_REASON = `must be a comma-separated list of ${APP_ROLES.join(", ")}`;
+
+/** `http,gateway` → `["http", "gateway"]`: known roles only, each once, in {@link APP_ROLES} order. */
+const appRoleVariable = z.string({ error: APP_ROLE_REASON }).transform((raw, ctx): readonly AppRole[] => {
+  const names = raw.split(",").map((entry) => entry.trim());
+  if (names.some((name) => !(APP_ROLES as readonly string[]).includes(name))) {
+    ctx.addIssue({ code: "custom", message: APP_ROLE_REASON });
+    return z.NEVER;
+  }
+  return Object.freeze(APP_ROLES.filter((role) => names.includes(role)));
+});
+
+/** Whether the process runs `role`. */
+export function hasRole(env: Pick<Env, "APP_ROLE">, role: AppRole): boolean {
+  return env.APP_ROLE.includes(role);
+}
 
 export const LOG_LEVELS = ["fatal", "error", "warn", "info", "debug", "trace", "silent"] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];
@@ -180,9 +205,32 @@ const originsVariable = z.string({ error: ORIGINS_REASON }).transform((raw, ctx)
   return Object.freeze([...new Set(origins)]);
 });
 
+const MASTER_KEY_REASON = "must be 32 bytes, base64-encoded (openssl rand -base64 32)";
+
+/**
+ * The vault's master key (plan P3, docs/06 "Crypto design"): exactly 32 bytes as standard base64. Kept as the string;
+ * VaultService decodes it. Required in production; elsewhere, unset means an ephemeral key per process (a warning).
+ */
+const masterKeyVariable = z
+  .string({ error: MASTER_KEY_REASON })
+  .trim()
+  .refine(
+    (value) => /^[A-Za-z0-9+/]{43}=$/.test(value) && Buffer.from(value, "base64").length === 32,
+    MASTER_KEY_REASON,
+  );
+
+const PUBLIC_URL_REASON = "must be an http(s) origin (scheme://host[:port], no path)";
+
+/** The public origin of the web app and `/v1` (same origin): broker OAuth redirect URIs and post-login redirects. */
+const publicUrlVariable = z
+  .string({ error: PUBLIC_URL_REASON })
+  .trim()
+  .transform((value) => value.replace(/\/+$/, ""))
+  .refine(isExactOrigin, PUBLIC_URL_REASON);
+
 /** The api's own variables. Variables with a NODE_ENV-dependent default parse to `undefined` when unset. */
 const apiEnvShape = {
-  APP_ROLE: z.preprocess(emptyToUndefined, z.enum(APP_ROLES, { error: "must be http" }).default("http")),
+  APP_ROLE: z.preprocess(emptyToUndefined, appRoleVariable.default(Object.freeze(["http"] as const))),
   API_HOST: z.preprocess(emptyToUndefined, hostVariable.default("127.0.0.1")),
   API_PORT: z.preprocess(emptyToUndefined, integer(0, 65_535).default(4_000)),
   REDIS_URL: redisUrlVariable,
@@ -194,6 +242,19 @@ const apiEnvShape = {
   API_SHUTDOWN_DRAIN_MS: optional(integer(0, 30_000)),
   API_RATE_LIMIT_PUBLIC_PER_MIN: z.preprocess(emptyToUndefined, integer(1, 100_000).default(100)),
   API_RATE_LIMIT_USER_PER_MIN: z.preprocess(emptyToUndefined, integer(1, 100_000).default(600)),
+  MASTER_KEY: optional(masterKeyVariable),
+  API_PUBLIC_URL: optional(publicUrlVariable),
+  MARKET_FEED_SOURCE: optional(z.enum(MARKET_FEED_SOURCES, { error: "must be paper or upstox" })),
+  MARKET_FEED_ACCOUNT_ID: optional(
+    z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9_-]{1,64}$/, "must be a BrokerAccount id"),
+  ),
+  MARKET_FEED_ALWAYS_ON: optional(booleanVariable),
+  MARKET_FEED_PAPER_SEED: z.preprocess(emptyToUndefined, integer(0, 2_147_483_647).default(1)),
+  MARKET_FEED_PAPER_TICK_MS: z.preprocess(emptyToUndefined, integer(20, 60_000).default(250)),
+  RT_UNSUB_GRACE_MS: z.preprocess(emptyToUndefined, integer(0, 600_000).default(30_000)),
 };
 
 /** What {@link checkApiEnv} reads: possibly unparsed values, since it also runs when another variable failed. */
@@ -226,7 +287,21 @@ export function checkApiEnv(env: ApiEnvRuleInput, ctx: z.RefinementCtx): void {
     );
   }
 
+  const roles = Array.isArray(env?.["APP_ROLE"]) ? (env["APP_ROLE"] as readonly string[]) : [];
+  if (
+    env?.["MARKET_FEED_SOURCE"] === "upstox" &&
+    roles.includes("feed") &&
+    env["MARKET_FEED_ACCOUNT_ID"] === undefined
+  ) {
+    issue("MARKET_FEED_ACCOUNT_ID", "is required when MARKET_FEED_SOURCE is upstox and APP_ROLE includes feed");
+  }
+
   if (env?.["NODE_ENV"] !== "production") return;
+
+  if (roles.length > 1) issue("APP_ROLE", "must name one role per process in production");
+  if (env["MARKET_FEED_SOURCE"] === undefined && (roles.includes("feed") || roles.includes("gateway"))) {
+    issue("MARKET_FEED_SOURCE", "must be set in production when APP_ROLE is feed or gateway");
+  }
 
   if (env["API_TRUST_PROXY"] === undefined) {
     issue("API_TRUST_PROXY", "must be set explicitly in production: false or the proxies' IPs/CIDRs");
@@ -242,6 +317,15 @@ export function checkApiEnv(env: ApiEnvRuleInput, ctx: z.RefinementCtx): void {
   if (level === "trace" || level === "silent") issue("API_LOG_LEVEL", "must not be trace or silent in production");
   if (env["API_DOCS_ENABLED"] === true) issue("API_DOCS_ENABLED", "must be false in production");
   if (env["API_PORT"] === 0) issue("API_PORT", "must be from 1 to 65535 in production");
+  if (env["MASTER_KEY"] === undefined && !hasOwnIssue("MASTER_KEY")) {
+    issue("MASTER_KEY", "is required in production");
+  }
+  const publicUrl = env["API_PUBLIC_URL"];
+  if (publicUrl === undefined && !hasOwnIssue("API_PUBLIC_URL")) {
+    issue("API_PUBLIC_URL", "is required in production");
+  } else if (typeof publicUrl === "string" && !publicUrl.startsWith("https://")) {
+    issue("API_PUBLIC_URL", "must use https:// in production");
+  }
 }
 
 /**
@@ -285,6 +369,9 @@ export const EnvSchema = z
       API_ALLOWED_ORIGINS: env.API_ALLOWED_ORIGINS ?? Object.freeze([DEVELOPMENT_ORIGIN]),
       API_DOCS_ENABLED: env.API_DOCS_ENABLED ?? !production,
       API_SHUTDOWN_DRAIN_MS: env.API_SHUTDOWN_DRAIN_MS ?? (production ? PRODUCTION_DRAIN_MS : 0),
+      API_PUBLIC_URL: env.API_PUBLIC_URL ?? DEVELOPMENT_ORIGIN,
+      MARKET_FEED_SOURCE: env.MARKET_FEED_SOURCE ?? "paper",
+      MARKET_FEED_ALWAYS_ON: env.MARKET_FEED_ALWAYS_ON ?? !production,
     } satisfies Record<string, unknown>;
     return Object.freeze(resolved);
   });
