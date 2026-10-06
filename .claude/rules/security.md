@@ -19,8 +19,8 @@ globs: ["apps/**", "packages/**"]
 - Admin endpoints under `/admin/*` require ADMIN + 2FA + IP allowlist.
 
 ## Broker credentials & tokens
-- Stored in `BrokerAccount.encryptedCredentials` (AES-256-GCM, 96-bit IV, AAD = userId). Data key per row, wrapped by master key (`MASTER_KEY_ID` via KMS or `MASTER_KEY` env in dev).
-- Decrypted only inside `BrokerVaultService` in `apps/api`; never returned by any API; never logged (redact with pino `redact` paths).
+- Stored in `BrokerAccount.encryptedCredentials` (AES-256-GCM, a fresh 96-bit IV per ciphertext, tag stored with it, AAD = `userId:brokerAccountId:<field>`; the client id and the user's broker app are separate fields). Data key per row, wrapped by master key with its own IV (`MASTER_KEY_ID` via KMS or `MASTER_KEY` env, base64 32 bytes, required in production). Design: docs/06 "Crypto design".
+- Decrypted only inside `VaultService` (`apps/api/src/infra/vault`); never returned by any API; never logged (redact with pino `redact` paths).
 - Access tokens refreshed server-side by a BullMQ job before expiry; refresh failure → mark account `NEEDS_RELOGIN` and notify user.
 - Broker OAuth redirect URIs are exact-match, state parameter is a signed nonce bound to the session.
 

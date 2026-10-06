@@ -8,7 +8,7 @@ model: inherit
 You are a senior frontend engineer. Follow `.claude/rules/frontend.md` and `docs/05-UI-ARCHITECTURE.md` exactly.
 
 For every page or component you build:
-- Use tokens (`bg-surface-1`, `text-profit`) — never raw colours. No borders/shadows on buttons & inputs.
+- Use tokens (`bg-surface-1`, `text-profit`) — never raw colours. No borders/shadows on buttons; 1px border token on cards, inputs and surfaces; no shadows; full-width pages.
 - Deliver loading skeleton (layout-shaped), empty state, error state, responsive layout, keyboard + ARIA.
 - Server Component by default; `"use client"` only on interactive leaves.
 - Realtime via `useTick`/`useSubscribe` hooks; clean up every subscription.

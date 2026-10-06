@@ -29,7 +29,7 @@ description: How to build any Finlytics UI component or page — tokens, palette
 
 Category accents for icons/chips: indigo (strategies), cyan (watchlist), emerald (P&L), amber (alerts), rose (risk), violet (AI agents), sky (option chain), orange (brokers).
 
-## Button / Input recipe (no border, no shadow)
+## Button / Input / Card recipe (no border on buttons, no shadows)
 ```tsx
 // packages/ui/src/components/button.tsx (cva variants)
 primary:   "bg-primary text-primary-fg hover:bg-primary/90"
@@ -40,9 +40,11 @@ loss:      "bg-loss text-loss-fg hover:bg-loss/90"
 // all: rounded-md h-10 px-4 font-medium transition-[color,background-color] disabled:opacity-50
 //      focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid
 //      — NO border, NO shadow, no outline-hidden; never transition-colors (it fades the outline in from the text colour)
-// input: bg-surface-2 rounded-md h-10 px-3 placeholder:text-fg-muted transition-[color,background-color]
+// input: border border-border-strong bg-surface-2 rounded-md h-10 px-3 placeholder:text-fg-muted aria-invalid:border-loss
+//      transition-[color,background-color]
 //      focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid
-//      — NO border
+//      — 1px border-strong (≥ 3:1), NO shadow
+// card:  rounded-md border border-border bg-surface-1 p-4 sm:p-6 — NO shadow
 ```
 
 ## Page skeleton recipe
@@ -69,7 +71,7 @@ const tick = useTick(instrumentKey);           // zustand selector, rAF-throttle
 ```
 
 ## Checklist before finishing a UI task
-- [ ] tokens only, no hex; no border/shadow on buttons & inputs
+- [ ] tokens only, no hex; no border/shadow on buttons; 1px border token on cards, inputs and surfaces; no shadows
 - [ ] loading / empty / error / stale / disconnected states
 - [ ] mobile (360px), tablet, desktop
 - [ ] keyboard nav, labels, aria-live for live numbers, contrast both themes

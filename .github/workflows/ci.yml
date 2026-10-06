@@ -180,6 +180,8 @@ jobs:
           echo "AUTH_SECRET=$secret" >> "$GITHUB_ENV"
       - run: docker compose up --detach --wait postgres redis mailpit
       - run: pnpm db:deploy
+      # Plans, holidays and the dev instrument set (watchlist search in the e2e needs instruments).
+      - run: pnpm db:seed
       - run: pnpm --filter @finlytics/web exec playwright install --with-deps chromium
       # turbo builds shared, database and the api first; Playwright starts the api (dist/main.js) and `next dev`.
       - run: pnpm test:e2e

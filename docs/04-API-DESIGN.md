@@ -13,11 +13,11 @@
 |---|---|
 | Auth (Auth.js handles OAuth in web) | `POST /v1/auth/2fa/setup` `POST /v1/auth/2fa/verify` `POST /v1/auth/sessions/revoke` |
 | Users/Settings | `GET/PATCH /v1/me` `GET/PATCH /v1/me/settings` (JSONB: appearance, trading defaults, notifications; see below) `GET /v1/me/export` `DELETE /v1/me` |
-| Brokers | `GET /v1/brokers` (catalog) `GET /v1/broker-accounts` `POST /v1/broker-accounts` (start OAuth / save static token) `GET /v1/broker-accounts/:id/callback` `POST /v1/broker-accounts/:id/relogin` `DELETE /v1/broker-accounts/:id` `POST /v1/broker-accounts/:id/default` |
-| Market data | `GET /v1/instruments/search?q=` `GET /v1/instruments/:key` `GET /v1/quotes?keys=` (from Redis) `GET /v1/candles?key&tf&from&to` `GET /v1/market/status` `GET /v1/market/indices` |
+| Brokers (1.2) | `GET /v1/brokers` (the user's accounts; never credentials or the client id) `POST /v1/brokers/upstox` `{label, apiKey, apiSecret}` → PENDING + `{account, authUrl}` `GET /v1/brokers/upstox/callback?code&state` (public; signed single-use state bound to the session; 302 to `/brokers?connected=<id>` or `?error=`) `POST /v1/brokers/dhan` `{label, clientId, accessToken}` (checked with `getProfile`; same label = new token) `POST /v1/brokers/paper` `{label}` `POST /v1/brokers/:id/relogin` → `{account, authUrl}` (Upstox; 422 for Dhan/paper) `PATCH /v1/brokers/:id` `{label?, isDefault?}` `DELETE /v1/brokers/:id`. Over `Plan.maxBrokerAccounts`: 403 |
+| Market data | `GET /v1/instruments?q=&exchange=&segment=&limit=` (trigram + prefix boost, option terms like `nifty 25000 ce`) `GET /v1/instruments/:key` (URL-encoded key) `POST /v1/admin/instruments/sync` `{broker?}` (ADMIN, 202) `GET /v1/quotes?keys=a,b` (≤ 50, from Redis `quote:*`) `GET /v1/candles?key&tf&from&to` `GET /v1/market/status` `GET /v1/market/indices` |
 | TradingView UDF | `GET /v1/tv/config` `/v1/tv/symbols` `/v1/tv/search` `/v1/tv/history` `/v1/tv/marks` `/v1/tv/time` |
 | Option chain | `GET /v1/option-chain?underlying&expiry` (chain + greeks, cached 1 s) `GET /v1/option-chain/expiries?underlying` `GET /v1/option-chain/analytics` (PCR, max pain, OI buildup) |
-| Watchlists | `GET/POST /v1/watchlists` `PATCH/DELETE /v1/watchlists/:id` `PUT /v1/watchlists/:id/items` (ordered keys) |
+| Watchlists (1.2) | `GET/POST /v1/watchlists` `PATCH /v1/watchlists/:id` `{name?, position?}` `DELETE /v1/watchlists/:id` `POST /v1/watchlists/:id/items` `{instrumentKey}` `DELETE /v1/watchlists/:id/items/:itemId` `PUT /v1/watchlists/:id/items/order` `{itemIds}`. Over `Plan.maxWatchlists` / `maxWatchlistItems`: 403; duplicates: 409 |
 | Orders | `POST /v1/orders` `PATCH /v1/orders/:id` `DELETE /v1/orders/:id` `GET /v1/orders?status&from&to` `GET /v1/orders/:id` `POST /v1/orders/basket` |
 | Portfolio | `GET /v1/positions` `GET /v1/holdings` `GET /v1/funds` `POST /v1/positions/:key/exit` `POST /v1/positions/exit-all` |
 | P&L | `GET /v1/pnl/live` `GET /v1/pnl/calendar?month=` `GET /v1/pnl/trades?from&to` `GET /v1/pnl/summary` |
@@ -290,7 +290,13 @@ exits 1 with one `VARIABLE: reason` line per problem, never a value. Booleans ar
 | Variable | Values | Default | Production |
 |---|---|---|---|
 | `NODE_ENV` | `development`, `test`, `production` | `development`, only while `API_HOST` is `127.0.0.1`, `::1` or `localhost`; on any other host it must be set | must be set |
-| `APP_ROLE` | `http` (1.4 adds `gateway` and `feed`, later `worker`) | `http` | — |
+| `APP_ROLE` | comma list of `http`, `gateway`, `feed`, `worker` (`pnpm dev` runs all four) | `http` | exactly one role per process |
+| `MARKET_FEED_SOURCE` | `paper` (deterministic simulator), `upstox` | `paper` | must be set for `feed` and `gateway` |
+| `MARKET_FEED_ACCOUNT_ID` | the `BrokerAccount` id whose token drives the shared Upstox feed | unset | required when the source is `upstox` and the role is `feed` |
+| `MARKET_FEED_ALWAYS_ON` | `true`, `false`: the paper simulator ticks outside market hours | `true` (`false` in production) | — |
+| `MARKET_FEED_PAPER_SEED` | integer 0–2 147 483 647 | `1` | — |
+| `MARKET_FEED_PAPER_TICK_MS` | integer 20–60 000 | `250` | — |
+| `RT_UNSUB_GRACE_MS` | integer 0–600 000: how long the feed keeps an instrument nobody subscribes to | `30000` | — |
 | `API_HOST` | IP address or host name | `127.0.0.1` | containers set `0.0.0.0` |
 | `API_PORT` | integer 0–65535 (0: any free port, tests) | `4000` | 1–65535 |
 | `DATABASE_URL` | `postgres://` or `postgresql://` URL, without `query_timeout`, `statement_timeout` or `idle_in_transaction_session_timeout` | required | — |

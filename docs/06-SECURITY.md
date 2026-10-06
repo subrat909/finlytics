@@ -199,13 +199,27 @@ check has passed. Development and test only warn. Every connection also sets `st
 - **Log review tests** (`apps/api/test/integration/logs.int.test.ts` and the logger unit tests) send cookies, bearer
   tokens and secrets in query strings and check that none reaches a log line.
 
-## Crypto design (BrokerVaultService)
+## Crypto design (VaultService, `apps/api/src/infra/vault`)
 ```
-masterKey (KMS / env, 32 B) ──wrap──▶ dataKey (per BrokerAccount, 32 B random)
-plaintext credentials JSON ──AES-256-GCM(dataKey, iv 12 B, aad = userId:accountId)──▶ ciphertext || tag
-stored: { encKey (wrapped), iv, ct, tag, keyVersion }
+masterKey (MASTER_KEY: base64 32 B; KMS later)
+  ──AES-256-GCM(masterKey, iv 12 B, aad = userId:brokerAccountId:dataKey)──▶ encKeyWrapped (ct || tag), encKeyIv
+dataKey (per BrokerAccount, 32 B random)
+  ──AES-256-GCM(dataKey, fresh iv 12 B per ciphertext, aad = userId:brokerAccountId:<field>)──▶ ct || tag, iv
+fields: credentials (encryptedCredentials, credentialsIv), clientId (brokerClientIdEnc, brokerClientIdIv),
+        appCredentials (appCredentialsEnc, appCredentialsIv: the user's own Upstox app key + secret)
+stored per row: encKeyWrapped, encKeyIv, encKeyVersion, and each field's ciphertext || tag with its own IV
 ```
-Rotation: new master key version → background job rewraps data keys; no plaintext re-encryption needed.
+- A ciphertext only decrypts for its user, its account and its field: copying it to another row or column fails
+  authentication. The ids never contain `:`, so the AAD is unambiguous.
+- Only VaultService encrypts or decrypts; plaintext keys are zeroed after use; failures are a `VaultError` that says
+  nothing about the data. A CHECK (`BrokerAccount_vault_check`) keeps every IV 12 bytes and every ciphertext with its IV.
+- MASTER_KEY is required in production; elsewhere, unset means a per-process key (a warning; accounts won't decrypt
+  after a restart). The broker OAuth `state` HMAC key is derived from it with HKDF-SHA256 (`finlytics/oauth-state/v1`).
+- Rotation: a new master key version re-wraps the data keys (`encKeyVersion`); field ciphertexts never change.
+
+Broker OAuth state (Upstox): `<nonce>.<hmac>`, nonce 32 random bytes, stored as `oauth:state:<nonce>` (10 min) with
+the user, the session id and the account; the callback consumes it with GETDEL (single use) and requires the same
+signed-in session. The redirect URI is exactly `${API_PUBLIC_URL}/v1/brokers/upstox/callback`.
 
 ## Auth flows
 1. **App login**: Auth.js OAuth (Google/GitHub) or email magic link → DB session (token stored hashed; email

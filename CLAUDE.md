@@ -79,7 +79,7 @@ docs/            architecture decisions (read before building a feature)
 - Conventional Commits. Small PRs. Every PR runs `/review` and `/security-audit` commands.
 
 ### UI (full spec: `.claude/rules/frontend.md`, `docs/05-UI-ARCHITECTURE.md`)
-- Design tokens only (no hard-coded colours). Light + dark via `data-theme`. **No borders or shadows on buttons/inputs**; use filled surfaces (`bg-surface-2`) and focus rings for affordance.
+- Design tokens only (no hard-coded colours). Light + dark via `data-theme`. **No borders or shadows on buttons**; cards, inputs and surfaces use a 1px border token (`border-border`; inputs `border-border-strong`, ≥ 3:1). Buttons get affordance from filled surfaces (`bg-surface-2`) and focus outlines. No shadows. Full-width pages; navbar and sidebar on `bg-surface-1` with borders.
 - Every page implements: loading skeleton matching layout shape, empty state with icon + CTA, error state with retry, responsive (mobile ≥ 360px), keyboard navigation + ARIA.
 - Sidebar collapse is a CSS-width transition on a persisted Zustand store; it must not re-mount page content.
 - Icons: lucide-react; colourful semantic accents (profit green, loss rose, warning amber, info sky, primary indigo).
