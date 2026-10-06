@@ -4,7 +4,12 @@ import { defineConfig } from "tsdown";
  * One artefact for every consumer (plan D1): Next.js imports the ESM build (server and browser), NestJS requires the
  * CJS build. zod and decimal.js stay external, so each app resolves them itself.
  */
-export default defineConfig({
+export default defineConfig((inline) => ({
+  // `pnpm dev` runs `tsdown --watch`, and a rebuild must never leave consumers without dist/ (a clean build deletes it
+  // first, which broke concurrent test runs). Watch mode overwrites in place; stable chunk names keep it from
+  // accumulating stale files. One-off builds still start clean.
+  clean: inline.watch === undefined || inline.watch === false,
+  hash: false,
   entry: ["src/index.ts"],
   format: ["esm", "cjs"],
   // The ESM build runs in browsers as well as on Node, so it may assume neither. (tsdown always builds CJS for node.)
@@ -24,4 +29,4 @@ export default defineConfig({
   },
   // CJS is deliberate: NestJS 11 consumes CommonJS. Node 24 could require() the ESM build, but we ship both (D1).
   checks: { legacyCjs: false },
-});
+}));

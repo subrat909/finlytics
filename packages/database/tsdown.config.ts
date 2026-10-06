@@ -7,7 +7,12 @@ import { defineConfig } from "tsdown";
  * Two entries (0.5 plan D16): `index` (the client) and `testing` (`@finlytics/database/testing`: a migrated
  * Testcontainers database for integration tests). They share no module, so the client never loads testcontainers.
  */
-export default defineConfig({
+export default defineConfig((inline) => ({
+  // `pnpm dev` runs `tsdown --watch`, and a rebuild must never leave consumers without dist/ (a clean build deletes it
+  // first, which broke concurrent test runs). Watch mode overwrites in place; stable chunk names keep it from
+  // accumulating stale files. One-off builds still start clean.
+  clean: inline.watch === undefined || inline.watch === false,
+  hash: false,
   entry: { index: "src/index.ts", testing: "src/testing/index.ts" },
   format: ["esm", "cjs"],
   // No `shims`: src/testing uses import.meta.url, which tsdown always shims in CJS output; `shims` would only add
@@ -27,4 +32,4 @@ export default defineConfig({
   },
   // CJS is deliberate: NestJS 11 consumes CommonJS. Node 24 could require() the ESM build, but we ship both (D1).
   checks: { legacyCjs: false },
-});
+}));
