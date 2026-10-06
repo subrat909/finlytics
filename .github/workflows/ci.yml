@@ -84,7 +84,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # Pull the pinned TimescaleDB (about 4 GB) and Redis images in their own step, so pull time and registry errors
       # show up here rather than inside the test run. The tags come from docker-compose.yml; unit tests keep them equal
-      # to the Testcontainers constants (packages/database/src/testing/images.ts, apps/api/test/integration/containers.ts).
+      # to the Testcontainers constants (packages/database/src/testing/images.ts, apps/api/test/integration/containers.ts,
+      # packages/broker-sdk/test/integration/containers.ts).
       - run: docker compose pull --quiet postgres redis
       # Testcontainers on the runner's Docker (preinstalled on ubuntu-24.04). turbo runs generate and build first: the
       # packaging test loads dist/. Covers migrations (including the schema drift check), guards, constraints and both

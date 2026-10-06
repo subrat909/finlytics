@@ -104,7 +104,11 @@ finlytics/
     │               .storybook/ (main.ts, preview.tsx, preview.css: globals + the stories' sources, design-checks.ts)   scripts/visual.mjs
     │               test/{tokens/ (contrast matrix, theme, Tailwind sources), package/ (exports, boundaries, deps, versions), ssr/, visual/ (stories.spec.ts, motion.spec.ts, __screenshots__/)}
     │               later: src/icons/brand/ (0.6), src/mui-theme.ts behind @finlytics/ui/data-grid (2.3)
-    ├── broker-sdk/ src/{adapter.ts, types.ts, registry.ts, rate-limiter.ts, circuit-breaker.ts, brokers/{upstox,dhan}/, __tests__/}  README.md
+    ├── broker-sdk/ src/{adapter.ts (the 12 operations), models.ts (Zod), errors.ts, credentials.ts (Secret), redact.ts, timeout.ts,
+    │               circuit-breaker.ts, gateway.ts (BrokerGateway), registry.ts}
+    │               src/feed/ (feed contracts, TypedEmitter, FeedSubscriptions, backoff)   src/rate-limit/ (limits, GCRA model + Lua, Redis and memory limiters)
+    │               src/brokers/paper/ (PaperAdapter, engine, feeds, quotes, charges); upstox/ (1.2), dhan/ (1.3)
+    │               src/__tests__/adapter.contract.ts (the reusable contract suite)   test/{integration/ (Redis, Testcontainers), pkg/ (smoke)}  README.md
     ├── config/     eslint-config/ (base, library, node, nest, react, restrictions)  tsconfig/ (library.json, node.json, react-library.json)  prettier/
     └── telemetry/  otel setup shared by web + api
 ```

@@ -30,8 +30,6 @@ export default defineConfig(
       // Next.js output and its generated declarations (apps/web).
       "**/.next/**",
       "**/next-env.d.ts",
-      // Not a package yet. Remove the line when the package is scaffolded (broker-sdk in 1.1).
-      "packages/broker-sdk/**",
     ],
     "finlytics/ignores",
   ),
@@ -43,7 +41,15 @@ export default defineConfig(
   },
   {
     name: "finlytics/scope/node",
-    files: ["packages/database/**", "apps/api/**", "packages/config/**", "scripts/**", "*.{js,mjs,cjs}"],
+    // broker-sdk (1.1) is Node only: ioredis, and the browser never talks to a broker (broker.md).
+    files: [
+      "packages/database/**",
+      "packages/broker-sdk/**",
+      "apps/api/**",
+      "packages/config/**",
+      "scripts/**",
+      "*.{js,mjs,cjs}",
+    ],
     extends: [node],
   },
   {

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // The @finlytics/tsconfig node preset, referenced by workspace path (as in packages/shared and packages/database):
+  // tsdown's dts plugin reads this file with a bundled get-tsconfig that does not realpath pnpm symlinks, so the
+  // preset's relative `extends` would break through node_modules/@finlytics/tsconfig.
+  "extends": "../config/tsconfig/node.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src", "test", "tsdown.config.ts", "vitest.config.ts", "vitest.integration.config.ts"],
+  "exclude": ["dist", "coverage", "node_modules"]
+}

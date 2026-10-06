@@ -94,6 +94,7 @@ unbounded `SCAN` on the request path.
 | Key | Type | TTL | Owner (phase) |
 |---|---|---|---|
 | `rl:<policy>:ip:<ip>`, `rl:<policy>:u:<userId>` | string (GCRA TAT in ms) | ≤ the policy period | rate limiting (0.5) |
+| `brl:<BROKER>:<accountId>:<class>` (`class`: orders, data, standard; `accountId` `app` before an account exists) | string (GCRA TAT in µs) | until the bucket is full again | broker rate limiter (1.1, `@finlytics/broker-sdk`) |
 | `idem:<userId>:<key>` | string (JSON marker or record) | 30 s in flight, 24 h stored | idempotency (0.5) |
 | `quote:<instrumentKey>` | hash | none (overwritten) | market feed (1.4) |
 | `q:<instrumentKey>` | pub/sub channel | — | tick fan-out (1.4) |
