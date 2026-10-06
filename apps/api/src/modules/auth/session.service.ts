@@ -1,6 +1,7 @@
 /**
  * Session validation (plan D9, docs/06 "Session contract"). A session is valid when all of these hold:
- * - the row exists (looked up by the SHA-256 hex of the cookie token; the database never holds a usable token),
+ * - the row exists, looked up by `hashSessionToken(token)` from @finlytics/shared (lowercase hex SHA-256 of the
+ *   token's UTF-8 bytes; Auth.js's adapter in apps/web stores the same), so the database never holds a usable token,
  * - `expires` is in the future (Auth.js's rolling expiry),
  * - `lastSeenAt` is less than 7 days old (idle limit),
  * - `createdAt` is less than 30 days old (absolute limit),
@@ -12,9 +13,7 @@
  * The api writes only `lastSeenAt`, best effort and at most every 5 minutes. A database error propagates: the filter
  * maps an outage to 503, never 401 (the web app signs the user out on 401).
  */
-import { createHash } from "node:crypto";
-
-import { SESSION_LIMITS, SESSION_TOKEN_PATTERN } from "@finlytics/shared";
+import { hashSessionToken, SESSION_LIMITS, SESSION_TOKEN_PATTERN } from "@finlytics/shared";
 import { Inject, Injectable } from "@nestjs/common";
 import { PinoLogger } from "nestjs-pino";
 
@@ -29,11 +28,6 @@ const DAY_MS = 86_400_000;
 const IDLE_LIMIT_MS = SESSION_LIMITS.idleDays * DAY_MS;
 const ABSOLUTE_LIMIT_MS = SESSION_LIMITS.absoluteDays * DAY_MS;
 const LAST_SEEN_WRITE_INTERVAL_MS = SESSION_LIMITS.lastSeenWriteIntervalSec * 1_000;
-
-/** The lowercase hex SHA-256 of a session token: what `Session.sessionToken` stores. */
-export function hashSessionToken(token: string): string {
-  return createHash("sha256").update(token, "utf8").digest("hex");
-}
 
 export type SessionVerdict = "valid" | "expired" | "idle" | "over-age" | "user-deleted";
 
@@ -70,7 +64,7 @@ export class SessionService {
    */
   async resolve(token: string): Promise<AuthIdentity | null> {
     if (!SESSION_TOKEN_PATTERN.test(token)) return null;
-    const session = await this.sessions.findByTokenHash(hashSessionToken(token));
+    const session = await this.sessions.findByTokenHash(await hashSessionToken(token));
     if (session === null) return null;
 
     const now = this.clock.now();

@@ -19,10 +19,26 @@ export type SessionCookieName = (typeof SESSION_COOKIE_NAME)[keyof typeof SESSIO
 
 /**
  * An opaque session token as the cookie carries it: 32–128 characters from `[A-Za-z0-9_-]`. Auth.js's default token,
- * `randomUUID()`, matches. The database stores only the token's SHA-256 (lowercase hex), so a database read can't be
+ * `crypto.randomUUID()`, matches. The database stores only `hashSessionToken(token)`, so a database read can't be
  * replayed as a session; a cookie that doesn't match is treated as no session, without a lookup.
  */
 export const SESSION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
+
+const UTF8 = new TextEncoder();
+
+/**
+ * What `Session.sessionToken` stores for a cookie token: the SHA-256 of the token's UTF-8 bytes, as 64 lowercase hex
+ * characters. Auth.js's adapter (apps/web) hashes before every write and lookup, and the api hashes the cookie before
+ * its lookup, both through this one function, so the two can't disagree on the encoding.
+ *
+ * Web Crypto (`crypto.subtle`), so it runs in Node, the Edge runtime and browsers alike; in a browser, only in a secure
+ * context (https or localhost). Hashing is pure: validate the token against `SESSION_TOKEN_PATTERN` first, where a
+ * malformed token should mean "no session".
+ */
+export async function hashSessionToken(token: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", UTF8.encode(token)));
+  return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 
 /**
  * Session lifetimes, enforced by the api (and mirrored by Auth.js in 0.6):

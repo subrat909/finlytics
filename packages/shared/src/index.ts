@@ -63,8 +63,10 @@ export type {
 export { HEADERS, IdempotencyKeySchema, RequestIdSchema } from "./schemas/http";
 export type { HeaderName, IdempotencyKey, RequestId } from "./schemas/http";
 
-export { SESSION_COOKIE_NAME, SESSION_LIMITS, SESSION_TOKEN_PATTERN } from "./schemas/session";
+export { hashSessionToken, SESSION_COOKIE_NAME, SESSION_LIMITS, SESSION_TOKEN_PATTERN } from "./schemas/session";
 export type { SessionCookieName } from "./schemas/session";
+
+export { normalizeEmail } from "./email";
 
 export { MeSchema } from "./schemas/me";
 export type { Me } from "./schemas/me";

@@ -9,8 +9,9 @@
 // Hypertables (Tick, Candle, OptionChainSnapshot) are converted by migrations/<timestamp>_timescale; database guards
 // (AuditLog append-only triggers, GlobalControl singleton CHECK) live in migrations/<timestamp>_db_guards, and
 // migrations/<timestamp>_kill_switch_and_audit_guards makes GlobalControl permanent and those triggers fire in replica
-// mode; migrations/<timestamp>_audit_actor_checks adds the AuditLog actor CHECKs. Prisma never generates that DDL, so
-// every statement in those migrations is hand-written and idempotent.
+// mode; migrations/<timestamp>_audit_actor_checks adds the AuditLog actor CHECKs and
+// migrations/<timestamp>_lowercase_email_checks the lowercase CHECKs on User.email and VerificationToken.identifier.
+// Prisma never generates that DDL, so every statement in those migrations is hand-written and idempotent.
 
 // Prisma 7: connection URL lives in prisma.config.ts; client uses @prisma/adapter-pg (driver adapter).
 // Defaults: ESM output with extensionless imports (inferred from moduleResolution "bundler" in ../tsconfig.json).
@@ -25,15 +26,15 @@ datasource db {
 
 // ───────────────────────────── Identity & Auth (Auth.js) ─────────────────────────────
 
+// RBAC only. Paid tiers live in Plan (User.planId), never in Role.
 enum Role {
   USER
-  PRO
   ADMIN
 }
 
 model User {
   id            String    @id @default(cuid())
-  email         String    @unique
+  email         String    @unique // trimmed and lowercased before every write (normalizeEmail, @finlytics/shared); CHECK in _lowercase_email_checks
   emailVerified DateTime?
   name          String?
   image         String?
@@ -76,19 +77,17 @@ model User {
   @@index([planId])
 }
 
+// An OAuth sign-in link. No provider tokens at rest (refresh_token, access_token, id_token, session_state): Finlytics
+// never calls a provider's API after sign-in, so the web adapter strips them before every write.
 model Account {
   id                String  @id @default(cuid())
   userId            String
   type              String
   provider          String
   providerAccountId String
-  refresh_token     String?
-  access_token      String?
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String?
-  session_state     String?
   user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
@@ -111,7 +110,7 @@ model Session {
 }
 
 model VerificationToken {
-  identifier String
+  identifier String // the email address, lowercased (CHECK in _lowercase_email_checks)
   token      String   @unique
   expires    DateTime
 

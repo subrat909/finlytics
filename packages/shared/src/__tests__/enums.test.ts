@@ -49,6 +49,11 @@ describe("Prisma enum mirrors", () => {
     expect(SegmentSchema.safeParse("CURRENCY").success).toBe(false);
   });
 
+  it("has only the USER and ADMIN roles; paid tiers are Plan rows, not roles", () => {
+    expect(ROLES).toEqual(["USER", "ADMIN"]);
+    expect(RoleSchema.safeParse("PRO").success).toBe(false);
+  });
+
   it("rejects values outside the enum, including other casing", () => {
     expect(ExchangeSchema.safeParse("nse").success).toBe(false);
     expect(BrokerCodeSchema.safeParse("KITE").success).toBe(false);

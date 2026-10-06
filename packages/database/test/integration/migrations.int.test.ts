@@ -81,7 +81,7 @@ describe("migrations", () => {
         SELECT migration_name AS name, finished_at IS NOT NULL AS finished, rolled_back_at IS NOT NULL AS "rolledBack"
         FROM _prisma_migrations ORDER BY started_at, migration_name`;
       expect(applied).toEqual(migrationFolders().map((name) => ({ name, finished: true, rolledBack: false })));
-      expect(applied.slice(0, 7).map(({ name }) => name.slice("YYYYMMDDHHMMSS_".length))).toEqual([
+      expect(applied.slice(0, 9).map(({ name }) => name.slice("YYYYMMDDHHMMSS_".length))).toEqual([
         "init",
         "timescale",
         "db_guards",
@@ -89,6 +89,8 @@ describe("migrations", () => {
         "kill_switch_and_audit_guards",
         "audit_actor_and_session_created_at",
         "audit_actor_checks",
+        "drop_oauth_tokens_and_pro_role",
+        "lowercase_email_checks",
       ]);
     });
   });
@@ -117,6 +119,59 @@ describe("migrations", () => {
 
     expect(databaseToSchema.exitCode, outputOf(databaseToSchema)).toBe(DIFF_FOUND);
     expect(outputOf(databaseToSchema)).toContain("[+] Added tables");
+  });
+
+  it("keeps no OAuth provider tokens in Account and only the USER and ADMIN roles", async () => {
+    const columns = await prisma.$queryRaw<{ name: string }[]>`
+      SELECT column_name::text AS name FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'Account' ORDER BY ordinal_position`;
+    const roles = await prisma.$queryRaw<{ role: string }[]>`SELECT unnest(enum_range(NULL::"Role"))::text AS role`;
+    const roleDefault = await prisma.$queryRaw<{ value: string | null }[]>`
+      SELECT column_default AS value FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'User' AND column_name = 'role'`;
+
+    expect(columns.map((column) => column.name)).toEqual([
+      "id",
+      "userId",
+      "type",
+      "provider",
+      "providerAccountId",
+      "expires_at",
+      "token_type",
+      "scope",
+    ]);
+    expect(roles.map((row) => row.role)).toEqual(["USER", "ADMIN"]);
+    expect(roleDefault).toEqual([{ value: `'USER'::"Role"` }]);
+  });
+
+  it("re-applies the auth-hardening migrations without error or change", async () => {
+    // Prisma >= 7.4 runs migration.sql statement by statement, so a migration that failed partway is re-applied as is.
+    const database = await createMigratedDatabase("reapply");
+    const constraints = (db: PrismaClient) => db.$queryRaw<{ name: string; definition: string }[]>`
+      SELECT conname::text AS name, pg_get_constraintdef(oid) AS definition FROM pg_constraint
+      WHERE conname IN ('User_email_lowercase_check', 'VerificationToken_identifier_lowercase_check')
+      ORDER BY 1`;
+
+    await withClient(database.url, async (db) => {
+      const before = await constraints(db);
+      for (const name of ["drop_oauth_tokens_and_pro_role", "lowercase_email_checks"]) {
+        const folder = migrationFolders().find((candidate) => candidate.endsWith(`_${name}`)) ?? name;
+        const file = path.join("prisma", "migrations", folder, "migration.sql");
+        const result = await runPrismaCli(["db", "execute", "--file", file], prismaCliTarget(database.url));
+        expect(result.exitCode, outputOf(result)).toBe(0);
+      }
+      const roles = await db.$queryRaw<{ role: string }[]>`SELECT unnest(enum_range(NULL::"Role"))::text AS role`;
+
+      expect(before).toEqual([
+        { name: "User_email_lowercase_check", definition: "CHECK ((email = lower(email)))" },
+        {
+          name: "VerificationToken_identifier_lowercase_check",
+          definition: "CHECK ((identifier = lower(identifier)))",
+        },
+      ]);
+      expect(await constraints(db)).toEqual(before);
+      expect(roles.map((row) => row.role)).toEqual(["USER", "ADMIN"]);
+    });
   });
 
   it("creates the three hypertables without default time indexes", async () => {

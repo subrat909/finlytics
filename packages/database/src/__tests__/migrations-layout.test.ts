@@ -21,7 +21,7 @@ function migrationSql(name: string): string {
 }
 
 describe("prisma/migrations", () => {
-  it("orders the seven migration folders, ending with audit_actor_and_session_created_at and audit_actor_checks", () => {
+  it("orders the nine migration folders, ending with drop_oauth_tokens_and_pro_role and lowercase_email_checks", () => {
     const folders = migrationFolders();
 
     // A hand-numbered folder such as 0001_timescale would sort first and run before the tables exist.
@@ -34,6 +34,8 @@ describe("prisma/migrations", () => {
       "kill_switch_and_audit_guards",
       "audit_actor_and_session_created_at",
       "audit_actor_checks",
+      "drop_oauth_tokens_and_pro_role",
+      "lowercase_email_checks",
     ]);
   });
 
@@ -69,6 +71,42 @@ describe("prisma/migrations", () => {
     for (const statement of checks.filter((candidate) => candidate.includes(" ADD CONSTRAINT "))) {
       expect(statement).toMatch(/ NOT VALID$/);
     }
+  });
+
+  it("makes every statement of the auth-hardening migrations idempotent", () => {
+    // Comment lines dropped, then the DO block (whose body holds ";") kept whole, other statements split on ";".
+    const body = (name: string) =>
+      migrationSql(name)
+        .split("\n")
+        .filter((line) => !line.trimStart().startsWith("--"))
+        .join("\n");
+    const statements = (sql: string) =>
+      sql
+        .split(";")
+        .map((statement) => statement.replace(/\s+/g, " ").trim())
+        .filter((statement) => statement !== "");
+
+    // The enum change is one DO block (atomic in PostgreSQL), guarded by "Role still has PRO", so a re-run is a no-op.
+    const roles = body("drop_oauth_tokens_and_pro_role");
+    const doBlock = /DO \$\$([\s\S]*?)\$\$;/.exec(roles);
+    expect(doBlock?.[1]).toMatch(
+      /^\s*BEGIN\s+IF EXISTS \(SELECT 1 FROM pg_enum WHERE enumtypid = '"Role"'::regtype AND enumlabel = 'PRO'\) THEN/,
+    );
+    expect(doBlock?.[1]).toContain(`CREATE TYPE "Role_new" AS ENUM ('USER', 'ADMIN')`);
+    expect(statements(roles.replace(doBlock?.[0] ?? "", ""))).toEqual([
+      'ALTER TABLE "Account" DROP COLUMN IF EXISTS "access_token", DROP COLUMN IF EXISTS "id_token", ' +
+        'DROP COLUMN IF EXISTS "refresh_token", DROP COLUMN IF EXISTS "session_state"',
+    ]);
+    expect(roles).not.toMatch(/^\s*(BEGIN|COMMIT);/m); // Prisma's own BEGIN/COMMIT wrapper is gone
+
+    // Each lowercase CHECK is dropped if it exists, then added validated (no NOT VALID: no row violated it).
+    expect(statements(body("lowercase_email_checks"))).toEqual([
+      'ALTER TABLE "User" DROP CONSTRAINT IF EXISTS "User_email_lowercase_check"',
+      'ALTER TABLE "User" ADD CONSTRAINT "User_email_lowercase_check" CHECK ("email" = lower("email"))',
+      'ALTER TABLE "VerificationToken" DROP CONSTRAINT IF EXISTS "VerificationToken_identifier_lowercase_check"',
+      'ALTER TABLE "VerificationToken" ADD CONSTRAINT "VerificationToken_identifier_lowercase_check" ' +
+        'CHECK ("identifier" = lower("identifier"))',
+    ]);
   });
 
   it("creates pg_trgm at the top of init, before the trigram indexes", () => {

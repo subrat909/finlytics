@@ -65,7 +65,7 @@ assert.deepEqual(shared.parseUserSettings(null), shared.DEFAULT_USER_SETTINGS, "
 assert.equal(shared.UserSettingsPatchSchema.safeParse({ appearance: { fontSize: 1 } }).success, false);
 
 // Both builds in one process (plan §8): each has its own copy of zod and decimal.js, so values must cross by structure.
-import("@finlytics/shared").then((esm) => {
+import("@finlytics/shared").then(async (esm) => {
   assert.notEqual(esm.toDecimal, shared.toDecimal, "import() loads the separate ESM build");
   assert.equal(shared.toDecimalString(esm.toDecimal("12345678901234.5678")), "12345678901234.5678");
   assert.equal(shared.isProblemDetails(esm.ProblemDetailsSchema.parse(killSwitch)), true);
@@ -74,6 +74,12 @@ import("@finlytics/shared").then((esm) => {
     true,
   );
   assert.equal(shared.canonicalStrike(esm.toDecimal("82.50")), "82.5");
+  assert.equal(
+    await shared.hashSessionToken("abc"),
+    await esm.hashSessionToken("abc"),
+    "Web Crypto session hashing works in the CJS build and agrees with the ESM one",
+  );
+  assert.equal(shared.normalizeEmail(" Asha@Example.IN "), "asha@example.in");
 
   console.log("CJS smoke test passed: require() loads dist/index.cjs");
 });

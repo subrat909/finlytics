@@ -1,10 +1,11 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
+import { hashSessionToken } from "@finlytics/shared";
 import type { PinoLogger } from "nestjs-pino";
 import { describe, expect, it, vi } from "vitest";
 
 import type { SessionRecord, SessionRepository } from "../session.repository";
-import { evaluateSession, hashSessionToken, isLastSeenStale, SessionService } from "../session.service";
+import { evaluateSession, isLastSeenStale, SessionService } from "../session.service";
 
 const NOW = new Date("2026-10-06T10:00:00.000Z");
 const MINUTE = 60_000;
@@ -40,15 +41,27 @@ function setup(record: SessionRecord | null) {
 }
 
 describe("SessionService", () => {
-  it("hashes the token before the lookup", async () => {
+  it("looks a session up by the lowercase hex SHA-256 of the token's UTF-8 bytes, never by the token", async () => {
     const { service, repository } = setup(session());
 
     await service.resolve(TOKEN);
 
-    const hash = createHash("sha256").update(TOKEN).digest("hex");
-    expect(hashSessionToken(TOKEN)).toBe(hash);
+    // Node's createHash is an independent oracle for the Web Crypto helper the api and Auth.js share.
+    const hash = createHash("sha256").update(TOKEN, "utf8").digest("hex");
     expect(repository.findByTokenHash).toHaveBeenCalledWith(hash);
     expect(repository.findByTokenHash.mock.calls[0]?.[0]).not.toContain(TOKEN);
+  });
+
+  it("hashes an Auth.js randomUUID() token the way the web adapter stores it", async () => {
+    const token = randomUUID(); // Auth.js's default generateSessionToken
+    const { service, repository } = setup(session());
+
+    await expect(service.resolve(token)).resolves.not.toBeNull();
+
+    const stored = createHash("sha256").update(token, "utf8").digest("hex");
+    expect(repository.findByTokenHash).toHaveBeenCalledWith(stored);
+    await expect(hashSessionToken(token)).resolves.toBe(stored);
+    expect(stored).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it("returns the identity of a valid session", async () => {

@@ -46,14 +46,19 @@ Moderate advisories are reported, not gated. Reviewed ones that ship with the ap
 
 ## Session contract (Auth.js ↔ api)
 Auth.js (apps/web, 0.6) creates, extends and deletes sessions and is the only one that sets the cookie; the api
-validates them (`apps/api/src/modules/auth`). Both sides read the constants in `@finlytics/shared`
-(`SESSION_COOKIE_NAME`, `SESSION_TOKEN_PATTERN`, `SESSION_LIMITS`).
+validates them (`apps/api/src/modules/auth`). Both sides read the contract in `@finlytics/shared`
+(`SESSION_COOKIE_NAME`, `SESSION_TOKEN_PATTERN`, `SESSION_LIMITS`, `hashSessionToken`).
 - **Cookie:** `authjs.session-token` in development and test, `__Host-authjs.session-token` in production. `HttpOnly`,
-  `SameSite=Lax`, `Path=/`, no `Domain`, `Secure` in production. One origin in production (the ingress routes `/v1`
+  `SameSite=Lax`, `Path=/`, no `Domain`, `Secure` in production. Auth.js's own production default is
+  `__Secure-authjs.session-token`, so the web app sets the name explicitly (`cookies.sessionToken`) from
+  `SESSION_COOKIE_NAME`. One origin in production (the ingress routes `/v1`
   to the api), because a `__Host-` cookie can't be shared with another host.
-- **Token:** opaque, matching `SESSION_TOKEN_PATTERN` (Auth.js's `randomUUID()` does). `Session.sessionToken` stores
-  the lowercase hex SHA-256 of the token, never the token: a database read (backup, replica, injection) can't be
-  replayed as a session. A malformed cookie is anonymous without a lookup.
+- **Token:** opaque, matching `SESSION_TOKEN_PATTERN` (Auth.js's default, `crypto.randomUUID()`, does).
+  `Session.sessionToken` stores `hashSessionToken(token): Promise<string>`, the SHA-256 of the token's UTF-8 bytes as
+  64 lowercase hex characters, never the token: a database read (backup, replica, injection) can't be replayed as a
+  session. The web app's wrapper around the Auth.js Prisma adapter hashes before every session write and lookup; the
+  api hashes the cookie before its lookup. One Web Crypto function (Node, Edge, browser) for both, so they can't
+  disagree on the encoding. A malformed cookie is anonymous without a lookup.
 - **Valid when:** the row exists, `expires` is in the future, `lastSeenAt` is less than 7 days old (idle limit),
   `createdAt` is less than 30 days old (absolute limit) and the user isn't deleted. `lockedUntil` is not checked:
   lockout protects sign-in, and checking it here would let an attacker sign a victim out by failing logins on purpose.
@@ -65,6 +70,17 @@ validates them (`apps/api/src/modules/auth`). Both sides read the constants in `
   routes (only `/health/*` in 0.5) skip CSRF and session resolution entirely. A lookup that finds no valid session is
   charged once to the caller's anonymous rate-limit buckets, and a request from an address whose bucket is already
   empty is refused before its lookup (see "Rate limiting").
+
+## Identity data at rest
+- **Email:** case-insensitive by normalisation. Every write and every lookup by email uses `normalizeEmail`
+  (`@finlytics/shared`: trim, then lowercase); database CHECKs on `User.email` and `VerificationToken.identifier` reject
+  anything else (docs/03), so a differently-capitalised address can't open a second account or take over the first.
+- **OAuth provider tokens:** never stored. `Account` keeps only `type`, `provider`, `providerAccountId`, `expires_at`,
+  `token_type` and `scope`; the web adapter drops `refresh_token`, `access_token`, `id_token` and `session_state`
+  before writing (Finlytics never calls a provider's API after sign-in). Broker tokens are separate and encrypted
+  (see "Crypto design").
+- **Roles:** `USER` and `ADMIN` only (`Role` in Prisma, `ROLES` in `@finlytics/shared`). Paid tiers are `Plan` rows,
+  never roles, so billing can't grant privileges. Admin endpoints need `ADMIN` plus 2FA and the IP allowlist.
 
 ## CSRF
 For unsafe methods (anything but GET, HEAD and OPTIONS) on non-public routes, when the request carries the session
@@ -192,7 +208,8 @@ stored: { encKey (wrapped), iv, ct, tag, keyVersion }
 Rotation: new master key version → background job rewraps data keys; no plaintext re-encryption needed.
 
 ## Auth flows
-1. **App login**: Auth.js OAuth (Google/GitHub) or email magic link → DB session → optional TOTP.
+1. **App login**: Auth.js OAuth (Google/GitHub) or email magic link → DB session (token stored hashed; email
+   normalised; no provider tokens kept) → optional TOTP.
 2. **Broker connect (Upstox)**: `POST /broker-accounts` → redirect to Upstox authorize (state = signed nonce) → callback → exchange code server-side using **our** app key/secret (user never types keys) → encrypt token → `ACTIVE`. Daily re-login: at 08:30 IST notify; one click repeats step (session already logged into Upstox in browser → instant).
 3. **Broker connect (Dhan)**: user pastes access token once (Dhan has no OAuth) → encrypted → renewal reminder.
 4. **Service auth**: api → ai-engine RS256 JWT (5 min), ai-engine → api callback with same.

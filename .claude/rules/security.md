@@ -15,7 +15,7 @@ globs: ["apps/**", "packages/**"]
 
 ## Authorization
 - Every repository method takes `userId` and scopes the query. Never trust an ID from the client to identify ownership; always `where: { id, userId }`.
-- RBAC: `USER`, `PRO`, `ADMIN`. Guards: `@Roles()`, `@RequiresBrokerConnection()`, `@RequiresTradingEnabled()`.
+- RBAC: `USER`, `ADMIN` (plan tiers live in `Plan`, not in roles). Guards: `@Roles()`, `@RequiresBrokerConnection()`, `@RequiresTradingEnabled()`.
 - Admin endpoints under `/admin/*` require ADMIN + 2FA + IP allowlist.
 
 ## Broker credentials & tokens

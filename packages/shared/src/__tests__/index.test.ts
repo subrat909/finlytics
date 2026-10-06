@@ -48,9 +48,12 @@ describe("@finlytics/shared entry point", () => {
         "IdempotencyKeySchema",
         "RequestIdSchema",
         // schemas/session
+        "hashSessionToken",
         "SESSION_COOKIE_NAME",
         "SESSION_LIMITS",
         "SESSION_TOKEN_PATTERN",
+        // email
+        "normalizeEmail",
         // schemas/me
         "MeSchema",
         // schemas/health

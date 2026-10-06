@@ -1,8 +1,8 @@
 # 03 — Database Schema
 
 Source of truth: `packages/database/prisma/schema.prisma`, plus the hand-written SQL in the `timescale`, `db_guards`,
-`kill_switch_and_audit_guards` and `audit_actor_checks` migrations (see [Migrations](#migrations)): Prisma never
-generates TimescaleDB DDL, triggers, functions or CHECK constraints. Apps use the bundled client from
+`kill_switch_and_audit_guards`, `audit_actor_checks` and `lowercase_email_checks` migrations (see
+[Migrations](#migrations)): Prisma never generates TimescaleDB DDL, triggers, functions or CHECK constraints. Apps use the bundled client from
 `@finlytics/database` (`getPrisma()`, `createPrismaClient()`); integration tests get a migrated database from
 `@finlytics/database/testing` (see [Test databases](#test-databases)).
 
@@ -79,8 +79,22 @@ No foreign keys: AuditLog (append-only; userId kept after the user is deleted) ;
     one of `user`, `admin`, `system`, `agent`, and `actorId` is required unless `actorType` is `system`. They are
     `NOT VALID` (existing rows are not re-checked; append-only rows could never be corrected anyway), and unlike
     triggers and foreign keys they also hold in replica mode. The api writes `actorId` through `AuditService`.
-- **Sessions** (Auth.js, validated by the api): `Session.sessionToken` holds the SHA-256 (lowercase hex) of the cookie
-  token, never the token itself, so a database read can't be replayed as a session. `createdAt` (database default)
+- **Email is case-insensitive, by normalisation**: every writer stores `normalizeEmail(email)` (`@finlytics/shared`:
+  trimmed, then lowercased) and looks users up the same way, so the plain unique index on `User.email` is
+  case-insensitive in effect. `CHECK ("email" = lower("email"))` on `User` and `CHECK ("identifier" =
+  lower("identifier"))` on `VerificationToken` (Auth.js stores the email as a magic-link identifier) reject a writer
+  that forgets, instead of letting `Asha@x.in` open a second account. Both are validated (no row violated them when
+  they were added) and, as CHECKs, also hold in replica mode. citext was rejected: an extension and a type Prisma maps
+  poorly, for what one CHECK guarantees.
+- **No OAuth provider tokens at rest**: `Account` keeps only `type`, `provider`, `providerAccountId`, `expires_at`,
+  `token_type` and `scope`. Finlytics never calls a sign-in provider's API, so `refresh_token`, `access_token`,
+  `id_token` and `session_state` are not columns; the web app's Auth.js adapter strips them before every write.
+  (Broker tokens are a different thing: encrypted in `BrokerAccount`, see Secrets.)
+- **Roles are RBAC only**: `Role` is `USER` or `ADMIN` (default `USER`). What a user pays for is their `Plan`
+  (`User.planId`: free, pro, elite), never a role.
+- **Sessions** (Auth.js, validated by the api): `Session.sessionToken` holds `hashSessionToken(token)` from
+  `@finlytics/shared`: the SHA-256 of the cookie token's UTF-8 bytes, as lowercase hex (Web Crypto, so the web app's
+  adapter and the api share one function). Never the token itself, so a database read can't be replayed as a session. `createdAt` (database default)
   anchors the 30-day absolute lifetime; `lastSeenAt` the 7-day idle limit, written by the api at most every 5 minutes.
   The contract (cookie names, token format, limits) is in `@finlytics/shared` (`SESSION_*`).
 - **Kill switch**: `GlobalControl` is a singleton, enforced by `CHECK ("id" = 1)`. The seed creates the row but never
@@ -106,6 +120,8 @@ No foreign keys: AuditLog (append-only; userId kept after the user is deleted) ;
 | `20261005172756_kill_switch_and_audit_guards` | hand-written | `ENABLE ALWAYS` on both `AuditLog` triggers, so they fire with `session_replication_role = replica` too. The `global_control_permanent()` function with a row trigger rejecting `DELETE` and a statement trigger rejecting `TRUNCATE` on `GlobalControl`, both `ENABLE ALWAYS`. `UPDATE` is not guarded. |
 | `20261005191736_audit_actor_and_session_created_at` | Prisma (`--create-only`), plus a header comment and `IF NOT EXISTS` | Adds the nullable `AuditLog.actorId` (catalog-only: no row rewritten, no trigger fired, the guard triggers keep `ENABLE ALWAYS`) with the index `AuditLog(actorId, createdAt DESC)`, and `Session.createdAt` (`NOT NULL DEFAULT CURRENT_TIMESTAMP`, added without a table rewrite; existing rows get the migration time). |
 | `20261005191803_audit_actor_checks` | hand-written | Two `NOT VALID` CHECKs on `AuditLog`: `AuditLog_actorType_check` (`actorType` in `user`, `admin`, `system`, `agent`) and `AuditLog_actorId_check` (`actorType = 'system' OR actorId IS NOT NULL`). Each is dropped if it exists before it is added. |
+| `20261006100205_drop_oauth_tokens_and_pro_role` | Prisma (`--create-only`), rewritten by hand to be idempotent | Removes `PRO` from `Role`: Prisma's retype-and-swap (create `Role_new` with `USER`, `ADMIN`; retype `User.role`; rename; drop the old type; restore the `USER` default) runs inside one `DO` block, atomic in PostgreSQL, and only while the enum still has `PRO`, so a re-run does nothing. Any `PRO` user becomes `USER` first (there were none). Drops `Account.refresh_token`, `access_token`, `id_token` and `session_state` with `DROP COLUMN IF EXISTS` (all empty). |
+| `20261006100229_lowercase_email_checks` | hand-written | Two validated CHECKs, each dropped if it exists before it is added: `User_email_lowercase_check` (`email = lower(email)`) and `VerificationToken_identifier_lowercase_check` (`identifier = lower(identifier)`). |
 
 Rules:
 - Create a migration with `pnpm db:migrate --create-only --name <snake_case>`. When the schema hasn't changed, Prisma

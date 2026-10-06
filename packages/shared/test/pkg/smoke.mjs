@@ -59,6 +59,12 @@ assert.deepEqual(shared.normalizeInstrumentKey(" nse_fo|nifty|2025-10-30|24000.0
 assert.equal(shared.instrumentKeyFromParam("%E0%A4%A").error?.reason, "ENCODING", "bad params are not thrown");
 assert.deepEqual(shared.parseUserSettings(null), shared.DEFAULT_USER_SETTINGS, "settings reads never throw");
 assert.equal(shared.UserSettingsPatchSchema.safeParse({ appearance: { fontSize: 1 } }).success, false);
+assert.equal(
+  await shared.hashSessionToken("abc"),
+  "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+  "Web Crypto session hashing works in the ESM build",
+);
+assert.equal(shared.normalizeEmail(" Asha@Example.IN "), "asha@example.in");
 
 // Both builds in one process (plan §8): each has its own copy of zod and decimal.js, so values must cross by structure.
 const cjs = createRequire(import.meta.url)("@finlytics/shared");

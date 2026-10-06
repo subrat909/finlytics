@@ -2,13 +2,23 @@
  * Session authentication and CSRF end to end (plan D9, D10): Auth.js database sessions (rows inserted the way the
  * 0.6 adapter will write them), validated by the api.
  */
+import { randomUUID } from "node:crypto";
+
 import type { PrismaClient } from "@finlytics/database";
-import { MeSchema, ProblemDetailsSchema } from "@finlytics/shared";
+import { hashSessionToken, MeSchema, ProblemDetailsSchema } from "@finlytics/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { closedPort, createTestApp, json } from "./app";
 import type { TestApp } from "./app";
-import { createSession, createUser, daysAgo, fixturesClient, newSessionToken, sessionCookie } from "./fixtures";
+import {
+  createSession,
+  createUser,
+  daysAgo,
+  fixturesClient,
+  newSessionToken,
+  sessionCookie,
+  sha256Hex,
+} from "./fixtures";
 
 describe("GET /v1/me", () => {
   let testApp: TestApp;
@@ -48,6 +58,26 @@ describe("GET /v1/me", () => {
       timezone: "Asia/Kolkata",
       createdAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) as string,
     });
+  });
+
+  it("accepts an Auth.js randomUUID() session token stored as hashSessionToken(token)", async () => {
+    // The 0.6 web adapter's write path: Auth.js's default token, hashed by the shared helper before it is stored.
+    const user = await createUser(fixtures);
+    const token = randomUUID();
+    const stored = await fixtures.session.create({
+      data: {
+        userId: user.id,
+        sessionToken: await hashSessionToken(token),
+        expires: new Date(Date.now() + 86_400_000),
+      },
+      select: { sessionToken: true },
+    });
+
+    const response = await me(sessionCookie(token));
+
+    expect(response.statusCode, response.body).toBe(200);
+    expect(MeSchema.parse(json(response)).id).toBe(user.id);
+    expect(stored.sessionToken).toBe(sha256Hex(token)); // the Web Crypto helper agrees with Node's createHash
   });
 
   it("answers UNAUTHENTICATED without a cookie and for malformed or unknown tokens", async () => {

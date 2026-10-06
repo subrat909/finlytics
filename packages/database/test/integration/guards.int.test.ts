@@ -165,6 +165,44 @@ describe("database guards (migrations/<timestamp>_db_guards and <timestamp>_kill
     expect(await prisma.auditLog.count({ where: { action } })).toBe(0);
   });
 
+  it("stores emails and verification identifiers only in lowercase, also in replica mode", async () => {
+    const local = `case-${uniqueSuffix()}`;
+    const roles: string[] = [];
+    const lowercaseViolation = (table: string, constraint: string) => ({
+      sqlState: CHECK_VIOLATION,
+      message: `new row for relation "${table}" violates check constraint "${constraint}"`,
+    });
+
+    const mixed: unknown = await prisma.user
+      .create({ data: { email: `${local}@Example.test` } })
+      .catch((error: unknown) => error);
+    const user = await prisma.user.create({ data: { email: `${local}@example.test` }, select: { id: true } });
+    const renamed: unknown = await prisma.user
+      .update({ where: { id: user.id }, data: { email: `${local.toUpperCase()}@example.test` } })
+      .catch((error: unknown) => error);
+    const identifier: unknown = await prisma.verificationToken
+      .create({ data: { identifier: `${local}@EXAMPLE.test`, token: `t-${local}`, expires: new Date() } })
+      .catch((error: unknown) => error);
+    await prisma.verificationToken.create({
+      data: { identifier: `${local}@example.test`, token: `t2-${local}`, expires: new Date() },
+    });
+
+    expect(databaseError(mixed)).toMatchObject(lowercaseViolation("User", "User_email_lowercase_check"));
+    expect(databaseError(renamed)).toMatchObject(lowercaseViolation("User", "User_email_lowercase_check"));
+    expect(databaseError(identifier)).toMatchObject(
+      lowercaseViolation("VerificationToken", "VerificationToken_identifier_lowercase_check"),
+    );
+    // CHECK constraints hold in replica mode, unlike triggers and foreign keys.
+    await expect(
+      inReplicaMode(prisma, roles, (tx) => tx.user.create({ data: { email: `${local}-replica@Example.test` } })),
+    ).rejects.toThrow("User_email_lowercase_check");
+    expect(roles).toEqual(["replica"]);
+    expect(await prisma.user.findMany({ where: { email: { startsWith: local } }, select: { email: true } })).toEqual([
+      { email: `${local}@example.test` },
+    ]);
+    expect(await prisma.verificationToken.count({ where: { identifier: { startsWith: local } } })).toBe(1);
+  });
+
   it("rejects a second GlobalControl row", async () => {
     // Create-only, as the seed does: whatever state row 1 is in stays untouched.
     await prisma.globalControl.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} });

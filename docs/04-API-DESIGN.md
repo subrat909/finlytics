@@ -50,8 +50,8 @@
   `PATCH` is `403 FORBIDDEN` (§7 "CSRF").
 
 **Who am I (`GET /v1/me`).** The signed-in user, `MeSchema` in `packages/shared/src/schemas/me.ts`:
-`{ id, email, name, image, timezone, createdAt }` (`name` and `image` may be null; `createdAt` is ISO 8601). Never the
-role, password hash, 2FA secrets or lockout state. Without a valid session: `401 UNAUTHENTICATED`; with the database
+`{ id, email, name, image, timezone, createdAt }` (`email` is always lowercase, `normalizeEmail` on every write;
+`name` and `image` may be null; `createdAt` is ISO 8601). Never the role, password hash, 2FA secrets or lockout state. Without a valid session: `401 UNAUTHENTICATED`; with the database
 down: `503 SERVICE_UNAVAILABLE`, never 401. It is the call 0.6 uses to prove the session cookie reaches the api.
 
 ## 3. Broker budget — the only 12 outbound operations
@@ -189,7 +189,7 @@ id, such as the web app's) is never adopted. When it matches `REQUEST_ID_PATTERN
 which links the caller's logs to ours; otherwise it is dropped.
 
 **Authentication.** The Auth.js session cookie (`authjs.session-token`; `__Host-authjs.session-token` in production) on
-every `/v1` route; the contract is in docs/06 "Session contract". No valid session: `401 UNAUTHENTICATED`. Database
+every `/v1` route, looked up by `hashSessionToken(token)`; the contract is in docs/06 "Session contract". No valid session: `401 UNAUTHENTICATED`. Database
 down: `503 SERVICE_UNAVAILABLE`, never 401. Only `/health/*` is public in 0.5.
 
 **CSRF.** `POST`, `PUT`, `PATCH` and `DELETE` with the session cookie must come from an allowed `Origin`

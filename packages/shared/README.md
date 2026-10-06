@@ -29,6 +29,7 @@ import { formatInr, isProblemDetails, PriceSchema, toDecimal } from "@finlytics/
 | [Errors](#errors-rfc-9457-problem-details) | `src/schemas/errors.ts`                               |
 | [HTTP conventions](#http-conventions)      | `src/schemas/http.ts`                                 |
 | [Session contract](#session-contract)      | `src/schemas/session.ts`                              |
+| [Email](#email)                            | `src/email.ts`                                        |
 | [Me and health](#me-and-health)            | `src/schemas/me.ts`, `src/schemas/health.ts`          |
 | [Instrument keys](#instrument-keys)        | `src/instrument-key.ts`, `src/constants/exchanges.ts` |
 | [User settings](#user-settings)            | `src/schemas/user-settings.ts`                        |
@@ -62,7 +63,7 @@ value tuple, a schema and a type:
 | `SEGMENTS`      | `SegmentSchema`     | EQ, INDEX, FUT, OPT (instrument kind; asset class follows exchange) |
 | `OPTION_TYPES`  | `OptionTypeSchema`  | CE, PE                                                              |
 | `BROKER_CODES`  | `BrokerCodeSchema`  | UPSTOX, DHAN, ZERODHA, ANGELONE, FYERS, SHOONYA, PAPER              |
-| `ROLES`         | `RoleSchema`        | USER, PRO, ADMIN                                                    |
+| `ROLES`         | `RoleSchema`        | USER, ADMIN (RBAC only; paid tiers are `Plan` rows)                 |
 | `ORDER_TYPES`   | `OrderTypeSchema`   | MARKET, LIMIT, SL, SL_M                                             |
 | `PRODUCT_TYPES` | `ProductTypeSchema` | INTRADAY, DELIVERY, MARGIN, CO, BO                                  |
 | `VALIDITIES`    | `ValiditySchema`    | DAY, IOC                                                            |
@@ -292,13 +293,22 @@ creates, extends and deletes sessions and is the only one that sets the cookie; 
 | `SESSION_COOKIE_NAME`   | per `NODE_ENV`: `authjs.session-token` in development and test, `__Host-authjs.session-token` in production |
 | `SESSION_TOKEN_PATTERN` | 32–128 characters from `[A-Za-z0-9_-]`; Auth.js's default token (`randomUUID()`) matches                    |
 | `SESSION_LIMITS`        | `idleDays: 7`, `absoluteDays: 30`, `lastSeenWriteIntervalSec: 300`                                          |
+| `hashSessionToken`      | `(token: string) => Promise<string>`: SHA-256 of the UTF-8 token, 64 lowercase hex characters (Web Crypto)  |
 
 - The `__Host-` prefix makes browsers require `Secure`, `Path=/` and no `Domain`, which is why the web app and the api
   share one origin in production.
-- The database stores only the SHA-256 (lowercase hex) of a token. A cookie that doesn't match the pattern counts as no
-  session, without a lookup.
+- The database stores only `hashSessionToken(token)`. Auth.js's adapter hashes before every write and lookup, the api
+  before its lookup: one function, so the two can't disagree on the encoding. It uses `crypto.subtle`, so it runs in
+  Node, the Edge runtime and (secure-context) browsers. A cookie that doesn't match the pattern counts as no session,
+  without a lookup.
 - A session ends when it expires, after 7 days without use (`lastSeenAt`) or 30 days after it was created
   (`createdAt`), whichever comes first. The api writes `lastSeenAt` at most every 5 minutes.
+
+## Email
+
+`normalizeEmail(email)` (`src/email.ts`) trims and lowercases an address: the only form the database accepts
+(`CHECK ("email" = lower("email"))` on `User`, and on `VerificationToken.identifier`). Call it before every write and
+every lookup by email. It doesn't fold dots or `+tags`. Idempotent.
 
 ## Me and health
 

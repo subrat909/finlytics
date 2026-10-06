@@ -35,8 +35,8 @@ export const BROKER_CODES = Object.freeze([
 export const BrokerCodeSchema = z.enum(BROKER_CODES);
 export type BrokerCode = z.infer<typeof BrokerCodeSchema>;
 
-/** User roles (RBAC). */
-export const ROLES = Object.freeze(["USER", "PRO", "ADMIN"] as const);
+/** User roles (RBAC): what a user may do, never what they pay for. Paid tiers are `Plan` rows (`User.planId`). */
+export const ROLES = Object.freeze(["USER", "ADMIN"] as const);
 export const RoleSchema = z.enum(ROLES);
 export type Role = z.infer<typeof RoleSchema>;
 
