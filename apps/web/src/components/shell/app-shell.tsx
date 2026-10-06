@@ -50,7 +50,7 @@ export function AppShell({ user, initialCollapsed, children }: AppShellProps) {
     <TooltipProvider>
       <a
         href={`#${MAIN_CONTENT_ID}`}
-        className="sr-only z-50 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-fg focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
+        className="sr-only z-50 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-fg focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
       >
         Skip to content
       </a>

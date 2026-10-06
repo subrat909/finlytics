@@ -37,10 +37,10 @@ secondary: "bg-surface-2 text-fg hover:bg-surface-3"
 ghost:     "bg-transparent hover:bg-surface-2"
 profit:    "bg-profit text-profit-fg hover:bg-profit/90"
 loss:      "bg-loss text-loss-fg hover:bg-loss/90"
-// all: rounded-xl h-10 px-4 font-medium transition-[color,background-color] disabled:opacity-50
+// all: rounded-md h-10 px-4 font-medium transition-[color,background-color] disabled:opacity-50
 //      focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid
 //      — NO border, NO shadow, no outline-hidden; never transition-colors (it fades the outline in from the text colour)
-// input: bg-surface-2 rounded-xl h-10 px-3 placeholder:text-fg-muted transition-[color,background-color]
+// input: bg-surface-2 rounded-md h-10 px-3 placeholder:text-fg-muted transition-[color,background-color]
 //      focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid
 //      — NO border
 ```

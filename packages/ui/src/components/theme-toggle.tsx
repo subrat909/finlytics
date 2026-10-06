@@ -48,7 +48,7 @@ export function ThemeToggle({ onThemeChange, size = "md", label = "Theme", class
           onThemeChange?.(value);
         }
       }}
-      className={cn("inline-flex items-center gap-1 rounded-xl bg-surface-2 p-1", className)}
+      className={cn("inline-flex items-center gap-1 rounded-md bg-surface-2 p-1", className)}
       {...props}
     >
       {THEME_PREFERENCES.map((value) => {
@@ -59,7 +59,7 @@ export function ThemeToggle({ onThemeChange, size = "md", label = "Theme", class
             value={value}
             data-slot="theme-toggle-option"
             className={cn(
-              "inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg text-sm font-medium text-fg-muted",
+              "inline-flex cursor-pointer items-center justify-center gap-2 rounded-md text-sm font-medium text-fg-muted",
               "transition-[color,background-color] hover:bg-surface-3 hover:text-fg",
               "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid",
               "data-[state=checked]:bg-primary data-[state=checked]:text-primary-fg",

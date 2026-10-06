@@ -62,7 +62,7 @@ describe("Card", () => {
     const card = screen.getByTestId("card");
     const classLists = [card, ...card.querySelectorAll("[data-slot]")].map((part) => part.className);
     expect(classLists.flatMap(forbiddenControlUtilities)).toEqual([]);
-    expect(card).toHaveClass("bg-surface-1", "rounded-2xl");
+    expect(card).toHaveClass("bg-surface-1", "rounded-md");
   });
 
   it("has no axe violations", async () => {

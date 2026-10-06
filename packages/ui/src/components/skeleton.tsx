@@ -12,7 +12,7 @@ const skeletonVariants = cva("bg-surface-2 motion-safe:shimmer motion-safe:anima
   variants: {
     shape: {
       line: "h-4 w-full rounded-md",
-      block: "h-24 w-full rounded-xl",
+      block: "h-24 w-full rounded-md",
       circle: "size-10 shrink-0 rounded-full",
     },
   },

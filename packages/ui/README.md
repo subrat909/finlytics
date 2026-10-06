@@ -76,7 +76,8 @@ with `variable: "--font-inter"` and `"--font-jetbrains-mono"`; never Google Font
   shadcn's names (`bg-background`, `bg-accent` = the hover surface, …), and removes Tailwind's default palette, so
   `bg-red-500` or `text-white` generate nothing. Also `tabular` (tabular numerals in the mono face) and `shimmer` (a
   translucent band of the text colour over the skeleton's own background, so tinted skeletons stay tinted; flat
-  where `color-mix()` isn't supported).
+  where `color-mix()` isn't supported). The radius scale derives from `--radius` (12px); cards, buttons and inputs use
+  the medium radius, `rounded-md` (8px).
 - `src/styles/base.css`: document colours and font, borderless controls, the 2px `--ring` focus outline, reduced motion.
 - `src/styles/globals.css`: the entry point that imports the files above and registers the shipped sources
   (`@source "../"` minus stories, `__tests__`, `src/test` and `foundations`). Storybook loads it through
@@ -92,6 +93,7 @@ Rules the components follow, and the checks that catch a regression:
 | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | Tokens only: no colour literal outside tokens.css, no default-palette class; CSS system colours (`bg-[Highlight]`) only under `forced-colors:`        | `test/tokens/tokens-only.test.ts`                                                    |
 | No border and no box-shadow on any control, link buttons (`asChild`) included                                                                         | the preview's `afterEach` in every story (`.storybook/design-checks.ts`), unit tests |
+| Cards, buttons and inputs use the medium radius (`rounded-md`, 8px)                                                                                   | unit tests (`button`, `input`, `card`)                                               |
 | Focus is the 2px `--ring` outline (no `outline-hidden`; transition only `color` and `background-color`, or the outline fades in from the text colour) | KeyboardFocus stories, `Foundations/Focus`                                           |
 | No client-only React API without `"use client"`; `lib/` modules carry no directive; next-themes only in theme-provider; no network APIs               | `test/package/boundaries.test.ts`                                                    |
 | Consumers' Tailwind scans only shipped modules (no stories, tests, test helpers, Foundations); Storybook scans every story                            | `test/tokens/theme.test.ts` (Tailwind's own scanner)                                 |

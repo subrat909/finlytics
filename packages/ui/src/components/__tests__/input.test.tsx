@@ -61,6 +61,12 @@ describe("Input", () => {
     expect(forbiddenControlUtilities(screen.getByRole("textbox", { name: "Quantity" }).className)).toEqual([]);
   });
 
+  it("uses the medium radius, file button included", () => {
+    render(<Input aria-label="Quantity" />);
+
+    expect(screen.getByRole("textbox", { name: "Quantity" })).toHaveClass("rounded-md", "file:rounded-md");
+  });
+
   it("has no axe violations", async () => {
     const { container } = render(
       <div>

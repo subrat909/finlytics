@@ -56,7 +56,7 @@ export function EmailSignInForm({ callbackUrl, action = signInWithEmail }: Email
         ) : null}
       </div>
       {state.formError ? (
-        <p id={formErrorId} role="alert" className="rounded-xl bg-loss/10 px-3 py-2 text-sm text-fg">
+        <p id={formErrorId} role="alert" className="rounded-md bg-loss/10 px-3 py-2 text-sm text-fg">
           {state.formError}
         </p>
       ) : null}

@@ -37,7 +37,7 @@ describe("Skeleton", () => {
     expect(line).toHaveAttribute("data-shape", "line");
     expect(line).toHaveClass("h-4", "rounded-md");
     expect(block).toHaveAttribute("data-shape", "block");
-    expect(block).toHaveClass("rounded-xl");
+    expect(block).toHaveClass("rounded-md");
     expect(circle).toHaveAttribute("data-shape", "circle");
     expect(circle).toHaveClass("rounded-full", "size-12");
     expect(circle).not.toHaveClass("size-10");

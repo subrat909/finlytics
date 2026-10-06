@@ -166,7 +166,7 @@ function ColorTokens() {
                   return (
                     <td key={surface} className="p-1">
                       {used ? (
-                        <div className={`rounded-lg px-3 py-2 ${SURFACE_CLASS[surface]}`}>
+                        <div className={`rounded-md px-3 py-2 ${SURFACE_CLASS[surface]}`}>
                           <div className={`font-medium ${TEXT[token] ?? ""}`}>Aa ₹1,234.50</div>
                           <Ratio foreground={token} background={surface} min={4.5} />
                         </div>
@@ -189,7 +189,7 @@ function ColorTokens() {
         <div className="flex flex-wrap gap-4">
           {FILLS.map(([fill, text, className, label]) => (
             <div key={fill} className="space-y-1">
-              <div className={`rounded-xl px-4 py-2 font-medium ${className}`}>{label}</div>
+              <div className={`rounded-md px-4 py-2 font-medium ${className}`}>{label}</div>
               <Ratio foreground={text} background={fill} min={4.5} />
             </div>
           ))}

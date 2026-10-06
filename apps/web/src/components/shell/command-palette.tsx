@@ -20,7 +20,7 @@ import { useUiStore } from "@/stores/ui.store";
 import { NAV_ITEMS } from "./nav-items";
 
 const itemClasses = cn(
-  "flex h-10 cursor-pointer items-center gap-3 rounded-lg px-3 text-sm text-fg select-none",
+  "flex h-10 cursor-pointer items-center gap-3 rounded-md px-3 text-sm text-fg select-none",
   "data-[selected=true]:bg-surface-2 data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50",
   "[&_svg]:size-4 [&_svg]:shrink-0",
 );
@@ -82,12 +82,12 @@ export function CommandPalette() {
         <Dialog.Content
           data-slot="command-palette"
           aria-describedby={undefined}
-          className="fixed top-[12vh] left-1/2 z-50 w-[calc(100vw-2rem)] max-w-xl -translate-x-1/2 overflow-hidden rounded-2xl bg-surface-1 ring-1 ring-surface-3 motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0 motion-safe:data-[state=open]:zoom-in-95"
+          className="fixed top-[12vh] left-1/2 z-50 w-[calc(100vw-2rem)] max-w-xl -translate-x-1/2 overflow-hidden rounded-md bg-surface-1 ring-1 ring-surface-3 motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0 motion-safe:data-[state=open]:zoom-in-95"
         >
           <Dialog.Title className="sr-only">Command palette</Dialog.Title>
           <Command label="Command palette" loop>
             {/* A filled field (no border); the ring is drawn around the field, so the input itself draws none. */}
-            <div className="m-2 flex items-center gap-2 rounded-xl bg-surface-2 px-3 has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-ring has-[input:focus-visible]:outline-solid">
+            <div className="m-2 flex items-center gap-2 rounded-md bg-surface-2 px-3 has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-ring has-[input:focus-visible]:outline-solid">
               <Search aria-hidden="true" className="size-4 shrink-0 text-fg-muted" />
               <Command.Input
                 placeholder="Search sections and actions…"

@@ -80,7 +80,7 @@
 
 /* Shape and layout; the same in both themes. */
 :root {
-  --radius: 0.75rem; /* controls rounded-xl (12px), cards rounded-2xl (16px); see theme.css */
+  --radius: 0.75rem; /* scale anchor; cards, buttons and inputs use rounded-md (8px); see theme.css */
   --sidebar-w: 16rem;
   --sidebar-w-collapsed: 4rem;
 }

@@ -21,7 +21,7 @@ export interface SidebarNavProps {
 }
 
 const linkClasses = cn(
-  "flex h-10 items-center gap-3 rounded-xl px-3 text-sm font-medium whitespace-nowrap text-fg-muted",
+  "flex h-10 items-center gap-3 rounded-md px-3 text-sm font-medium whitespace-nowrap text-fg-muted",
   "transition-[color,background-color] hover:bg-surface-2 hover:text-fg",
   "aria-[current=page]:bg-surface-2 aria-[current=page]:text-fg",
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid",

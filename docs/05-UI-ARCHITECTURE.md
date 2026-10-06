@@ -94,8 +94,8 @@ stylesheet, `@finlytics/ui/globals.css`.
     dark on `[data-theme="dark"]`, each with its `color-scheme`. Derived tokens (`--ring`) are declared on
     `:root, [data-theme]`, so a themed island resolves them against its own values.
   - `theme.css`: maps tokens to utilities (`bg-surface-2`, `text-profit`, `text-fg-muted`), removes Tailwind's default
-    palette (`bg-red-500` and `text-white` generate nothing), and defines the font and radius scales (`rounded-xl`
-    controls, `rounded-2xl` cards), the shimmer animation and the `tabular` utility.
+    palette (`bg-red-500` and `text-white` generate nothing), and defines the font and radius scales (cards,
+    buttons and inputs use the medium radius, `rounded-md`, 8px), the shimmer animation and the `tabular` utility.
   - `base.css`: document colours and font, borderless controls, the focus outline, reduced motion.
   - `globals.css`: imports Tailwind once, `tw-animate-css` and the three files, and registers the package's sources
     with Tailwind (`@source`), so apps need no extra configuration. Stories, `__tests__`, `src/test` and `foundations`

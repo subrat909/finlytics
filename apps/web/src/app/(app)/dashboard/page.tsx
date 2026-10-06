@@ -18,7 +18,7 @@ export default function DashboardPage() {
         <p className="text-sm text-fg-muted">Funds, P&amp;L, positions and agent insights appear here.</p>
       </header>
       <AccountCard />
-      <section aria-labelledby="portfolio-heading" className="rounded-2xl bg-surface-1">
+      <section aria-labelledby="portfolio-heading" className="rounded-md bg-surface-1">
         <h2 id="portfolio-heading" className="sr-only">
           Portfolio
         </h2>

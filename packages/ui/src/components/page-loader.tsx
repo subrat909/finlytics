@@ -84,27 +84,27 @@ function ChartSkeleton() {
     <div className="flex gap-4">
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         <div className="flex items-center gap-2">
-          <Skeleton className="h-9 w-40 rounded-xl" />
+          <Skeleton className="h-9 w-40 rounded-md" />
           {range(3).map((tool) => (
-            <Skeleton key={tool} className="h-9 w-10 rounded-xl" />
+            <Skeleton key={tool} className="h-9 w-10 rounded-md" />
           ))}
-          <Skeleton className="ml-auto hidden h-9 w-24 rounded-xl sm:block" />
+          <Skeleton className="ml-auto hidden h-9 w-24 rounded-md sm:block" />
         </div>
         <Skeleton shape="block" className="h-[calc(100dvh-8rem)] min-h-72" />
       </div>
       <Card className="hidden w-80 shrink-0 lg:flex">
         <Skeleton className="h-5 w-32" />
         <div className="grid grid-cols-2 gap-2">
-          <Skeleton className="h-10 rounded-xl" />
-          <Skeleton className="h-10 rounded-xl" />
+          <Skeleton className="h-10 rounded-md" />
+          <Skeleton className="h-10 rounded-md" />
         </div>
         {range(3).map((field) => (
           <div key={field} className="space-y-2">
             <Skeleton className="h-3.5 w-20" />
-            <Skeleton className="h-10 rounded-xl" />
+            <Skeleton className="h-10 rounded-md" />
           </div>
         ))}
-        <Skeleton className="mt-auto h-12 rounded-xl" />
+        <Skeleton className="mt-auto h-12 rounded-md" />
       </Card>
     </div>
   );
@@ -115,12 +115,12 @@ function TableSkeleton() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <Skeleton className="h-10 w-full rounded-xl sm:w-64" />
-        <Skeleton className="h-10 w-24 rounded-xl" />
-        <Skeleton className="h-10 w-24 rounded-xl" />
+        <Skeleton className="h-10 w-full rounded-md sm:w-64" />
+        <Skeleton className="h-10 w-24 rounded-md" />
+        <Skeleton className="h-10 w-24 rounded-md" />
       </div>
       <Card className="hidden gap-0 p-0 sm:flex sm:p-0">
-        <div className="flex items-center gap-4 bg-surface-2 px-4 py-3 first:rounded-t-2xl">
+        <div className="flex items-center gap-4 bg-surface-2 px-4 py-3 first:rounded-t-md">
           {range(5).map((column) => (
             <Skeleton key={column} className="h-3 flex-1 bg-surface-3" />
           ))}
@@ -158,13 +158,13 @@ function FormSkeleton() {
         {range(6).map((field) => (
           <div key={field} className="space-y-2">
             <Skeleton className="h-3.5 w-24" />
-            <Skeleton className="h-10 rounded-xl" />
+            <Skeleton className="h-10 rounded-md" />
           </div>
         ))}
       </div>
       <div className="flex justify-end gap-2">
-        <Skeleton className="h-10 w-24 rounded-xl" />
-        <Skeleton className="h-10 w-28 rounded-xl" />
+        <Skeleton className="h-10 w-24 rounded-md" />
+        <Skeleton className="h-10 w-28 rounded-md" />
       </div>
     </Card>
   );
@@ -194,7 +194,7 @@ function ChainSkeleton() {
     <div className="space-y-4">
       <div className="flex gap-2 overflow-hidden">
         {range(5).map((tab) => (
-          <Skeleton key={tab} className="h-9 w-24 shrink-0 rounded-xl" />
+          <Skeleton key={tab} className="h-9 w-24 shrink-0 rounded-md" />
         ))}
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

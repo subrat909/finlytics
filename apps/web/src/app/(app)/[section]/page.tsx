@@ -34,7 +34,7 @@ export default async function SectionPage({ params }: SectionPageProps) {
         <h1 className="text-2xl font-semibold tracking-tight text-fg">{label}</h1>
         <p className="text-sm text-fg-muted">{description}</p>
       </header>
-      <section className="rounded-2xl bg-surface-1" aria-label={`${label} status`}>
+      <section className="rounded-md bg-surface-1" aria-label={`${label} status`}>
         <EmptyState
           icon={<Icon className={accent} />}
           title={`${label} is on its way`}

@@ -37,7 +37,7 @@ describe("Button", () => {
     expect(link.tagName).toBe("A");
     expect(link).not.toHaveAttribute("type");
     expect(link).toHaveAttribute("data-slot", "button");
-    expect(link).toHaveClass("bg-surface-2", "rounded-xl");
+    expect(link).toHaveClass("bg-surface-2", "rounded-md");
   });
 
   it("uses no border, shadow or ring utilities in any variant or size", () => {

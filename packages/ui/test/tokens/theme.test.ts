@@ -65,12 +65,12 @@ describe("Tailwind theme", () => {
   });
 
   it("generates tabular numerals in the mono face, the radius scale and the shimmer animation", async () => {
-    const css = await buildGlobals(["tabular", "rounded-xl", "rounded-2xl", "motion-safe:animate-shimmer"]);
+    const css = await buildGlobals(["tabular", "rounded-md", "rounded-xl", "motion-safe:animate-shimmer"]);
 
     expect(css).toMatch(/\.tabular \{\s*font-variant-numeric: tabular-nums;\s*font-family: var\(--font-mono\);/);
     expect(css).toMatch(/--font-mono: var\(--font-jetbrains-mono, "JetBrains Mono Variable"\)/);
+    expect(css).toMatch(/\.rounded-md \{\s*border-radius: calc\(var\(--radius\) - 4px\);/);
     expect(css).toMatch(/\.rounded-xl \{\s*border-radius: var\(--radius\);/);
-    expect(css).toMatch(/\.rounded-2xl \{\s*border-radius: calc\(var\(--radius\) \+ 4px\);/);
     expect(css).toMatch(/prefers-reduced-motion: no-preference\) \{\s*\.motion-safe\\:animate-shimmer \{/);
     expect(css).toContain("@keyframes shimmer");
   });
