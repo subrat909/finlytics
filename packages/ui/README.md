@@ -23,19 +23,20 @@ Each component is its own module, `@finlytics/ui/components/<name>`; there is no
 loads only what it imports. The exports map in `package.json` is the public surface, and `test/package/exports.test.ts`
 pins it.
 
-| Module                      | Exports                                                                                                                              | Client? |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------- |
-| `components/button`         | `Button` (variants primary, secondary, ghost, profit, loss; sizes sm, md, lg, icon, icon-sm; `loading`; `asChild`), `buttonVariants` | no¹     |
-| `components/input`          | `Input` (`invalid`, `numeric`)                                                                                                       | no      |
-| `components/card`           | `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardAction`, `CardContent`, `CardFooter`                                      | no      |
-| `components/skeleton`       | `Skeleton` (`shape`: line, block, circle)                                                                                            | no      |
-| `components/empty-state`    | `EmptyState` (`icon`, `title`, `description`, `action`, `headingLevel`, `size`)                                                      | no      |
-| `components/error-state`    | `ErrorState` (`onRetry` with a pending state, `reference`, `retryLabel`, `headingLevel`, `size`)                                     | yes     |
-| `components/page-loader`    | `PageLoader` (`variant`: dashboard, chart, table, form, chain; `label`)                                                              | no      |
-| `components/theme-provider` | `ThemeProvider` (`defaultTheme`, `nonce`), `useThemePreference`; re-exports the `lib/theme` names                                    | yes     |
-| `components/theme-toggle`   | `ThemeToggle` (`onThemeChange`, `size`: sm, md, `label`)                                                                             | yes     |
-| `lib/theme`                 | `THEME_PREFERENCES`, `THEME_STORAGE_KEY`, `isThemePreference`, types `ThemePreference` and `ResolvedTheme`                           | no      |
-| `lib/utils`                 | `cn` (clsx + tailwind-merge, with the theme's custom scales registered)                                                              | no      |
+| Module                         | Exports                                                                                                                                                                                         | Client? |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| `components/button`            | `Button` (variants primary, secondary, ghost, profit, loss; sizes sm, md, lg, icon, icon-sm; `loading`; `asChild`), `buttonVariants`                                                            | no¹     |
+| `components/input`             | `Input` (`invalid`, `numeric`)                                                                                                                                                                  | no      |
+| `components/card`              | `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardAction`, `CardContent`, `CardFooter`                                                                                                 | no      |
+| `components/skeleton`          | `Skeleton` (`shape`: line, block, circle)                                                                                                                                                       | no      |
+| `components/empty-state`       | `EmptyState` (`icon`, `title`, `description`, `action`, `headingLevel`, `size`)                                                                                                                 | no      |
+| `components/error-state`       | `ErrorState` (`onRetry` with a pending state, `reference`, `retryLabel`, `headingLevel`, `size`)                                                                                                | yes     |
+| `components/page-loader`       | `PageLoader` (`variant`: dashboard, chart, table, form, chain; `label`)                                                                                                                         | no      |
+| `components/segmented-control` | `SegmentedControl` (`options`, `value`, `onValueChange`, `size`: sm, md, `label`, `disabled`)                                                                                                   | yes     |
+| `components/theme-provider`    | `ThemeProvider` (`defaultTheme`, `nonce`, `density`), `useThemePreference`, `useDensityPreference`; re-exports the `lib/theme` names                                                            | yes     |
+| `components/theme-toggle`      | `ThemeToggle` (`onThemeChange`, `size`: sm, md, `label`), built on SegmentedControl                                                                                                             | yes     |
+| `lib/theme`                    | `THEME_PREFERENCES`, `THEME_STORAGE_KEY`, `isThemePreference`, `DENSITY_PREFERENCES`, `DENSITY_ATTRIBUTE`, `isDensityPreference`, types `ThemePreference`, `ResolvedTheme`, `DensityPreference` | no      |
+| `lib/utils`                    | `cn` (clsx + tailwind-merge, with the theme's custom scales registered)                                                                                                                         | no      |
 
 Components without `"use client"` render in Server Components and send no JavaScript. The package has no network code
 and never calls the API: apps get callbacks (`onThemeChange`, `onRetry`) instead.
@@ -78,27 +79,31 @@ with `variable: "--font-inter"` and `"--font-jetbrains-mono"`; never Google Font
   translucent band of the text colour over the skeleton's own background, so tinted skeletons stay tinted; flat
   where `color-mix()` isn't supported). The radius scale derives from `--radius` (12px); cards, buttons and inputs use
   the medium radius, `rounded-md` (8px).
-- `src/styles/base.css`: document colours and font, borderless controls, the 2px `--ring` focus outline, reduced motion.
+- `src/styles/base.css`: document colours and font, controls reset to no border and no shadow (Input adds its 1px edge
+  back), the 2px `--ring` focus outline, reduced motion.
+- Borders: `border border-border` (decorative) on cards, menus, sheets, dividers and segmented-control tracks;
+  `border border-border-strong` (≥ 3:1) on inputs; never on buttons. `[data-density="compact"]` (set by
+  ThemeProvider's `density`) tightens the spacing scale to 87.5% (theme.css).
 - `src/styles/globals.css`: the entry point that imports the files above and registers the shipped sources
   (`@source "../"` minus stories, `__tests__`, `src/test` and `foundations`). Storybook loads it through
   `.storybook/preview.css`, which scans the stories again.
 
 Every token pair the components render is in the contrast matrix, `test/tokens/contrast-pairs.ts`: text ≥ 4.5:1,
-focus outline and checked state ≥ 3:1, in both themes. Change a token value and `pnpm --filter @finlytics/ui test` says
+focus outline, checked state and input edge (`border-strong`) ≥ 3:1, in both themes. Change a token value and `pnpm --filter @finlytics/ui test` says
 which pairs it breaks, with the measured ratio. The Foundations stories show the same ratios live.
 
 Rules the components follow, and the checks that catch a regression:
 
-| Rule                                                                                                                                                  | Checked by                                                                           |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| Tokens only: no colour literal outside tokens.css, no default-palette class; CSS system colours (`bg-[Highlight]`) only under `forced-colors:`        | `test/tokens/tokens-only.test.ts`                                                    |
-| No border and no box-shadow on any control, link buttons (`asChild`) included                                                                         | the preview's `afterEach` in every story (`.storybook/design-checks.ts`), unit tests |
-| Cards, buttons and inputs use the medium radius (`rounded-md`, 8px)                                                                                   | unit tests (`button`, `input`, `card`)                                               |
-| Focus is the 2px `--ring` outline (no `outline-hidden`; transition only `color` and `background-color`, or the outline fades in from the text colour) | KeyboardFocus stories, `Foundations/Focus`                                           |
-| No client-only React API without `"use client"`; `lib/` modules carry no directive; next-themes only in theme-provider; no network APIs               | `test/package/boundaries.test.ts`                                                    |
-| Consumers' Tailwind scans only shipped modules (no stories, tests, test helpers, Foundations); Storybook scans every story                            | `test/tokens/theme.test.ts` (Tailwind's own scanner)                                 |
-| The checked ThemeToggle option stands out in forced-colours mode; tinted skeletons keep their tint while the shimmer runs                             | `test/visual/` (`forced-colors` captures, the `motion` project)                      |
-| Runtime dependencies from an allowlist, all `catalog:` or `workspace:*`                                                                               | `test/package/dependencies.test.ts`                                                  |
+| Rule                                                                                                                                                                                                                                     | Checked by                                                                           |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Tokens only: no colour literal outside tokens.css, no default-palette class; CSS system colours (`bg-[Highlight]`) only under `forced-colors:`                                                                                           | `test/tokens/tokens-only.test.ts`                                                    |
+| No border and no box-shadow on any button, link buttons (`asChild`), radios and segments included; fields (input, select, textarea) at most a 1px border and no box-shadow; cards and inputs carry their `border` / `border-strong` edge | the preview's `afterEach` in every story (`.storybook/design-checks.ts`), unit tests |
+| Cards, buttons and inputs use the medium radius (`rounded-md`, 8px)                                                                                                                                                                      | unit tests (`button`, `input`, `card`)                                               |
+| Focus is the 2px `--ring` outline (no `outline-hidden`; transition only `color` and `background-color`, or the outline fades in from the text colour)                                                                                    | KeyboardFocus stories, `Foundations/Focus`                                           |
+| No client-only React API without `"use client"`; `lib/` modules carry no directive; next-themes only in theme-provider; no network APIs                                                                                                  | `test/package/boundaries.test.ts`                                                    |
+| Consumers' Tailwind scans only shipped modules (no stories, tests, test helpers, Foundations); Storybook scans every story                                                                                                               | `test/tokens/theme.test.ts` (Tailwind's own scanner)                                 |
+| The checked SegmentedControl / ThemeToggle option stands out in forced-colours mode; tinted skeletons keep their tint while the shimmer runs                                                                                             | `test/visual/` (`forced-colors` captures, the `motion` project)                      |
+| Runtime dependencies from an allowlist, all `catalog:` or `workspace:*`                                                                                                                                                                  | `test/package/dependencies.test.ts`                                                  |
 
 ## Adding a shadcn component (plan D8)
 
@@ -106,7 +111,8 @@ Never run `shadcn init`: it rewrites the stylesheet with its own palette. Get th
 `pnpm dlx shadcn@4.21.2 view <item>` (or `add <item> -c packages/ui --dry-run`), then port it:
 
 1. Import `cn` from `../lib/utils` (not the `cn` package) and Radix from `radix-ui`; keep every dependency `catalog:`.
-2. Remove `border*`, `shadow*`, `ring*` and `ring-offset*` classes from controls; focus is
+2. Remove `shadow*`, `ring*` and `ring-offset*` classes everywhere and `border*` from buttons; cards and surfaces use
+   `border border-border`, inputs `border border-border-strong`; focus is
    `focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid`.
 3. Replace default-palette colours (`bg-black/50`, `text-white`) with tokens (`text-primary-fg`, …).
 4. Export a `Props` interface, keep `data-slot` on every part, use the React 19 `ref` prop (no `forwardRef`) and

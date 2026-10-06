@@ -22,3 +22,17 @@ export const THEME_STORAGE_KEY = "finlytics-theme";
 export function isThemePreference(value: unknown): value is ThemePreference {
   return typeof value === "string" && (THEME_PREFERENCES as readonly string[]).includes(value);
 }
+
+/** A user's density setting: `appearance.density` in @finlytics/shared. */
+export type DensityPreference = UserSettings["appearance"]["density"];
+
+/** Every density, in the order the settings page shows them. A type test keeps it equal to DensityPreference. */
+export const DENSITY_PREFERENCES = ["comfortable", "compact"] as const satisfies readonly DensityPreference[];
+
+/** The attribute on <html> that applies the density (theme.css tightens the spacing scale for `compact`). */
+export const DENSITY_ATTRIBUTE = "data-density";
+
+/** Narrows an unknown value (a cookie, a form value) to a DensityPreference. */
+export function isDensityPreference(value: unknown): value is DensityPreference {
+  return typeof value === "string" && (DENSITY_PREFERENCES as readonly string[]).includes(value);
+}

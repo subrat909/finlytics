@@ -4,7 +4,7 @@
  *
  * Rules, enforced by test/tokens:
  * - A colour token is a 6-digit hex value or a var() alias of another token, and is defined for both themes.
- * - Text pairs meet 4.5:1 and non-text pairs (focus outline, checked state) 3:1 in both themes
+ * - Text pairs meet 4.5:1 and non-text pairs (focus outline, checked state, input boundary) 3:1 in both themes
  *   (the matrix is test/tokens/contrast-pairs.ts). Change a value, and the test tells you which pairs it breaks.
  * - No colour literal anywhere else in src.
  *
@@ -38,6 +38,11 @@
   --surface-2: #f1f5f9;
   --surface-3: #e2e8f0;
 
+  /* Edges, 1px. --border: cards, menus, sheets, dividers (decorative). --border-strong: input boundaries, 3:1 against
+     bg, surface-1 and surface-2 (WCAG 1.4.11). Never on buttons. */
+  --border: #e2e8f0;
+  --border-strong: #7d8a9e;
+
   /* Text. */
   --fg: #0f172a;
   --fg-muted: #56657a;
@@ -64,6 +69,9 @@
   --surface-1: #111827;
   --surface-2: #1f2937;
   --surface-3: #374151;
+
+  --border: #283446;
+  --border-strong: #6a778c;
 
   --fg: #f1f5f9;
   --fg-muted: #aab3c0;

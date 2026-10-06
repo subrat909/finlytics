@@ -1,8 +1,15 @@
 import { UserSettingsSchema } from "@finlytics/shared";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import { THEME_PREFERENCES, THEME_STORAGE_KEY, isThemePreference } from "../theme";
-import type { ResolvedTheme, ThemePreference } from "../theme";
+import {
+  DENSITY_ATTRIBUTE,
+  DENSITY_PREFERENCES,
+  THEME_PREFERENCES,
+  THEME_STORAGE_KEY,
+  isDensityPreference,
+  isThemePreference,
+} from "../theme";
+import type { DensityPreference, ResolvedTheme, ThemePreference } from "../theme";
 
 describe("theme names", () => {
   it("covers every appearance.theme value from @finlytics/shared", () => {
@@ -27,6 +34,31 @@ describe("theme names", () => {
     }
     for (const value of ["Dark", "auto", "", " light", null, undefined, 1, {}, ["dark"]]) {
       expect(isThemePreference(value), JSON.stringify(value)).toBe(false);
+    }
+  });
+});
+
+describe("density names", () => {
+  it("covers every appearance.density value from @finlytics/shared, comfortable first", () => {
+    expectTypeOf<(typeof DENSITY_PREFERENCES)[number]>().toEqualTypeOf<DensityPreference>();
+    expectTypeOf<DensityPreference>().toEqualTypeOf<"comfortable" | "compact">();
+
+    expect(DENSITY_PREFERENCES).toEqual(["comfortable", "compact"]);
+    expect([...DENSITY_PREFERENCES].sort()).toEqual(
+      [...UserSettingsSchema.shape.appearance.shape.density.options].sort(),
+    );
+  });
+
+  it("applies through data-density, the attribute theme.css reads", () => {
+    expect(DENSITY_ATTRIBUTE).toBe("data-density");
+  });
+
+  it("accepts exactly the two densities", () => {
+    for (const density of DENSITY_PREFERENCES) {
+      expect(isDensityPreference(density), density).toBe(true);
+    }
+    for (const value of ["Compact", "cozy", "", null, undefined, 0, {}, ["compact"]]) {
+      expect(isDensityPreference(value), JSON.stringify(value)).toBe(false);
     }
   });
 });

@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { expectNoAxeViolations } from "../../test/axe";
-import { forbiddenControlUtilities } from "../../test/classes";
+import { borderUtilities, forbiddenSurfaceUtilities } from "../../test/classes";
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../card";
 
 function FullCard() {
@@ -56,12 +56,14 @@ describe("Card", () => {
     ]);
   });
 
-  it("uses no border or shadow utilities", () => {
+  it("has a 1px border-token edge on the card only, and no shadow or ring anywhere", () => {
     render(<FullCard />);
 
     const card = screen.getByTestId("card");
-    const classLists = [card, ...card.querySelectorAll("[data-slot]")].map((part) => part.className);
-    expect(classLists.flatMap(forbiddenControlUtilities)).toEqual([]);
+    const parts = [...card.querySelectorAll("[data-slot]")];
+    expect([card, ...parts].map((part) => part.className).flatMap(forbiddenSurfaceUtilities)).toEqual([]);
+    expect(borderUtilities(card.className)).toEqual(["border", "border-border"]);
+    expect(parts.flatMap((part) => borderUtilities(part.className))).toEqual([]);
     expect(card).toHaveClass("bg-surface-1", "rounded-md");
   });
 

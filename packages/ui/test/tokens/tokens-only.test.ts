@@ -150,8 +150,8 @@ describe("tokens only", () => {
       .filter(({ token }) => !token.split(":").slice(0, -1).includes("forced-colors"))
       .map(({ file, token }) => `${file}: ${token}`);
 
-    // ThemeToggle's checked option uses them (Highlight, HighlightText), so the check has something to check.
-    expect(uses.map(({ file }) => file)).toContain("src/components/theme-toggle.tsx");
+    // SegmentedControl's checked option (ThemeToggle's too) uses them (Highlight, HighlightText, CanvasText).
+    expect(uses.map(({ file }) => file)).toContain("src/components/segmented-control.tsx");
     expect(outsideForcedColours).toEqual([]);
   });
 

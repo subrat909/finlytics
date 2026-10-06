@@ -1,16 +1,24 @@
 "use client";
 
 import { ThemeProvider as NextThemesProvider, useTheme } from "next-themes";
+import { createContext, use, useLayoutEffect, useMemo, useState } from "react";
 import type * as React from "react";
 
 import { useIsClient } from "../hooks/use-is-client";
-import { THEME_STORAGE_KEY, isThemePreference } from "../lib/theme";
-import type { ResolvedTheme, ThemePreference } from "../lib/theme";
+import { DENSITY_ATTRIBUTE, THEME_STORAGE_KEY, isThemePreference } from "../lib/theme";
+import type { DensityPreference, ResolvedTheme, ThemePreference } from "../lib/theme";
 
 // The theme names live in the directive-free lib/theme, where Server Components can read them. Re-exported here so
 // client code that imports them from this module keeps working.
-export { THEME_PREFERENCES, THEME_STORAGE_KEY, isThemePreference } from "../lib/theme";
-export type { ResolvedTheme, ThemePreference } from "../lib/theme";
+export {
+  DENSITY_ATTRIBUTE,
+  DENSITY_PREFERENCES,
+  THEME_PREFERENCES,
+  THEME_STORAGE_KEY,
+  isDensityPreference,
+  isThemePreference,
+} from "../lib/theme";
+export type { DensityPreference, ResolvedTheme, ThemePreference } from "../lib/theme";
 
 const RESOLVED_THEMES: ResolvedTheme[] = ["light", "dark"];
 
@@ -37,14 +45,59 @@ export interface ThemeProviderProps {
   defaultTheme?: ThemePreference | undefined;
   /** The request's CSP nonce, for the pre-paint script. */
   nonce?: string | undefined;
+  /**
+   * The density to apply (default "comfortable"): the account's `appearance.density`. Server-render the same value as
+   * `<html data-density>` so the first paint is already right; the provider keeps the attribute in step after that.
+   */
+  density?: DensityPreference | undefined;
+}
+
+export interface DensityState {
+  /** The applied density. */
+  density: DensityPreference;
+  /** Applies a density on this page at once (`<html data-density>`). Saving it to the account is the app's job. */
+  setDensity: (density: DensityPreference) => void;
+}
+
+const DensityContext = createContext<DensityState | null>(null);
+
+/**
+ * Holds the applied density and mirrors it to `<html data-density>`. A new `density` prop (the account changed, say)
+ * replaces a local choice. The attribute is removed on unmount, so a provider that goes away leaves no density behind.
+ */
+function DensityProvider({ density: initial, children }: { density: DensityPreference; children: React.ReactNode }) {
+  const [density, setDensity] = useState(initial);
+  const [previousInitial, setPreviousInitial] = useState(initial);
+  if (previousInitial !== initial) {
+    setPreviousInitial(initial);
+    setDensity(initial);
+  }
+
+  // Before paint, so a client-rendered provider never shows a frame at the wrong density.
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    root.setAttribute(DENSITY_ATTRIBUTE, density);
+    return () => {
+      root.removeAttribute(DENSITY_ATTRIBUTE);
+    };
+  }, [density]);
+
+  const value = useMemo(() => ({ density, setDensity }), [density]);
+  return <DensityContext value={value}>{children}</DensityContext>;
 }
 
 /**
  * Sets `<html data-theme="light|dark">` from the stored choice, the default or the OS setting (followed live), with a
- * blocking inline script so the first paint is already themed. Put it high in the root layout, above dynamic segments,
- * so it never re-mounts. The only module that imports next-themes (plan D12), so the library can be swapped out.
+ * blocking inline script so the first paint is already themed, and `<html data-density>` from `density`. Put it high in
+ * the root layout, above dynamic segments, so it never re-mounts. The only module that imports next-themes (plan D12),
+ * so the library can be swapped out.
  */
-export function ThemeProvider({ children, defaultTheme = "system", nonce }: ThemeProviderProps) {
+export function ThemeProvider({
+  children,
+  defaultTheme = "system",
+  nonce,
+  density = "comfortable",
+}: ThemeProviderProps) {
   return (
     <NextThemesProvider
       attribute="data-theme"
@@ -57,7 +110,7 @@ export function ThemeProvider({ children, defaultTheme = "system", nonce }: Them
       scriptProps={typeof window === "undefined" ? SERVER_SCRIPT_PROPS : CLIENT_SCRIPT_PROPS}
       {...(nonce === undefined ? {} : { nonce })}
     >
-      {children}
+      <DensityProvider density={density}>{children}</DensityProvider>
     </NextThemesProvider>
   );
 }
@@ -80,4 +133,11 @@ export function useThemePreference(): ThemePreferenceState {
     resolvedTheme: isClient && isResolvedTheme(resolvedTheme) ? resolvedTheme : undefined,
     setPreference: setTheme,
   };
+}
+
+/** The applied density and its setter, for the settings page. Must be inside ThemeProvider. */
+export function useDensityPreference(): DensityState {
+  const state = use(DensityContext);
+  if (!state) throw new Error("useDensityPreference must be used inside ThemeProvider.");
+  return state;
 }

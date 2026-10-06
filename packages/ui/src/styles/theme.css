@@ -34,6 +34,8 @@
   --color-surface-1: var(--surface-1);
   --color-surface-2: var(--surface-2);
   --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-primary: var(--primary);
   --color-primary-fg: var(--primary-fg);
   --color-highlight: var(--highlight);
@@ -63,7 +65,6 @@
   --color-accent-foreground: var(--fg);
   --color-destructive: var(--loss);
   --color-destructive-foreground: var(--loss-fg);
-  --color-border: var(--surface-3);
   --color-input: var(--surface-2);
 
   /* Type: self-hosted variable fonts (plan D13). Next.js sets --font-inter and --font-jetbrains-mono through
@@ -126,6 +127,15 @@
   --accent-foreground: var(--fg);
   --destructive: var(--loss);
   --destructive-foreground: var(--loss-fg);
-  --border: var(--surface-3);
   --input: var(--surface-2);
+}
+
+/*
+ * Density (`appearance.density`, set as <html data-density> by ThemeProvider and the app's root layout). Compact
+ * tightens Tailwind's spacing scale by 12.5%: every padding, gap, margin and control height built from it (p-4, h-10,
+ * w-64) shrinks together, so layouts keep their proportions. Type sizes don't change. Unlayered, so it wins over
+ * Tailwind's theme layer.
+ */
+[data-density="compact"] {
+  --spacing: 0.21875rem;
 }

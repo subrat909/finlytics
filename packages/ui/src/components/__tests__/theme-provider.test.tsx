@@ -5,7 +5,7 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import * as themeNames from "../../lib/theme";
 import { setMediaQuery } from "../../test/match-media";
 import * as themeProvider from "../theme-provider";
-import { THEME_STORAGE_KEY, ThemeProvider, useThemePreference } from "../theme-provider";
+import { THEME_STORAGE_KEY, ThemeProvider, useDensityPreference, useThemePreference } from "../theme-provider";
 
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
@@ -132,5 +132,80 @@ describe("ThemeProvider", () => {
     expect(themeProvider.isThemePreference).toBe(themeNames.isThemePreference);
     expectTypeOf<themeProvider.ThemePreference>().toEqualTypeOf<themeNames.ThemePreference>();
     expectTypeOf<themeProvider.ResolvedTheme>().toEqualTypeOf<themeNames.ResolvedTheme>();
+    expect(themeProvider.DENSITY_PREFERENCES).toBe(themeNames.DENSITY_PREFERENCES);
+    expect(themeProvider.isDensityPreference).toBe(themeNames.isDensityPreference);
+    expectTypeOf<themeProvider.DensityPreference>().toEqualTypeOf<themeNames.DensityPreference>();
+  });
+});
+
+function DensityReadout() {
+  const { density, setDensity } = useDensityPreference();
+  return (
+    <div>
+      <p data-testid="density">{density}</p>
+      <button
+        type="button"
+        onClick={() => {
+          setDensity("compact");
+        }}
+      >
+        Use compact
+      </button>
+    </div>
+  );
+}
+
+function dataDensity(): string | null {
+  return document.documentElement.getAttribute("data-density");
+}
+
+describe("ThemeProvider density", () => {
+  it("applies comfortable by default", () => {
+    render(
+      <ThemeProvider>
+        <DensityReadout />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByTestId("density")).toHaveTextContent("comfortable");
+    expect(dataDensity()).toBe("comfortable");
+  });
+
+  it("applies the account's density and a new choice at once", async () => {
+    render(
+      <ThemeProvider density="comfortable">
+        <DensityReadout />
+      </ThemeProvider>,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Use compact" }));
+
+    expect(screen.getByTestId("density")).toHaveTextContent("compact");
+    expect(dataDensity()).toBe("compact");
+  });
+
+  it("follows a new density prop, and leaves no attribute behind when it unmounts", () => {
+    const { rerender, unmount } = render(
+      <ThemeProvider density="comfortable">
+        <DensityReadout />
+      </ThemeProvider>,
+    );
+
+    rerender(
+      <ThemeProvider density="compact">
+        <DensityReadout />
+      </ThemeProvider>,
+    );
+    expect(screen.getByTestId("density")).toHaveTextContent("compact");
+    expect(dataDensity()).toBe("compact");
+
+    unmount();
+    expect(dataDensity()).toBeNull();
+  });
+
+  it("refuses to work outside ThemeProvider", () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    expect(() => render(<DensityReadout />)).toThrow("useDensityPreference must be used inside ThemeProvider.");
   });
 });

@@ -14,12 +14,12 @@ export type CardActionProps = React.ComponentProps<"div">;
 export type CardContentProps = React.ComponentProps<"div">;
 export type CardFooterProps = React.ComponentProps<"div">;
 
-/** A card: bg-surface-1 with a 16px radius, no border and no shadow (frontend.md). Server-safe, like its parts. */
+/** A card: bg-surface-1, a 1px `border` edge, the medium radius and no shadow (frontend.md). Server-safe, like its parts. */
 export function Card({ className, ...props }: CardProps) {
   return (
     <div
       data-slot="card"
-      className={cn("flex flex-col gap-4 rounded-md bg-surface-1 p-4 text-fg sm:p-6", className)}
+      className={cn("flex flex-col gap-4 rounded-md border border-border bg-surface-1 p-4 text-fg sm:p-6", className)}
       {...props}
     />
   );

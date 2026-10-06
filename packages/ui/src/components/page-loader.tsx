@@ -120,7 +120,8 @@ function TableSkeleton() {
         <Skeleton className="h-10 w-24 rounded-md" />
       </div>
       <Card className="hidden gap-0 p-0 sm:flex sm:p-0">
-        <div className="flex items-center gap-4 bg-surface-2 px-4 py-3 first:rounded-t-md">
+        {/* Inside the card's 1px border: rounded-md (radius - 4px) less 1px, so the corners nest. */}
+        <div className="flex items-center gap-4 rounded-t-[calc(var(--radius)-5px)] bg-surface-2 px-4 py-3">
           {range(5).map((column) => (
             <Skeleton key={column} className="h-3 flex-1 bg-surface-3" />
           ))}

@@ -18,6 +18,7 @@ const DOCUMENTED_ENTRY_POINTS = [
   "./components/error-state",
   "./components/input",
   "./components/page-loader",
+  "./components/segmented-control",
   "./components/skeleton",
   "./components/theme-provider",
   "./components/theme-toggle",

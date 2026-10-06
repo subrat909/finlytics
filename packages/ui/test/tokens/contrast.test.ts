@@ -93,7 +93,7 @@ describe("contrast matrix", () => {
     expect(ratio, description).toBeGreaterThanOrEqual(pair.min);
   });
 
-  it.each(THEMES)("meets 3:1 for the focus outline and the checked toggle against every surface (%s)", (theme) => {
+  it.each(THEMES)("meets 3:1 for the focus outline, the checked segment and input edges (%s)", (theme) => {
     const failing = NON_TEXT_PAIRS.map((pair) => ({ ...measure(theme, pair), min: pair.min })).filter(
       ({ ratio, min }) => ratio < min,
     );

@@ -4,7 +4,8 @@ import { expect, waitFor, within } from "storybook/test";
 import { storedTheme } from "../test/theme-stories";
 
 import { Card, CardDescription, CardHeader, CardTitle } from "./card";
-import { ThemeProvider, useThemePreference } from "./theme-provider";
+import { Input } from "./input";
+import { ThemeProvider, useDensityPreference, useThemePreference } from "./theme-provider";
 import { ThemeToggle } from "./theme-toggle";
 
 /**
@@ -47,5 +48,41 @@ export const AccountDefault: Story = {
     });
     await expect(canvas.getByTestId("resolved")).toHaveTextContent("dark");
     await expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+  },
+};
+
+function DensityReadout() {
+  const { density } = useDensityPreference();
+  return (
+    <Card className="max-w-sm">
+      <CardHeader>
+        <CardTitle>Density</CardTitle>
+        <CardDescription>
+          Applied: <span data-testid="density">{density}</span>. Every spacing utility follows it.
+        </CardDescription>
+      </CardHeader>
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="density-lots" className="text-sm font-medium text-fg">
+          Lots
+        </label>
+        <Input id="density-lots" numeric defaultValue="2" />
+      </div>
+    </Card>
+  );
+}
+
+/** The account's density, compact: <html data-density="compact"> tightens the spacing scale by 12.5%. */
+export const CompactDensity: Story = {
+  beforeEach: storedTheme(null),
+  args: { defaultTheme: "light", density: "compact", children: <DensityReadout /> },
+  play: async ({ canvasElement }) => {
+    await expect(within(canvasElement).getByTestId("density")).toHaveTextContent("compact");
+    await waitFor(async () => {
+      await expect(document.documentElement).toHaveAttribute("data-density", "compact");
+    });
+    // 0.21875rem, which the minified build writes as .21875rem.
+    const spacing = getComputedStyle(document.documentElement).getPropertyValue("--spacing").trim();
+    await expect(spacing).toMatch(/rem$/);
+    await expect(Number.parseFloat(spacing)).toBe(0.21875);
   },
 };

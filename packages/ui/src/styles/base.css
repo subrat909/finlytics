@@ -6,8 +6,9 @@
     @apply bg-bg font-sans text-fg;
   }
 
-  /* No borders and no shadows on controls (frontend.md): affordance comes from filled surfaces, the hover tint and the
-     focus outline. Tailwind's preflight already removes borders; this also covers user-agent and generated styles. */
+  /* Controls start with no border and no shadow (frontend.md), also against user-agent and generated styles. Buttons
+     stay that way: affordance comes from filled surfaces, the hover tint and the focus outline. Inputs add their 1px
+     `border-border-strong` edge back with a utility (Input), which wins over this layer. */
   :where(button, input, select, textarea) {
     border: 0;
     box-shadow: none;

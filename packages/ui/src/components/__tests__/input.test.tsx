@@ -3,7 +3,7 @@ import { createRef } from "react";
 import { describe, expect, it } from "vitest";
 
 import { expectNoAxeViolations } from "../../test/axe";
-import { forbiddenControlUtilities } from "../../test/classes";
+import { borderUtilities, forbiddenSurfaceUtilities } from "../../test/classes";
 import { Input } from "../input";
 
 describe("Input", () => {
@@ -55,10 +55,12 @@ describe("Input", () => {
     expect(ref.current).toBe(screen.getByRole("textbox", { name: "Quantity" }));
   });
 
-  it("uses no border, shadow or ring utilities", () => {
+  it("has a 1px border-strong edge that turns loss when invalid, and no shadow or ring", () => {
     render(<Input aria-label="Quantity" invalid numeric />);
 
-    expect(forbiddenControlUtilities(screen.getByRole("textbox", { name: "Quantity" }).className)).toEqual([]);
+    const { className } = screen.getByRole("textbox", { name: "Quantity" });
+    expect(forbiddenSurfaceUtilities(className)).toEqual([]);
+    expect(borderUtilities(className)).toEqual(["border", "border-border-strong", "aria-invalid:border-loss"]);
   });
 
   it("uses the medium radius, file button included", () => {

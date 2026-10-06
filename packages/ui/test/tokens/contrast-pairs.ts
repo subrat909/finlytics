@@ -1,7 +1,8 @@
 /**
  * The contrast matrix (plan §4): every token pair the components render, checked in both themes. Text needs 4.5:1
- * (WCAG 1.4.3); the focus outline and the checked toggle option need 3:1 (WCAG 1.4.11). Add a row when a component
- * starts putting a token on a new surface.
+ * (WCAG 1.4.3); the focus outline, the checked segment and an input's edge need 3:1 (WCAG 1.4.11). The `border` token
+ * (cards, menus, dividers) is decorative, so it isn't in the matrix. Add a row when a component starts putting a token
+ * on a new surface.
  */
 
 /** A token, or a token at an alpha over an opaque surface (an opacity modifier such as `hover:bg-primary/90`). */
@@ -52,6 +53,9 @@ export const TEXT_PAIRS: readonly ContrastPair[] = [
 export const NON_TEXT_PAIRS: readonly ContrastPair[] = [
   // The focus outline, wherever a focusable control sits.
   ...SURFACES.map((background): ContrastPair => ({ foreground: "ring", background, min: 3 })),
-  // The checked ThemeToggle option (bg-primary) on the toggle's surface-2 track.
+  // The checked SegmentedControl / ThemeToggle option (bg-primary) on the control's surface-2 track.
   { foreground: "primary", background: "surface-2", min: 3 },
+  // An input's 1px edge (border-strong): against the page, a card and a surface-2 panel around it, and its own
+  // surface-2 fill inside.
+  ...ACCENT_SURFACES.map((background): ContrastPair => ({ foreground: "border-strong", background, min: 3 })),
 ];

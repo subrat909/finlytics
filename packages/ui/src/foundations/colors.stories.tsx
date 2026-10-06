@@ -17,6 +17,8 @@ const SWATCH: Readonly<Record<string, string>> = {
   "surface-1": "bg-surface-1",
   "surface-2": "bg-surface-2",
   "surface-3": "bg-surface-3",
+  border: "bg-border",
+  "border-strong": "bg-border-strong",
   fg: "bg-fg",
   "fg-muted": "bg-fg-muted",
   primary: "bg-primary",
@@ -54,6 +56,8 @@ const USES: ReadonlyArray<readonly [token: string, use: string]> = [
   ["surface-1", "Cards"],
   ["surface-2", "Inputs, secondary buttons, toggle track"],
   ["surface-3", "Hover surface"],
+  ["border", "1px edge of cards, menus, sheets, dividers (never buttons)"],
+  ["border-strong", "1px edge of inputs (≥ 3:1)"],
   ["fg", "Primary text"],
   ["fg-muted", "Secondary text, placeholders"],
   ["primary", "Brand, primary buttons, active nav, strategies"],
@@ -75,6 +79,9 @@ const FILLS = [
   ["profit", "profit-fg", "bg-profit text-profit-fg", "Buy ▲"],
   ["loss", "loss-fg", "bg-loss text-loss-fg", "Sell ▼"],
 ] as const;
+
+/** Where an input's edge sits: every surface but the hover one. */
+const FIELD_SURFACES = ["bg", "surface-1", "surface-2"] as const;
 
 const SURFACE_CLASS: Readonly<Record<(typeof SURFACES)[number], string>> = {
   bg: "bg-bg",
@@ -180,6 +187,21 @@ function ColorTokens() {
             ))}
           </tbody>
         </table>
+      </section>
+
+      <section aria-labelledby="edges-heading" className="space-y-3">
+        <h2 id="edges-heading" className="text-lg font-semibold">
+          Input edges (≥ 3:1)
+        </h2>
+        <div className="flex flex-wrap gap-4">
+          {FIELD_SURFACES.map((surface) => (
+            <div key={surface} className={`space-y-2 rounded-md p-3 ${SURFACE_CLASS[surface]}`}>
+              <div className="h-10 w-40 rounded-md border border-border-strong bg-surface-2" />
+              <div className="text-xs text-fg-muted">on {surface}</div>
+              <Ratio foreground="border-strong" background={surface} min={3} />
+            </div>
+          ))}
+        </div>
       </section>
 
       <section aria-labelledby="fills-heading" className="space-y-3">

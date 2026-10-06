@@ -6,7 +6,10 @@ import { describe, expect, it } from "vitest";
 import { PACKAGE_DIR, STYLES_DIR, buildGlobals, scannedFiles, utilitiesFor } from "./compile-css";
 import { colourTokens, readTokenRules, themeDeclarations } from "./parse-tokens";
 
-/** shadcn's colour names (plan D5) and the token each one means. */
+/**
+ * shadcn's colour names (plan D5) and the token each one means. `border` isn't here: it's a Finlytics token of its own
+ * (tokens.css), so `border-border` already reads `var(--border)`.
+ */
 const SHADCN_BRIDGE: Readonly<Record<string, string>> = {
   background: "bg",
   foreground: "fg",
@@ -23,7 +26,6 @@ const SHADCN_BRIDGE: Readonly<Record<string, string>> = {
   "accent-foreground": "fg",
   destructive: "loss",
   "destructive-foreground": "loss-fg",
-  border: "surface-3",
   input: "surface-2",
 };
 
@@ -94,8 +96,8 @@ describe("Tailwind theme", () => {
     expect(css).toMatch(/@supports \(color: color-mix\(in lab, red, red\)\) \{\s*background-image:/);
   });
 
-  it("draws ThemeToggle's checked option in system colours under forced colours", async () => {
-    const toggle = readFileSync(path.join(PACKAGE_DIR, "src/components/theme-toggle.tsx"), "utf8");
+  it("draws SegmentedControl's (and so ThemeToggle's) checked option in system colours under forced colours", async () => {
+    const toggle = readFileSync(path.join(PACKAGE_DIR, "src/components/segmented-control.tsx"), "utf8");
     const forcedColourClasses = toggle.match(/forced-colors:[^\s"]+/g) ?? [];
     const css = await utilitiesFor(forcedColourClasses);
     const forcedColours = /@media \(forced-colors: active\) \{([\s\S]*)/.exec(css)?.[1] ?? "";
@@ -106,6 +108,23 @@ describe("Tailwind theme", () => {
     expect(forcedColours).toContain("color: HighlightText;");
     expect(forcedColours).toContain("outline-color: CanvasText;");
     expect(css.match(/&\[data-state="checked"\]|\[data-state="checked"\]/g)?.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("gives cards a 1px border token and inputs a stronger one, both following the theme", async () => {
+    const css = await utilitiesFor(["border-border", "border-border-strong"]);
+
+    expect(css).toContain(".border-border {\n    border-color: var(--border);");
+    expect(css).toContain(".border-border-strong {\n    border-color: var(--border-strong);");
+  });
+
+  it("tightens the whole spacing scale under data-density=compact", async () => {
+    const css = await buildGlobals(["p-4"]);
+    const compact = /\[data-density="compact"\] \{\s*--spacing: ([^;]+);/.exec(css);
+
+    expect(css).toMatch(/\.p-4 \{\s*padding: calc\(var\(--spacing\) \* 4\);/);
+    expect(compact?.[1]).toBe("0.21875rem");
+    // At the top level (no indent), not inside a layer, so it beats the theme layer's :root { --spacing }.
+    expect(css).toMatch(/^\[data-density="compact"\] \{/m);
   });
 
   it("loads Tailwind once, through globals.css only", () => {

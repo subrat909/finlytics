@@ -1,7 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { userEvent, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
 
-import { expectFocusOutline } from "../test/stories";
+import { findDesignViolations } from "../../.storybook/design-checks";
+import { readToken } from "../foundations/contrast";
+import { colorChannels, expectFocusOutline } from "../test/stories";
 
 import { Input } from "./input";
 
@@ -23,7 +25,28 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Default: Story = {};
+/**
+ * The 1px border-strong edge (3:1 against the surface around it). The design check allows a 1px edge on fields and
+ * reports anything wider: the play function widens it for a moment and expects the report.
+ */
+export const Default: Story = {
+  play: async ({ canvasElement }) => {
+    const input = within(canvasElement).getByRole("textbox", { name: "Quantity" });
+    const style = getComputedStyle(input);
+    await expect(style.borderTopWidth).toBe("1px");
+    await expect(colorChannels(style.borderTopColor)).toEqual(colorChannels(readToken("border-strong")));
+    await expect(findDesignViolations(canvasElement)).toEqual([]);
+
+    input.style.setProperty("border-width", "2px");
+    try {
+      await expect(findDesignViolations(canvasElement)).toEqual([
+        expect.stringMatching(/^<input data-slot="input"> "" has a border wider than 1px/),
+      ]);
+    } finally {
+      input.style.removeProperty("border-width");
+    }
+  },
+};
 
 export const Placeholder: Story = { args: { placeholder: "Lots, e.g. 2" } };
 

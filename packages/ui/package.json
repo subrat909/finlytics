@@ -21,6 +21,7 @@
     "./components/error-state": "./src/components/error-state.tsx",
     "./components/input": "./src/components/input.tsx",
     "./components/page-loader": "./src/components/page-loader.tsx",
+    "./components/segmented-control": "./src/components/segmented-control.tsx",
     "./components/skeleton": "./src/components/skeleton.tsx",
     "./components/theme-provider": "./src/components/theme-provider.tsx",
     "./components/theme-toggle": "./src/components/theme-toggle.tsx",
