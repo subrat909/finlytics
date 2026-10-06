@@ -1,5 +1,5 @@
 # CI (plan D20). Jobs run in the order set by .claude/rules/testing.md: static -> unit -> integration and ui (in
-# parallel) -> security.
+# parallel) -> e2e (after integration) -> security.
 # Every third-party action is pinned to a full commit SHA; the trailing comment names the release. Dependabot
 # (.github/dependabot.yml) proposes SHA bumps weekly.
 name: CI
@@ -144,22 +144,58 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  # e2e (Playwright: sign-in, broker connect with mocked OAuth, paper order, strategy deploy, P&L) arrives with
-  # apps/web. When enabled, `security` needs `e2e` instead of `integration`.
-  #
-  # e2e:
-  #   name: End-to-end tests
-  #   needs: integration
-  #   runs-on: ubuntu-24.04
-  #   timeout-minutes: 30
-  #   steps:
-  #     - checkout, pnpm/action-setup, setup-node, pnpm install --frozen-lockfile (as above)
-  #     - run: pnpm exec playwright install --with-deps chromium
-  #     - run: pnpm test:e2e
+  # apps/web end to end (phase 0.6): Playwright in Chromium against the built api and `next dev`, with postgres, redis
+  # and mailpit from docker-compose.yml (the same images and ports as local development). Later phases add broker
+  # connect (mocked OAuth), paper orders, strategy deploy and P&L to the same suite.
+  e2e:
+    name: End-to-end tests
+    needs: integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # CI-only values for throwaway services on the runner; AUTH_SECRET is generated per run below.
+      DATABASE_URL: postgresql://finlytics:finlytics@127.0.0.1:5432/finlytics
+      REDIS_URL: redis://127.0.0.1:6379
+      AUTH_URL: http://localhost:3000
+      EMAIL_SERVER: smtp://127.0.0.1:1025
+      EMAIL_FROM: Finlytics CI <no-reply@finlytics.local>
+      API_INTERNAL_URL: http://127.0.0.1:4000
+      API_ALLOWED_ORIGINS: http://localhost:3000
+      MAILPIT_URL: http://127.0.0.1:8025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Generate a per-run AUTH_SECRET
+        run: |
+          secret="$(openssl rand -base64 32)"
+          echo "::add-mask::$secret"
+          echo "AUTH_SECRET=$secret" >> "$GITHUB_ENV"
+      - run: docker compose up --detach --wait postgres redis mailpit
+      - run: pnpm db:deploy
+      - run: pnpm --filter @finlytics/web exec playwright install --with-deps chromium
+      # turbo builds shared, database and the api first; Playwright starts the api (dist/main.js) and `next dev`.
+      - run: pnpm test:e2e
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-e2e-report
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
 
   security:
     name: Dependency audit
-    needs: [integration, ui]
+    needs: [integration, ui, e2e]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:

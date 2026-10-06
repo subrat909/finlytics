@@ -592,7 +592,7 @@ Done when `pnpm lint && pnpm typecheck && pnpm test && pnpm test:integration && 
    - Serialise BigInt columns (AuditLog.id, volume, oi) as strings.
    - Log the issues returned by the settings parser.
    - docs/01 mentions "Prisma middleware"; Prisma 7 has no `$use`, so use `$extends` query extensions.
-3. **Before 0.6:**
+3. **Before 0.6:** ✅ done in 0.6 (lowercase emails with CHECKs, no OAuth tokens at rest, roles USER/ADMIN, `proxy.ts` never imports the database).
    - Make email case-insensitive (citext or normalisation) before the first user exists.
    - Don't store OAuth provider tokens in `Account`, or encrypt them.
    - Role `PRO` duplicates the Plan tier; reduce Role to USER/ADMIN.

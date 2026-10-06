@@ -65,6 +65,27 @@ Available since 0.4, each from its own module (no barrel): `import { Button } fr
 
 New primitives go through the shadcn porting checklist in `packages/ui/README.md` (never `shadcn init`).
 
+## App shell (0.6, `apps/web`)
+Plan: `docs/plans/phase-0-web-bootstrap.md`. Code: `apps/web/src/components/shell/`.
+- **Sidebar.** Fixed, `w-64 ↔ w-16` (`transition-[width] duration-200 ease-out`), the content column moves with
+  `transition-[margin]`; labels fade (`opacity`) and keep their accessible names; collapsed links get Radix tooltips.
+  State: `useUiStore.sidebarCollapsed`, persisted in localStorage (`finlytics-ui`) and mirrored to the
+  `finlytics-sidebar` cookie, so the server renders the right width (no flash). `[` toggles it (never while typing).
+  `<main id="main-content">` is rendered once and never re-mounted (the e2e suite checks the DOM node).
+- **Below 1024 px** the sidebar is a Radix Dialog sheet from the left (focus trap, Escape, focus return).
+- **Top bar.** Search (opens ⌘K), the ui `ThemeToggle` (saved to the account with `PATCH /v1/me/settings`; this
+  device's stored choice wins, the account's is the default for new devices), and the account menu (Settings, Sign out).
+- **⌘K / Ctrl+K.** A Radix Dialog around cmdk: go to any section, toggle the sidebar, switch the theme, sign out.
+- **States.** `(app)/loading.tsx` renders `PageLoader` plus `AnnounceLoading`, which speaks through the shell's
+  persistent live region; `error.tsx` renders `ErrorState` (digest as the reference); sections that later phases build
+  render a coming-soon `EmptyState` (`(app)/[section]`).
+- **Primitives.** Tooltip, sheet, dropdown menu, avatar, command palette and the Google/GitHub marks are app-local in
+  0.6 (tokens only, no borders or shadows on controls, unit + axe tests). Promote them to `packages/ui` through the D8
+  checklist, with stories and CI-made baselines.
+- **CSP.** `src/proxy.ts` sets a per-request nonce: scripts `'nonce-…' 'strict-dynamic'`, `<style>` elements by nonce
+  only, style attributes allowed (`style-src-attr 'unsafe-inline'`: Radix server-renders a few). Runtime `<style>`
+  insertion by Radix's scroll lock gets the nonce through `__webpack_nonce__` (`StyleNonce`).
+
 ## Theming
 Source: `packages/ui/src/styles/` (plan `docs/plans/phase-0-ui-design-system.md`, D3–D7 and D12–D14). Apps import one
 stylesheet, `@finlytics/ui/globals.css`.

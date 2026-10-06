@@ -9,7 +9,7 @@ finlytics/
 ├── commitlint.config.mjs  .husky/ # pre-commit: lint-staged; commit-msg: Conventional Commits
 ├── .prettierignore
 ├── scripts/audit.mjs  audit-exceptions.json   # `pnpm audit:ci`: CI audit gate with expiring, GHSA-keyed exceptions
-├── .github/workflows/ci.yml       # static (format, lint, typecheck, check:pkg) → unit → integration → security; e2e, Trivy, images later
+├── .github/workflows/ci.yml       # static (format, lint, typecheck, check:pkg) → unit → integration, ui → e2e → security; Trivy, images later
 ├── .github/dependabot.yml         # weekly npm (prisma and vitest groups) + github-actions updates
 ├── docker-compose.yml  .env.example
 ├── docs/                          # architecture decisions, plans/
@@ -19,29 +19,33 @@ finlytics/
 │   ├── nginx/  grafana/  timescale/init.sql
 │
 ├── apps/
-│   ├── web/                                   # Next.js 15
-│   │   ├── next.config.ts  postcss.config.mjs  components.json (shadcn)  middleware.ts (auth, locale)   # Tailwind v4: no tailwind.config, the theme is CSS in packages/ui
+│   ├── web/                                   # Next.js 16 (Turbopack), Auth.js v5; plan docs/plans/phase-0-web-bootstrap.md
+│   │   ├── next.config.ts (loads the root .env, validates it, /v1 rewrite)  postcss.config.mjs  components.json (shadcn)
+│   │   ├── vitest.config.mts (dom + node projects)  playwright.config.ts  turbo.json  e2e/ (Playwright: auth-shell.spec.ts)
 │   │   ├── public/charting_library/           # TradingView Advanced Charts (vendored, gitignored, license)
 │   │   └── src/
+│   │       ├── proxy.ts                         # CSP nonce + session-cookie gate (never imports the database)
+│   │       ├── auth.ts                          # Auth.js (lazy config): handlers, auth, signIn, signOut
 │   │       ├── app/
-│   │       │   ├── layout.tsx  globals.css  not-found.tsx
-│   │       │   ├── (marketing)/page.tsx pricing/
-│   │       │   ├── (auth)/login/ signup/ verify/ 2fa/
+│   │       │   ├── layout.tsx  globals.css  fonts.ts  not-found.tsx  global-error.tsx  page.tsx (→ /dashboard)
+│   │       │   ├── api/auth/[...nextauth]/route.ts
+│   │       │   ├── (marketing)/page.tsx pricing/                      # later
+│   │       │   ├── (auth)/ layout.tsx  login/  verify/   (later: 2fa/)
 │   │       │   └── (app)/                      # authenticated shell: sidebar + topbar
-│   │       │       ├── layout.tsx  loading.tsx  error.tsx
-│   │       │       ├── dashboard/   charts/[instrument]/   option-chain/   markets/
-│   │       │       ├── watchlists/  strategies/ (list, [id]/edit, [id]/backtest, builder/)
-│   │       │       ├── backtests/   agents/ (orchestrator view, [runId])
-│   │       │       ├── orders/  positions/  pnl/ (calendar)   alerts/   brokers/   settings/(profile|security|brokers|trading|notifications|appearance|billing)
+│   │       │       ├── layout.tsx  loading.tsx  error.tsx  not-found.tsx
+│   │       │       ├── dashboard/   [section]/ (coming-soon states until each section ships)
+│   │       │       ├── charts/[instrument]/   option-chain/   markets/   watchlists/  strategies/  backtests/  agents/
+│   │       │       ├── orders/  positions/  pnl/ (calendar)   alerts/   brokers/   settings/(profile|security|…)
 │   │       │       └── admin/
-│   │       ├── features/                        # feature-sliced
-│   │       │   ├── auth/  brokers/  dashboard/  charts/  option-chain/  market-data/  watchlists/
-│   │       │   ├── strategies/ (builder/, code-editor/, deploy/)  backtests/  agents/  orders/  positions/  pnl/  alerts/  notifications/  settings/
-│   │       │   └── <feature>/{components,hooks,api,store,schemas,index.ts}
-│   │       ├── components/                      # app-level composites: AppShell, Sidebar, Topbar, CommandPalette, ThemeToggle
-│   │       ├── lib/ (api-client.ts, realtime/{provider,client,useTick,useSubscribe}.ts, auth.ts, tv-datafeed/, utils.ts)
-│   │       ├── stores/ (ui.store.ts, market.store.ts, order.store.ts)
-│   │       └── styles/
+│   │       ├── features/                        # feature-sliced: <feature>/{components,hooks,api,store,schemas}
+│   │       │   ├── auth/ (actions, schemas, errors, components)  dashboard/  me/  settings/   later: brokers/ charts/ …
+│   │       ├── components/  providers.tsx  style-nonce.tsx  brand/ (logo, provider marks)
+│   │       │   └── shell/ (app-shell, sidebar, sidebar-nav, mobile-nav, topbar, user-menu, command-palette, tooltip,
+│   │       │              theme-control, shell-announcer, nav-items, use-shell-shortcuts)   # promote primitives to ui
+│   │       ├── lib/ env.ts  csp.ts  auth/ (adapter, config, email, session, session-payload, callback-url)
+│   │       │        api/client.ts   later: realtime/{provider,client,useTick,useSubscribe}.ts, tv-datafeed/
+│   │       ├── stores/ (ui.store.ts, announcer.store.ts; later market.store.ts, order.store.ts)
+│   │       ├── hooks/  test/ (setup, axe, render helpers)
 │   │
 │   ├── api/                                   # NestJS 11 on Fastify 5, CommonJS, built by plain tsc (no Nest CLI)
 │   │   ├── package.json  tsconfig.json  tsconfig.build.json  turbo.json  vitest.config.mts  vitest.integration.config.mts  README.md

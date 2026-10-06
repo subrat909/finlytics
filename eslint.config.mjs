@@ -9,6 +9,7 @@
 import { base, prettier } from "@finlytics/eslint-config/base";
 import { library } from "@finlytics/eslint-config/library";
 import { nest } from "@finlytics/eslint-config/nest";
+import { next } from "@finlytics/eslint-config/next";
 import { node } from "@finlytics/eslint-config/node";
 import { reactLibrary } from "@finlytics/eslint-config/react";
 import { defineConfig, globalIgnores } from "eslint/config";
@@ -26,6 +27,9 @@ export default defineConfig(
       "**/blob-report/**",
       "**/.vitest/**",
       "packages/database/src/generated/**",
+      // Next.js output and its generated declarations (apps/web).
+      "**/.next/**",
+      "**/next-env.d.ts",
       // Not a package yet. Remove the line when the package is scaffolded (broker-sdk in 1.1).
       "packages/broker-sdk/**",
     ],
@@ -75,6 +79,16 @@ export default defineConfig(
       "packages/ui/scripts/**",
     ],
     extends: [node],
+  },
+  {
+    // The Next.js app (phase 0.6): React and the Next plugin, browser and Node globals, and the app's bans (Prisma only
+    // through @finlytics/database, process.env only in src/lib/env.ts and the configs, no database in the proxy).
+    // `rootDir` tells the Next plugin where the app is. Absolute, because the plugin resolves it against the working
+    // directory, which is the repo root for `pnpm lint` but apps/web for its own `lint` script.
+    name: "finlytics/scope/web",
+    files: ["apps/web/**"],
+    extends: [next],
+    settings: { next: { rootDir: `${import.meta.dirname}/apps/web/` } },
   },
   prettier, // keep last
 );

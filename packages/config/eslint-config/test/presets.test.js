@@ -17,6 +17,7 @@ import { describe, expect, it } from "vitest";
 import { ALL_FILES } from "../base.js";
 import { library } from "../library.js";
 import { NEST_IMPORTS, NO_PROCESS_ENV, NO_UNSCOPED, nest } from "../nest.js";
+import { NO_DATABASE, NO_PROCESS_ENV as WEB_NO_PROCESS_ENV, WEB_IMPORTS, next } from "../next.js";
 import { node } from "../node.js";
 import { REACT_VERSION, reactLibrary } from "../react.js";
 import {
@@ -215,6 +216,79 @@ describe("effective config (repo-root eslint.config.mjs)", () => {
 
       expect(restrictionsOf(rules), file).toEqual(expectedRestrictions(NODE_PROTOCOL, NEST_IMPORTS, NO_PROCESS_ENV));
     }
+  });
+});
+
+describe("effective config: apps/web (next preset)", () => {
+  const WEB_SETS = [NODE_PROTOCOL, DETERMINISTIC_FORMATTING, REACT_PERF, WEB_IMPORTS];
+
+  it("applies React, the Next plugin as errors and every web ban to app source files", async () => {
+    for (const file of ["apps/web/src/app/layout.tsx", "apps/web/src/components/shell/app-shell.tsx"]) {
+      const { rules, settings, languageOptions } = await effectiveConfig(file);
+
+      expect(restrictionsOf(rules), file).toEqual(expectedRestrictions(...WEB_SETS, WEB_NO_PROCESS_ENV));
+      expect(normalise(rules["react-hooks/exhaustive-deps"]), file).toEqual([2]);
+      expect(normalise(rules["@next/next/no-img-element"]), file).toEqual([2]);
+      expect(normalise(rules["@next/next/no-html-link-for-pages"])[0], file).toBe(2);
+      expect(normalise(rules["react/forbid-dom-props"])[0], file).toBe(2);
+      expect(settings, file).toEqual({
+        react: { version: REACT_VERSION },
+        next: { rootDir: path.join(REPO_ROOT, "apps/web/") },
+      });
+      expect(languageOptions.globals, file).toHaveProperty("window");
+      expect(languageOptions.globals, file).toHaveProperty("process");
+    }
+  });
+
+  it("allows process.env only in the env module, configs and e2e, and bans the database in the proxy", async () => {
+    for (const file of ["apps/web/src/lib/env.ts", "apps/web/next.config.ts", "apps/web/e2e/support.ts"]) {
+      const { rules } = await effectiveConfig(file);
+      expect(restrictionsOf(rules), file).toEqual(expectedRestrictions(...WEB_SETS));
+    }
+    const { rules } = await effectiveConfig("apps/web/src/proxy.ts");
+    expect(restrictionsOf(rules)).toEqual(expectedRestrictions(...WEB_SETS, NO_DATABASE));
+  });
+});
+
+describe("next preset (apps/web)", () => {
+  it("flags the database and auth modules in the proxy, Prisma, deep and @radix-ui imports, and process.env", async () => {
+    const proxy = [
+      'import { getPrisma } from "@finlytics/database";',
+      'import { auth } from "@/auth";',
+      'import { SESSION_COOKIE_NAME } from "@finlytics/shared";',
+      "export const mode = process.env.NODE_ENV;",
+      "export { getPrisma, auth, SESSION_COOKIE_NAME };",
+    ].join("\n");
+    expect(await lint(next, proxy, "src/proxy.ts")).toEqual([
+      error(1, "@typescript-eslint/no-restricted-imports"),
+      error(2, "@typescript-eslint/no-restricted-imports"),
+    ]);
+
+    const page = [
+      'import { PrismaClient } from "@prisma/client";',
+      'import { Dialog } from "@radix-ui/react-dialog";',
+      'import { MeSchema } from "@finlytics/shared/src/schemas/me";',
+      'import { readFileSync } from "fs";',
+      "export const secret = process.env.AUTH_SECRET;",
+      "export const price = (1).toLocaleString();",
+      // Allowed: the database package, the unified radix-ui, shared's exports.
+      'import { getPrisma } from "@finlytics/database";',
+      'import { Tooltip } from "radix-ui";',
+      "export { PrismaClient, Dialog, MeSchema, readFileSync, getPrisma, Tooltip };",
+    ].join("\n");
+    expect(await lint(next, page, "src/app/page.tsx")).toEqual([
+      error(1, "@typescript-eslint/no-restricted-imports"),
+      error(2, "@typescript-eslint/no-restricted-imports"),
+      error(3, "@typescript-eslint/no-restricted-imports"),
+      error(4, "@typescript-eslint/no-restricted-imports"),
+      error(5, "no-restricted-properties"),
+      error(6, "no-restricted-properties"),
+    ]);
+  });
+
+  it("reports Next.js rules as errors", async () => {
+    const code = ["export function Avatar() {", '  return <img src="/a.png" alt="" />;', "}"].join("\n");
+    expect(await lint(next, code, "src/components/avatar.tsx")).toEqual([error(2, "@next/next/no-img-element")]);
   });
 });
 

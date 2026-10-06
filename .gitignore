@@ -23,3 +23,6 @@ apps/ai-engine/.venv/
 __pycache__/
 *.pyc
 .DS_Store
+# Written by `next dev` (Next.js agent guidance); recreated on every run.
+apps/web/AGENTS.md
+apps/web/CLAUDE.md

@@ -14,5 +14,13 @@
     "reason": "An auth-plugin downgrade to mysql_clear_password makes mysql2 send the password in cleartext to a malicious MySQL server. mysql2 3.15.3 is a dependency of the prisma CLI only, which imports mysql2/promise solely in Prisma Studio's executor for MySQL datasources. Our datasource is PostgreSQL and the runtime uses @prisma/adapter-pg + pg, so mysql2 never opens a connection to any MySQL server.",
     "expires": "2026-12-31",
     "tracking": "https://github.com/prisma/orm/issues/30295 (fix merged to Prisma's v7 branch in prisma/orm#30314). Remove when a Prisma 7.x release ships patched transitive deps."
+  },
+  {
+    "ghsa": "GHSA-vfj7-8cjw-p6xm",
+    "package": "braces",
+    "severity": "high",
+    "reason": "Stack exhaustion on deeply nested brace patterns. braces 3.0.3 comes only through @next/eslint-plugin-next -> fast-glob -> micromatch, a lint-time dependency of @finlytics/eslint-config. It only ever expands glob patterns written in our own ESLint config and Next's plugin, never user input, and it is not part of any runtime bundle. No patched version exists yet.",
+    "expires": "2026-12-31",
+    "tracking": "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm (no fixed release). Remove when braces or fast-glob ships a fix or @next/eslint-plugin-next drops fast-glob 3.3.1."
   }
 ]

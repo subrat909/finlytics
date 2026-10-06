@@ -27,7 +27,7 @@ Core capabilities:
 | Layer        | Choice                                                                                   |
 |--------------|------------------------------------------------------------------------------------------|
 | Monorepo     | pnpm workspaces + Turborepo                                                               |
-| Frontend     | Next.js 15 (App Router, RSC), React 19, TypeScript strict, Tailwind CSS v4, shadcn/ui, MUI (icons + data-grid only), TanStack Query, Zustand, Zod, react-hook-form, lucide-react |
+| Frontend     | Next.js 16 (App Router, RSC, Turbopack, `proxy.ts`), Auth.js v5, React 19, TypeScript strict, Tailwind CSS v4, shadcn/ui, MUI (icons + data-grid only), TanStack Query, Zustand, Zod, react-hook-form, lucide-react |
 | Charts       | TradingView Advanced Charts (vendored, licensed) with our UDF-compatible datafeed; Lightweight Charts fallback |
 | Backend API  | NestJS 11 (Fastify adapter), Prisma 7, Zod DTO validation, BullMQ (Redis) jobs, Socket.IO gateway (uWS engine) |
 | Realtime     | Redis Streams + Pub/Sub for tick fan-out; **max 1 broker market WS + 1 broker order WS per broker on the server, 1 client WS per browser tab** |
@@ -99,6 +99,9 @@ pnpm check:pkg             publint + attw + require/import smoke tests on built 
 pnpm storybook             packages/ui Storybook at http://127.0.0.1:6006 (theme toolbar: light/dark)
 pnpm test:storybook        every story as a test in Chromium: render, play, a11y, design checks (light, dark, 360 px)
 pnpm test:visual           screenshots of every story vs committed baselines, in the pinned Playwright image (Docker)
+pnpm test:e2e              apps/web Playwright e2e (magic-link sign-in via mailpit, shell, sign-out); needs compose up and
+                           migrations applied; builds deps + api, starts both servers. With `pnpm dev` already running,
+                           use `pnpm --filter @finlytics/web test:e2e` (reuses :3000/:4000, rebuilds nothing under them)
 docker compose up -d       postgres+timescale, redis, mailpit (grafana/prometheus: --profile observability)
 ```
 
