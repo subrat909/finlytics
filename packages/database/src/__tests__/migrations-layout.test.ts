@@ -21,7 +21,7 @@ function migrationSql(name: string): string {
 }
 
 describe("prisma/migrations", () => {
-  it("orders the nine migration folders, ending with drop_oauth_tokens_and_pro_role and lowercase_email_checks", () => {
+  it("orders the ten migration folders, ending with lowercase_email_checks and broker_vault_and_instrument_tokens", () => {
     const folders = migrationFolders();
 
     // A hand-numbered folder such as 0001_timescale would sort first and run before the tables exist.
@@ -36,6 +36,7 @@ describe("prisma/migrations", () => {
       "audit_actor_checks",
       "drop_oauth_tokens_and_pro_role",
       "lowercase_email_checks",
+      "broker_vault_and_instrument_tokens",
     ]);
   });
 
@@ -107,6 +108,38 @@ describe("prisma/migrations", () => {
       'ALTER TABLE "VerificationToken" ADD CONSTRAINT "VerificationToken_identifier_lowercase_check" ' +
         'CHECK ("identifier" = lower("identifier"))',
     ]);
+  });
+
+  it("makes every statement of the broker vault migration idempotent", () => {
+    // Comment lines dropped, the DO block (whose body holds ";") checked on its own, other statements split on ";".
+    const sql = migrationSql("broker_vault_and_instrument_tokens")
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("--"))
+      .join("\n");
+    const doBlock = /DO \$\$([\s\S]*?)\$\$;/.exec(sql);
+    // The TEXT → BYTEA retype drops the column only while it is still TEXT.
+    expect(doBlock?.[1]).toContain("AND data_type = 'text'");
+    const statements = sql
+      .replace(doBlock?.[0] ?? "", "")
+      .split(";")
+      .map((statement) => statement.replace(/\s+/g, " ").trim())
+      .filter((statement) => statement !== "");
+
+    expect(statements.length).toBeGreaterThan(10);
+    for (const statement of statements) {
+      const guarded =
+        /^ALTER TABLE "\w+" (DROP COLUMN IF EXISTS|ADD COLUMN IF NOT EXISTS|DROP CONSTRAINT IF EXISTS) /.test(
+          statement,
+        ) ||
+        /^ALTER TABLE "\w+" ALTER COLUMN "\w+" DROP NOT NULL$/.test(statement) ||
+        /^CREATE (TABLE|INDEX) IF NOT EXISTS /.test(statement) ||
+        // An ADD CONSTRAINT must directly follow the DROP CONSTRAINT IF EXISTS of the same name.
+        (/^ALTER TABLE "\w+" ADD CONSTRAINT "(\w+)"/.test(statement) &&
+          statements[statements.indexOf(statement) - 1]?.includes(
+            `DROP CONSTRAINT IF EXISTS "${/ADD CONSTRAINT "(\w+)"/.exec(statement)?.[1] ?? ""}"`,
+          ) === true);
+      expect(guarded, statement).toBe(true);
+    }
   });
 
   it("creates pg_trgm at the top of init, before the trigram indexes", () => {

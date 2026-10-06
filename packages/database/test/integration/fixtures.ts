@@ -23,10 +23,13 @@ export async function createTrader(prisma: PrismaClient, name: string): Promise<
       userId: user.id,
       broker: "PAPER",
       label: "paper",
-      brokerClientIdEnc: "dummy-not-encrypted",
+      // Shaped like the vault's output (the vault CHECK): a 48-byte wrapped key, 12-byte IVs, each ciphertext with its IV.
+      brokerClientIdEnc: Uint8Array.of(0),
+      brokerClientIdIv: new Uint8Array(12),
       encryptedCredentials: Uint8Array.of(0),
-      encKeyWrapped: Uint8Array.of(0),
-      encIv: Uint8Array.of(0),
+      credentialsIv: new Uint8Array(12),
+      encKeyWrapped: new Uint8Array(48),
+      encKeyIv: new Uint8Array(12),
     },
   });
   return { userId: user.id, brokerAccountId: account.id };

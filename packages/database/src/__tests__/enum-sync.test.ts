@@ -1,4 +1,4 @@
-import { PRISMA_ENUM_MIRRORS } from "@finlytics/shared";
+import { BROKER_ACCOUNT_STATUSES, PRISMA_ENUM_MIRRORS } from "@finlytics/shared";
 import { describe, expect, it } from "vitest";
 
 import * as prismaEnums from "../generated/enums";
@@ -18,5 +18,9 @@ describe("Prisma enum mirrors", () => {
         Object.values(prismaEnum ?? {}),
       );
     }
+  });
+
+  it("mirrors BrokerAccountStatus in the broker account contract", () => {
+    expect([...BROKER_ACCOUNT_STATUSES]).toEqual(Object.values(prismaEnums.BrokerAccountStatus));
   });
 });

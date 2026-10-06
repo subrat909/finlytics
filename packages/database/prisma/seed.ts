@@ -7,9 +7,13 @@
  * that prisma.config.ts loads without override. This file loads no .env of its own. It prints its target as
  * host:port/database, then one summary line per table, never a full URL or secret, and exits non-zero on failure,
  * which makes `prisma db seed` (and so `pnpm db:seed`) fail too.
+ *
+ * Outside production (NODE_ENV unset or not `production`) it also upserts the development instruments
+ * (./seed/instruments.ts), so search, watchlists and charts work without a broker.
  */
 import { describeDatabaseUrl, resolveCliDatabaseUrl } from "../src/env";
 import { createPrismaClient } from "../src/index";
+import { seedDevInstruments } from "./seed/instruments";
 import { formatSeedSummary, runSeed } from "./seed/run";
 
 async function main(): Promise<void> {
@@ -22,6 +26,14 @@ async function main(): Promise<void> {
   try {
     const summary = await runSeed(prisma);
     for (const line of formatSeedSummary(summary)) console.log(line);
+    // Development instruments (plan P6) only outside production: there the instrument-master-sync job fills the table.
+    if (process.env["NODE_ENV"] !== "production") {
+      const instruments = await seedDevInstruments(prisma);
+      console.log(
+        `Instrument (development): ${String(instruments.upserted)} rows upserted, ` +
+          `${String(instruments.deactivated)} expired derivatives deactivated`,
+      );
+    }
   } finally {
     await prisma.$disconnect();
   }

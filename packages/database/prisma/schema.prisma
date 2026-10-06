@@ -10,7 +10,8 @@
 // (AuditLog append-only triggers, GlobalControl singleton CHECK) live in migrations/<timestamp>_db_guards, and
 // migrations/<timestamp>_kill_switch_and_audit_guards makes GlobalControl permanent and those triggers fire in replica
 // mode; migrations/<timestamp>_audit_actor_checks adds the AuditLog actor CHECKs and
-// migrations/<timestamp>_lowercase_email_checks the lowercase CHECKs on User.email and VerificationToken.identifier.
+// migrations/<timestamp>_lowercase_email_checks the lowercase CHECKs on User.email and VerificationToken.identifier;
+// migrations/<timestamp>_broker_vault_and_instrument_tokens adds the BrokerAccount vault CHECK.
 // Prisma never generates that DDL, so every statement in those migrations is hand-written and idempotent.
 
 // Prisma 7: connection URL lives in prisma.config.ts; client uses @prisma/adapter-pg (driver adapter).
@@ -170,20 +171,29 @@ enum BrokerAccountStatus {
   ERROR
 }
 
+// Vault (docs/06 "Crypto design", migrations/<timestamp>_broker_vault_and_instrument_tokens): AES-256-GCM envelope. Each
+// row has its own random 256-bit data key, stored wrapped by the master key (encKeyWrapped = ciphertext || tag, with
+// its own IV in encKeyIv). Every encrypted field is ciphertext || tag under that data key with a fresh 96-bit IV of its
+// own, and AAD `userId:brokerAccountId:<field>`. Only apps/api's VaultService encrypts or decrypts them.
 model BrokerAccount {
   id                   String               @id @default(cuid())
   userId               String
   broker               BrokerCode
   label                String
-  brokerClientIdEnc    String // encrypted broker client/user id (PII)
-  encryptedCredentials Bytes // envelope-encrypted JSON {accessToken, refreshToken?, apiKey?, ...}
-  encKeyWrapped        Bytes
-  encIv                Bytes
+  brokerClientIdEnc    Bytes? // field "clientId": the broker client/user id (PII); null until known
+  brokerClientIdIv     Bytes?
+  encryptedCredentials Bytes? // field "credentials": BrokerCredentialsJson {accessToken, refreshToken?, …}; null while PENDING
+  credentialsIv        Bytes?
+  appCredentialsEnc    Bytes? // field "appCredentials": the user's own broker app {apiKey, apiSecret} (Upstox)
+  appCredentialsIv     Bytes?
+  encKeyWrapped        Bytes // the row's data key, wrapped by the master key (ciphertext || tag)
+  encKeyIv             Bytes
   encKeyVersion        Int                  @default(1)
   status               BrokerAccountStatus  @default(PENDING)
   tokenExpiresAt       DateTime?
+  expiryNotifiedAt     DateTime? // when the expiry reminder or re-login notice for the current token was written
   lastLoginAt          DateTime?
-  lastError            String?
+  lastError            String? // curated text only, never a broker's message
   isDefault            Boolean              @default(false)
   algoId               String? // SEBI/exchange algo id tagging
   createdAt            DateTime             @default(now())
@@ -198,7 +208,8 @@ model BrokerAccount {
   @@unique([id, userId]) // target of the composite (tenancy) foreign keys
   @@unique([userId, broker, label])
   @@index([userId, status])
-  @@index([status, tokenExpiresAt]) // token refresh job
+  @@index([userId, createdAt]) // GET /v1/brokers
+  @@index([status, tokenExpiresAt]) // broker-token-expiry job
 }
 
 // ───────────────────────────── Instruments & Market Data ─────────────────────────────
@@ -233,29 +244,48 @@ enum OptionType {
 }
 
 model Instrument {
-  key          String      @id // canonical: NSE_FO|NIFTY|2025-10-30|24000|CE
-  exchange     Exchange
-  segment      Segment
-  symbol       String // EQ/INDEX: trading symbol; FUT/OPT: underlying symbol (= key token 2)
-  name         String
-  isin         String?
-  expiry       DateTime?   @db.Date
-  strike       Decimal?    @db.Decimal(18, 4)
-  optionType   OptionType?
-  lotSize      Int         @default(1)
-  tickSize     Decimal     @default(0.05) @db.Decimal(10, 4)
-  freezeQty    Int?
-  brokerTokens Json // { UPSTOX: "NSE_FO|12345", DHAN: "12345" }
-  isActive     Boolean     @default(true)
-  updatedAt    DateTime    @updatedAt
+  key           String      @id // canonical: NSE_FO|NIFTY|2025-10-30|24000|CE
+  exchange      Exchange
+  segment       Segment
+  symbol        String // EQ/INDEX: trading symbol; FUT/OPT: underlying symbol (= key token 2)
+  tradingSymbol String? // the exchange's trading symbol (NIFTY25OCT24000CE); searched like symbol and name
+  name          String
+  isin          String?
+  expiry        DateTime?   @db.Date
+  strike        Decimal?    @db.Decimal(18, 4)
+  optionType    OptionType?
+  lotSize       Int         @default(1)
+  tickSize      Decimal     @default(0.05) @db.Decimal(10, 4)
+  freezeQty     Int?
+  brokerTokens  Json // { UPSTOX: "NSE_FO|12345", DHAN: "12345" }
+  isActive      Boolean     @default(true)
+  updatedAt     DateTime    @updatedAt
 
   watchlistItems WatchlistItem[]
+  tokens         InstrumentBrokerToken[]
 
   @@index([symbol, segment, expiry, strike, optionType])
   @@index([exchange, segment, isActive])
   // Instrument search: trigram GIN indexes (pg_trgm is created at the top of migrations/<timestamp>_init).
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "instrument_name_trgm")
   @@index([symbol(ops: raw("gin_trgm_ops"))], type: Gin, map: "instrument_symbol_trgm")
+  @@index([tradingSymbol(ops: raw("gin_trgm_ops"))], type: Gin, map: "instrument_trading_symbol_trgm")
+}
+
+// Reverse map of the instrument master (plan P6): a broker's own instrument id (Upstox `instrument_key`, Dhan
+// `security_id`) → our canonical key, for the market feed. Written by the instrument-master-sync job: every row it sees
+// gets `seenAt` = the run's start and isActive = true; rows a complete run didn't see become inactive. Never deleted.
+model InstrumentBrokerToken {
+  broker        BrokerCode
+  token         String
+  instrumentKey String
+  isActive      Boolean    @default(true)
+  seenAt        DateTime   @default(now())
+  instrument    Instrument @relation(fields: [instrumentKey], references: [key], onDelete: Cascade)
+
+  @@id([broker, token])
+  @@index([instrumentKey, broker]) // key → token (feed subscribe)
+  @@index([broker, isActive, seenAt]) // deactivation after a sync
 }
 
 // Hypertable, chunk 1 day, compressed after 2 days, retention 30 days.
