@@ -20,7 +20,7 @@ finlytics/
 │
 ├── apps/
 │   ├── web/                                   # Next.js 15
-│   │   ├── next.config.ts  tailwind.config.ts  postcss.config.mjs  middleware.ts (auth, locale)
+│   │   ├── next.config.ts  postcss.config.mjs  components.json (shadcn)  middleware.ts (auth, locale)   # Tailwind v4: no tailwind.config, the theme is CSS in packages/ui
 │   │   ├── public/charting_library/           # TradingView Advanced Charts (vendored, gitignored, license)
 │   │   └── src/
 │   │       ├── app/
@@ -43,16 +43,22 @@ finlytics/
 │   │       ├── stores/ (ui.store.ts, market.store.ts, order.store.ts)
 │   │       └── styles/
 │   │
-│   ├── api/                                   # NestJS 11 (Fastify)
-│   │   ├── nest-cli.json  tsconfig.json
-│   │   ├── prisma → ../../packages/database
+│   ├── api/                                   # NestJS 11 on Fastify 5, CommonJS, built by plain tsc (no Nest CLI)
+│   │   ├── package.json  tsconfig.json  tsconfig.build.json  turbo.json  vitest.config.mts  vitest.integration.config.mts  README.md
+│   │   ├── scripts/dev-session.mts            # development only: a user + session in the local DB; prints the cookie
+│   │   ├── test/ setup/  unit/  integration/ (Testcontainers TimescaleDB + Redis, *.int.test.ts)  support/ (test-only /v1/__test__ routes, never in dist)
 │   │   └── src/
-│   │       ├── main.ts  app.module.ts  (bootstraps http | gateway | worker | feed based on APP_ROLE env)
-│   │       ├── common/ (guards, decorators, filters, interceptors, pipes, idempotency, rate-limit, logger, problem-json)
-│   │       ├── config/ (env.schema.ts, config.module.ts)
-│   │       ├── infra/ (prisma.service, redis.service, queue.module, vault/, telemetry/)
+│   │       ├── main.ts  app.module.ts  (validate the env, then start the APP_ROLE: http; 1.4 adds gateway and feed, later worker)
+│   │       ├── bootstrap/ (fastify-options, http-app, http-hardening, request-id, client-ip, reply-serializer, openapi)
+│   │       ├── common/ decorators/ (public, current-user, request-meta, rate-limit, skip-rate-limit, idempotent)
+│   │       │           guards/ (csrf)  filters/ (problem-details)  problem-json/  pipes/ (zod-validation)  logger/
+│   │       │           rate-limit/ (GCRA model + Lua, service, guard, headers)  idempotency/ (fingerprint, Lua, store, interceptor)
+│   │       ├── config/ (env.schema.ts, env.ts, config.module.ts)
+│   │       ├── infra/ prisma/ (PrismaService: db + unscoped, tenancy extension, role check)  redis/ (RedisService, keys.ts)
+│   │       │          lifecycle/ (readiness, ordered shutdown)   later: queue.module, vault/, telemetry/
 │   │       └── modules/
-│   │           ├── auth/        users/        plans/        audit/
+│   │           ├── auth/        users/        settings/     audit/        health/        # 0.5
+│   │           ├── plans/       admin/
 │   │           ├── broker/      (accounts, oauth, vault, gateway, registry, token-refresh.processor)
 │   │           ├── market-feed/ (feed.leader, upstox.feed, dhan.feed, tick.fanout, subscriptions)
 │   │           ├── market-data/ (quotes, candles, instruments, search, tv-udf controller)
@@ -63,7 +69,6 @@ finlytics/
 │   │           ├── backtests/   (proxy to ai-engine, results)
 │   │           ├── agents/      (orchestrator proxy, signals, auto-trade config, risk)
 │   │           ├── risk/        (RiskService, kill switch, limits)
-│   │           ├── settings/    admin/        health/
 │   │           └── realtime/    (gateway.ts, rooms, auth handshake)
 │   │
 │   └── ai-engine/                             # Python 3.12 / FastAPI
@@ -86,10 +91,17 @@ finlytics/
 └── packages/
     ├── database/   prisma/{schema.prisma, migrations/<timestamp>_<name>/, seed.ts, seed/, seed-data/*.json}
     │               src/{index.ts, client.ts, env.ts, generated/ (Prisma client, gitignored)}
+    │               src/testing/ (the ./testing entry: startTestDatabase, TIMESCALE_IMAGE; a migrated Testcontainers database for the api's tests)
     ├── shared/     src/{schemas/*.ts (zod), types/, constants/ (exchanges, segments), instrument-key.ts, money.ts}
-    ├── ui/         src/{styles/tokens.css, components/ (shadcn + ours), mui-theme.ts, hooks/, icons.ts}  .storybook/
+    ├── ui/         components.json  vite.config.ts  vitest.config.ts  playwright.visual.config.ts  turbo.json  README.md
+    │               src/styles/ (tokens.css: colours, the only place · theme.css: Tailwind theme + shadcn bridge · base.css · globals.css: the import)
+    │               src/components/<name>.tsx + <name>.stories.tsx + __tests__/<name>.test.tsx   # one exports entry each, no barrel
+    │               src/{foundations/ (token stories), hooks/, lib/ (utils.ts: cn · theme.ts: theme names, no directive), test/ (jsdom setup, axe, story helpers)}
+    │               .storybook/ (main.ts, preview.tsx, preview.css: globals + the stories' sources, design-checks.ts)   scripts/visual.mjs
+    │               test/{tokens/ (contrast matrix, theme, Tailwind sources), package/ (exports, boundaries, deps, versions), ssr/, visual/ (stories.spec.ts, motion.spec.ts, __screenshots__/)}
+    │               later: src/icons/brand/ (0.6), src/mui-theme.ts behind @finlytics/ui/data-grid (2.3)
     ├── broker-sdk/ src/{adapter.ts, types.ts, registry.ts, rate-limiter.ts, circuit-breaker.ts, brokers/{upstox,dhan}/, __tests__/}  README.md
-    ├── config/     eslint-config/ (base, library, node)  tsconfig/ (library.json, node.json)  prettier/
+    ├── config/     eslint-config/ (base, library, node, nest, react, restrictions)  tsconfig/ (library.json, node.json, react-library.json)  prettier/
     └── telemetry/  otel setup shared by web + api
 ```
 

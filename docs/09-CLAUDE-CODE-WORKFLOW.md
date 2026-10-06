@@ -7,10 +7,17 @@
    Then `pnpm i`. It also installs the git hooks: pre-commit runs lint-staged (ESLint + Prettier on staged files) and
    commit-msg rejects messages that aren't Conventional Commits (`feat(scope): …`, `fix: …`, `chore: …`).
 4. Copy `.env.example` → `.env` and fill the few dev values (AUTH_SECRET: `openssl rand -base64 32`; MASTER_KEY same).
+   The api's variables (`APP_ROLE`, `API_*`, `DB_*`) are in the `apps/api` block of `.env.example`. Each has a
+   development default, so local work needs no change; their production rules are in docs/04 §7 "Environment".
+   `pnpm dev` starts the api with `APP_ROLE=http` set explicitly, and a variable set in the environment wins over the
+   same one in `.env`. So an `APP_ROLE` that `.env` sets for another tool doesn't need changing.
 5. `docker compose up -d` (Postgres+Timescale, Redis, Mailpit). Every port is bound to 127.0.0.1: Postgres 5432,
    Redis 6379, Mailpit 8025 (UI) and 1025 (SMTP); Grafana 3001 and Prometheus 9090 start only with
    `--profile observability`. If 5432 or 6379 is already taken, set `POSTGRES_HOST_PORT` / `REDIS_HOST_PORT` in `.env`
    and use the same ports in `DATABASE_URL`, `DATABASE_DIRECT_URL` and `REDIS_URL`.
+   For the design system (packages/ui): run `pnpm --filter @finlytics/ui exec playwright install chromium` once, so
+   `pnpm test:storybook` can run the stories in Chromium. `pnpm test:visual` needs Docker: it runs in the pinned
+   Playwright image, as linux/amd64 (emulated on Apple silicon), the only place its screenshot baselines are valid.
 6. Run `claude` in the repo. It reads `CLAUDE.md` automatically. Type `/init`? **No** — we already have CLAUDE.md; skip it.
 7. Verify config: `/agents` lists 7 agents; `/help` shows the project commands (`/plan-feature`, …).
 
