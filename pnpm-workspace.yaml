@@ -82,6 +82,8 @@ ignoredBuiltDependencies:
   - protobufjs
   # Install-time telemetry from swagger-ui-dist (via @nestjs/swagger); nothing to build.
   - "@scarf/scarf"
+  # Optional native speed-up for msgpackr (via bullmq); falls back to plain JS.
+  - msgpackr-extract
 
 # @nestjs/platform-fastify 11.2.7 (the last Nest 11 release) pins fastify 5.11.3, which has four high advisories
 # (GHSA-667r-xxjv-c9mm, GHSA-p68q-wchp-6fh7, GHSA-hwr6-493r-vm6h, GHSA-9q9j-q6p8-xq58), all fixed in 5.12.2. This keeps

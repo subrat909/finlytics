@@ -39,6 +39,7 @@
     "@finlytics/shared": "workspace:*",
     "decimal.js": "catalog:",
     "ioredis": "^6.0.0",
+    "protobufjs": "^8.8.0",
     "zod": "catalog:"
   },
   "devDependencies": {
