@@ -1,6 +1,8 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { z } from "zod";
 
 import {
+  checkProblemConsistency,
   ERROR_CODES,
   ERROR_HTTP_STATUS,
   ERROR_TITLES,
@@ -9,24 +11,28 @@ import {
   isProblemDetails,
   isRetryableErrorCode,
   MAX_FIELD_ERRORS,
+  PROBLEM_LIMITS,
   ProblemDetailsSchema,
   problemTypeUrl,
+  REQUEST_ID_PATTERN,
   RETRYABLE_ERROR_CODES,
 } from "../schemas/errors";
 import type { ErrorCode, FieldError, ProblemDetails, RetryableErrorCode } from "../schemas/errors";
 
-/** The status table of plan §5 (and docs/04 §6), grouped by status. */
+/** The status table of docs/04 §6, grouped by status. */
 const STATUS_TABLE: readonly (readonly [number, readonly ErrorCode[]])[] = [
   [400, ["VALIDATION"]],
   [401, ["UNAUTHENTICATED"]],
   [403, ["FORBIDDEN"]],
   [404, ["NOT_FOUND"]],
   [409, ["CONFLICT", "IDEMPOTENT_REPLAY", "NEEDS_RELOGIN"]],
+  [413, ["PAYLOAD_TOO_LARGE"]],
+  [415, ["UNSUPPORTED_MEDIA_TYPE"]],
   [422, ["BROKER_REJECTED", "RISK_LIMIT", "INSUFFICIENT_FUNDS", "MARKET_CLOSED"]],
   [423, ["KILL_SWITCH"]],
   [429, ["RATE_LIMITED"]],
   [500, ["INTERNAL"]],
-  [503, ["BROKER_UNAVAILABLE"]],
+  [503, ["BROKER_UNAVAILABLE", "SERVICE_UNAVAILABLE"]],
 ];
 
 /** A complete problem, as the API sends it for a broker margin rejection. */
@@ -48,6 +54,11 @@ function isStrictProblem(value: unknown): boolean {
   return ProblemDetailsSchema.safeParse(value).success;
 }
 
+/** The paths of the issues a value fails the server-side contract with, e.g. `["detail"]`. */
+function failingPaths(value: unknown): string[] {
+  return (ProblemDetailsSchema.safeParse(value).error?.issues ?? []).map((issue) => issue.path.join("."));
+}
+
 function problemFor(code: ErrorCode): ProblemDetails {
   return {
     type: problemTypeUrl(code),
@@ -59,23 +70,10 @@ function problemFor(code: ErrorCode): ProblemDetails {
 }
 
 describe("error codes", () => {
-  it("covers the docs/04 codes plus INTERNAL, CONFLICT and INSUFFICIENT_FUNDS", () => {
-    const docs04 = [
-      "VALIDATION",
-      "UNAUTHENTICATED",
-      "FORBIDDEN",
-      "NOT_FOUND",
-      "RATE_LIMITED",
-      "IDEMPOTENT_REPLAY",
-      "BROKER_UNAVAILABLE",
-      "BROKER_REJECTED",
-      "RISK_LIMIT",
-      "KILL_SWITCH",
-      "MARKET_CLOSED",
-      "NEEDS_RELOGIN",
-    ];
+  it("covers exactly the docs/04 §6 codes, without duplicates", () => {
+    const docs04 = STATUS_TABLE.flatMap(([, codes]) => codes);
 
-    expect([...ERROR_CODES].sort()).toEqual([...docs04, "INTERNAL", "CONFLICT", "INSUFFICIENT_FUNDS"].sort());
+    expect([...ERROR_CODES].sort()).toEqual([...docs04].sort());
     expect(new Set(ERROR_CODES).size).toBe(ERROR_CODES.length);
   });
 
@@ -92,7 +90,7 @@ describe("error codes", () => {
     expect(Object.keys(ERROR_TITLES).sort()).toEqual([...ERROR_CODES].sort());
   });
 
-  it("uses the plan's status table exactly", () => {
+  it("uses the docs/04 status table exactly", () => {
     const expected = Object.fromEntries(STATUS_TABLE.flatMap(([status, codes]) => codes.map((code) => [code, status])));
 
     expect(ERROR_HTTP_STATUS).toEqual(expected);
@@ -105,6 +103,23 @@ describe("error codes", () => {
     // Literal types, so a server can type a response status per code.
     expectTypeOf(ERROR_HTTP_STATUS.NEEDS_RELOGIN).toEqualTypeOf<409>();
     expectTypeOf(ERROR_HTTP_STATUS.KILL_SWITCH).toEqualTypeOf<423>();
+  });
+
+  it("maps PAYLOAD_TOO_LARGE, UNSUPPORTED_MEDIA_TYPE and SERVICE_UNAVAILABLE to 413, 415 and 503", () => {
+    expect([
+      ERROR_HTTP_STATUS.PAYLOAD_TOO_LARGE,
+      ERROR_HTTP_STATUS.UNSUPPORTED_MEDIA_TYPE,
+      ERROR_HTTP_STATUS.SERVICE_UNAVAILABLE,
+    ]).toEqual([413, 415, 503]);
+    expect([
+      ERROR_TITLES.PAYLOAD_TOO_LARGE,
+      ERROR_TITLES.UNSUPPORTED_MEDIA_TYPE,
+      ERROR_TITLES.SERVICE_UNAVAILABLE,
+    ]).toEqual(["Payload too large", "Unsupported media type", "Service unavailable"]);
+    expect(problemTypeUrl("UNSUPPORTED_MEDIA_TYPE")).toBe("https://finlytics.app/errors/unsupported-media-type");
+    expectTypeOf(ERROR_HTTP_STATUS.SERVICE_UNAVAILABLE).toEqualTypeOf<503>();
+    // A database or Redis outage is ours, not the broker's: it must not show the broker banner.
+    expect(ERROR_TITLES.SERVICE_UNAVAILABLE).not.toBe(ERROR_TITLES.BROKER_UNAVAILABLE);
   });
 
   it("builds kebab-case problem type URLs", () => {
@@ -127,6 +142,7 @@ describe("error codes", () => {
     expect(Object.isFrozen(ERROR_HTTP_STATUS)).toBe(true);
     expect(Object.isFrozen(ERROR_TITLES)).toBe(true);
     expect(Object.isFrozen(RETRYABLE_ERROR_CODES)).toBe(true);
+    expect(Object.isFrozen(PROBLEM_LIMITS)).toBe(true);
   });
 });
 
@@ -135,6 +151,19 @@ describe("ProblemDetailsSchema", () => {
     const problem = { ...brokerRejection(), retryAfterSec: 0 };
 
     expect(ProblemDetailsSchema.parse(problem)).toEqual(problem);
+  });
+
+  it("ties status, title and type to the code", () => {
+    const killSwitch = problemFor("KILL_SWITCH");
+
+    // Each member taken from another code is rejected on its own path, even when it is valid for that code.
+    expect(failingPaths({ ...killSwitch, status: ERROR_HTTP_STATUS.RISK_LIMIT })).toEqual(["status"]);
+    expect(failingPaths({ ...killSwitch, title: ERROR_TITLES.RISK_LIMIT })).toEqual(["title"]);
+    expect(failingPaths({ ...killSwitch, type: problemTypeUrl("RISK_LIMIT") })).toEqual(["type"]);
+    // Swapping only the code leaves title and type behind (both 409s share a status).
+    expect(failingPaths({ ...problemFor("CONFLICT"), code: "IDEMPOTENT_REPLAY" })).toEqual(["title", "type"]);
+    // A generic HTTP title is not the code's title.
+    expect(failingPaths({ ...problemFor("NOT_FOUND"), title: "Not Found" })).toEqual(["title"]);
   });
 
   it("rejects problem details without requestId", () => {
@@ -148,15 +177,178 @@ describe("ProblemDetailsSchema", () => {
     expect(isStrictProblem({ ...brokerRejection(), requestId: "" })).toBe(false);
   });
 
+  it("requires requestId to match REQUEST_ID_PATTERN", () => {
+    const accepted = [
+      "req_01J9Z6Y3K8",
+      "6f1c1f5e-2c5d-4b7a-9a8e-3c2b1a0f9e8d", // crypto.randomUUID()
+      "abcdefgh", // 8 characters
+      "A1._-zZ9",
+      `a${"b".repeat(127)}`, // 128 characters
+    ];
+    const rejected = [
+      "abcdefg", // 7 characters
+      `a${"b".repeat(128)}`, // 129 characters
+      "-leading-dash",
+      ".leading-dot",
+      "has space here",
+      "line\nbreak-id",
+      "semi;colon-id",
+      'quote"injection',
+      "unicodé-request",
+    ];
+
+    for (const requestId of accepted) {
+      expect(REQUEST_ID_PATTERN.test(requestId), requestId).toBe(true);
+      expect(isStrictProblem({ ...brokerRejection(), requestId }), requestId).toBe(true);
+    }
+    for (const requestId of rejected) {
+      expect(REQUEST_ID_PATTERN.test(requestId), requestId).toBe(false);
+      expect(failingPaths({ ...brokerRejection(), requestId }), requestId).toEqual(["requestId"]);
+    }
+  });
+
+  it("rejects a multi-line or oversized detail", () => {
+    const withDetail = (detail: string) => ({ ...brokerRejection(), detail });
+
+    expect(isStrictProblem(withDetail("x".repeat(PROBLEM_LIMITS.detail)))).toBe(true);
+    expect(isStrictProblem(withDetail("Margin shortfall: ₹1,200 more needed 🙏"))).toBe(true);
+    for (const detail of [
+      "x".repeat(PROBLEM_LIMITS.detail + 1),
+      "",
+      "first line\nsecond line",
+      "carriage\rreturn",
+      "tab\tseparated",
+      "next\u0085line", // NEL (C1)
+      "line\u2028separator",
+      "paragraph\u2029separator",
+      "nul\u0000byte",
+      "delete\u007fchar",
+    ]) {
+      expect(failingPaths(withDetail(detail)), JSON.stringify(detail)).toEqual(["detail"]);
+    }
+  });
+
+  it("rejects bidirectional controls, U+FEFF and lone surrogates in every text member", () => {
+    const hidden = [
+      ...["\u202a", "\u202b", "\u202c", "\u202d", "\u202e"], // embeddings, overrides and their terminator
+      ...["\u2066", "\u2067", "\u2068", "\u2069"], // isolates and their terminator
+      "\ufeff", // byte order mark, zero-width no-break space
+      "\ud83d", // a high surrogate without its low half
+      "\ude4f", // a low surrogate without its high half
+    ];
+    const members: ((text: string) => [string, Record<string, unknown>])[] = [
+      (text) => ["detail", { ...brokerRejection(), detail: text }],
+      (text) => ["broker.code", { ...brokerRejection(), broker: { code: text } }],
+      (text) => ["broker.message", { ...brokerRejection(), broker: { code: "DH-906", message: text } }],
+      (text) => ["errors.0.path", { ...problemFor("VALIDATION"), errors: [{ path: text, message: "Required" }] }],
+      (text) => ["errors.0.message", { ...problemFor("VALIDATION"), errors: [{ path: "qty", message: text }] }],
+      (text) => ["instance", { ...brokerRejection(), instance: `/v1/${text}` }],
+    ];
+
+    for (const char of hidden) {
+      for (const member of members) {
+        const [path, problem] = member(`isAdmin${char}x`);
+        expect(failingPaths(problem), `${path} with ${JSON.stringify(char)}`).toEqual([path]);
+      }
+    }
+    // A reversed pair is two lone surrogates.
+    expect(failingPaths({ ...brokerRejection(), detail: "\ude4f\ud83d" })).toEqual(["detail"]);
+  });
+
+  it("accepts astral characters, whose surrogate pairs are well formed, up to the limit in code units", () => {
+    const folded = "\u{1f64f}"; // two UTF-16 code units
+    const withDetail = (detail: string) => ({ ...brokerRejection(), detail });
+
+    expect(isStrictProblem(withDetail(`Margin shortfall ${folded} \u{1d400}\u{20000}`))).toBe(true);
+    expect(isStrictProblem(withDetail(folded.repeat(PROBLEM_LIMITS.detail / 2)))).toBe(true);
+    expect(isStrictProblem(withDetail(`${folded.repeat(PROBLEM_LIMITS.detail / 2)}x`))).toBe(false);
+    expect(isStrictProblem({ ...brokerRejection(), instance: `/v1/watchlists/${folded}` })).toBe(true);
+    // Characters that only look unusual are text: U+FFFD (what servers substitute) and the left-to-right mark.
+    expect(isStrictProblem(withDetail("replaced \ufffd mark \u200e"))).toBe(true);
+  });
+
+  it("rejects an instance with a scheme, host, query or fragment", () => {
+    const withInstance = (instance: string) => ({ ...brokerRejection(), instance });
+
+    for (const instance of [
+      "/",
+      "/v1/orders",
+      "/v1/instruments/NSE_FO%7CNIFTY%7C2025-10-30%7C24000%7CCE",
+      "/v1/watchlists/\u0928\u093f\u092b\u094d\u091f\u0940-\u20b9-\u00e9", // a decoded, non-ASCII path
+      `/${"a".repeat(PROBLEM_LIMITS.instance - 1)}`,
+    ]) {
+      expect(isStrictProblem(withInstance(instance)), instance).toBe(true);
+    }
+    for (const instance of [
+      "https://finlytics.app/v1/orders", // scheme and host
+      "javascript:alert(1)", // scheme
+      "//evil.example/v1/orders", // network-path reference: a host
+      "/\\evil.example/v1/orders", // browsers read "/\" as "//"
+      "/v1/orders?code=secret-oauth-code", // query string
+      "/v1/orders#fragment",
+      "v1/orders", // relative
+      "/v1/orders with space",
+      "/v1/orders\r\nSet-Cookie: x=1",
+      "",
+      `/${"a".repeat(PROBLEM_LIMITS.instance)}`,
+    ]) {
+      expect(failingPaths(withInstance(instance)), JSON.stringify(instance)).toEqual(["instance"]);
+    }
+  });
+
   it("accepts field-level validation errors", () => {
     const errors: FieldError[] = [
-      { path: "legs.0.strike", message: "Strike must be a multiple of 50", code: "NOT_ON_TICK" },
+      { path: "legs.0.strike", message: "Strike must be a multiple of 50", code: "not_on_tick" },
       { path: "qty", message: "Too small: expected number to be >=1", code: "too_small" },
       { path: "", message: "Request body is required" },
     ];
     const problem = { ...problemFor("VALIDATION"), errors };
 
     expect(ProblemDetailsSchema.parse(problem)).toEqual(problem);
+  });
+
+  it("bounds field-error paths, messages and codes", () => {
+    const withError = (fieldError: Record<string, unknown>) => ({
+      ...problemFor("VALIDATION"),
+      errors: [fieldError],
+    });
+    const valid = { path: "qty", message: "Required", code: "invalid_type" };
+
+    expect(isStrictProblem(withError({ ...valid, path: "p".repeat(PROBLEM_LIMITS.fieldPath) }))).toBe(true);
+    expect(isStrictProblem(withError({ ...valid, message: "m".repeat(PROBLEM_LIMITS.fieldMessage) }))).toBe(true);
+    expect(isStrictProblem(withError({ ...valid, code: `c${"_".repeat(PROBLEM_LIMITS.fieldCode - 1)}` }))).toBe(true);
+    const rejected: Record<string, unknown>[] = [
+      { ...valid, path: "p".repeat(PROBLEM_LIMITS.fieldPath + 1) },
+      { ...valid, path: "legs.0\nstrike" },
+      { ...valid, message: "m".repeat(PROBLEM_LIMITS.fieldMessage + 1) },
+      { ...valid, message: "" },
+      { ...valid, message: "two\nlines" },
+      { ...valid, code: `c${"_".repeat(PROBLEM_LIMITS.fieldCode)}` },
+      { ...valid, code: "NOT_ON_TICK" },
+      { ...valid, code: "too-small" },
+      { ...valid, code: "1st" },
+      { ...valid, code: "" },
+    ];
+    for (const fieldError of rejected) {
+      expect(isStrictProblem(withError(fieldError)), JSON.stringify(fieldError)).toBe(false);
+    }
+  });
+
+  it("bounds the broker's code and message", () => {
+    const withBroker = (broker: Record<string, unknown>) => ({ ...brokerRejection(), broker });
+
+    expect(isStrictProblem(withBroker({ code: "c".repeat(PROBLEM_LIMITS.brokerCode) }))).toBe(true);
+    expect(isStrictProblem(withBroker({ code: "DH-906", message: "m".repeat(PROBLEM_LIMITS.brokerMessage) }))).toBe(
+      true,
+    );
+    for (const broker of [
+      { code: "c".repeat(PROBLEM_LIMITS.brokerCode + 1) },
+      { code: "" },
+      { code: "DH-906", message: "m".repeat(PROBLEM_LIMITS.brokerMessage + 1) },
+      { code: "DH-906", message: "raw\npayload" },
+    ]) {
+      expect(isStrictProblem(withBroker(broker)), JSON.stringify(broker)).toBe(false);
+    }
   });
 
   it("caps field errors at MAX_FIELD_ERRORS", () => {
@@ -182,7 +374,6 @@ describe("ProblemDetailsSchema", () => {
     for (const status of [200, 399, 600, 422.5]) {
       expect(isStrictProblem({ ...brokerRejection(), status }), String(status)).toBe(false);
     }
-    expect(isStrictProblem({ ...brokerRejection(), status: 599 })).toBe(true);
   });
 
   it("rejects type URLs that are not Finlytics problem types", () => {
@@ -198,12 +389,43 @@ describe("ProblemDetailsSchema", () => {
     }
   });
 
-  it("accepts retryAfterSec as whole, non-negative seconds", () => {
+  it("accepts retryAfterSec as whole seconds from 0 to one day", () => {
     const rateLimited = problemFor("RATE_LIMITED");
 
     expect(isStrictProblem({ ...rateLimited, retryAfterSec: 30 })).toBe(true);
+    expect(isStrictProblem({ ...rateLimited, retryAfterSec: PROBLEM_LIMITS.retryAfterSec })).toBe(true);
+    expect(isStrictProblem({ ...rateLimited, retryAfterSec: PROBLEM_LIMITS.retryAfterSec + 1 })).toBe(false);
     expect(isStrictProblem({ ...rateLimited, retryAfterSec: -1 })).toBe(false);
     expect(isStrictProblem({ ...rateLimited, retryAfterSec: 1.5 })).toBe(false);
+  });
+});
+
+describe("checkProblemConsistency", () => {
+  /** The refinement on its own, after a schema that lets any code through. */
+  const consistency = z
+    .object({ code: z.string(), status: z.number(), title: z.string(), type: z.string() })
+    .superRefine(checkProblemConsistency);
+  const pathsOf = (value: unknown) =>
+    (consistency.safeParse(value).error?.issues ?? []).map((issue) => issue.path.join("."));
+
+  it("adds nothing for a code this build doesn't know, whichever members come with it", () => {
+    expect(pathsOf({ code: "STEP_UP_REQUIRED", status: 403, title: "Step-up required", type: "about:blank" })).toEqual(
+      [],
+    );
+    expect(pathsOf({ code: "", status: 0, title: "", type: "" })).toEqual([]);
+  });
+
+  it("reports each member that doesn't match a known code", () => {
+    expect(pathsOf(problemFor("KILL_SWITCH"))).toEqual([]);
+    expect(pathsOf({ ...problemFor("KILL_SWITCH"), status: 500, title: "Internal error", type: "x" })).toEqual([
+      "status",
+      "title",
+      "type",
+    ]);
+  });
+
+  it("is what ProblemDetailsSchema applies: an unknown code fails on code alone", () => {
+    expect(failingPaths({ ...problemFor("KILL_SWITCH"), code: "STEP_UP_REQUIRED" })).toEqual(["code"]);
   });
 });
 
@@ -226,7 +448,7 @@ describe("isProblemDetails", () => {
     }
   });
 
-  it("recognises a problem from a newer server, with an unknown code and extension members", () => {
+  it("still recognises problems with unknown codes and members on the client", () => {
     // RFC 9457 §3.2: clients ignore members they don't recognise. A tab opened before a deploy must keep the
     // requestId, errors[] and retryAfterSec of a problem whose code it has never seen.
     const fromNewerServer: unknown = JSON.parse(
@@ -242,9 +464,18 @@ describe("isProblemDetails", () => {
         stepUp: { methods: ["totp"] },
       }),
     );
+    // The server-side bounds are not the client's to enforce: a newer server may relax them.
+    const beyondTodaysBounds: unknown = {
+      ...problemFor("SERVICE_UNAVAILABLE"),
+      detail: `multi-line\n${"x".repeat(PROBLEM_LIMITS.detail)}`,
+      requestId: "short",
+      retryAfterSec: 2 * PROBLEM_LIMITS.retryAfterSec,
+    };
 
     expect(isProblemDetails(fromNewerServer)).toBe(true);
     expect(isStrictProblem(fromNewerServer)).toBe(false);
+    expect(isProblemDetails(beyondTodaysBounds)).toBe(true);
+    expect(isStrictProblem(beyondTodaysBounds)).toBe(false);
   });
 
   it("still requires the members a client acts on", () => {
@@ -279,11 +510,18 @@ describe("isKnownErrorCode", () => {
 });
 
 describe("isRetryableErrorCode", () => {
-  it("treats only RATE_LIMITED and BROKER_UNAVAILABLE as retryable", () => {
+  it("treats only RATE_LIMITED, BROKER_UNAVAILABLE and SERVICE_UNAVAILABLE as retryable", () => {
     const retryable = ERROR_CODES.filter((code) => isRetryableErrorCode(code));
 
-    expect(retryable).toEqual(["RATE_LIMITED", "BROKER_UNAVAILABLE"]);
+    expect(retryable).toEqual(["RATE_LIMITED", "BROKER_UNAVAILABLE", "SERVICE_UNAVAILABLE"]);
     expect([...RETRYABLE_ERROR_CODES]).toEqual(retryable);
+  });
+
+  it("treats SERVICE_UNAVAILABLE as retryable", () => {
+    expect(isRetryableErrorCode("SERVICE_UNAVAILABLE")).toBe(true);
+    // The other two new codes need a different request before a retry can succeed.
+    expect(isRetryableErrorCode("PAYLOAD_TOO_LARGE")).toBe(false);
+    expect(isRetryableErrorCode("UNSUPPORTED_MEDIA_TYPE")).toBe(false);
   });
 
   it("narrows the code to the retryable ones", () => {

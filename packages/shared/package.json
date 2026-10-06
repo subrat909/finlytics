@@ -2,7 +2,7 @@
   "name": "@finlytics/shared",
   "version": "0.0.1",
   "private": true,
-  "description": "Browser-safe contracts shared by apps/web and apps/api: Prisma enum mirrors, canonical instrument keys, user settings, the problem-details error contract and exact money helpers, as Zod schemas. ESM and CJS.",
+  "description": "Browser-safe contracts shared by apps/web and apps/api: Prisma enum mirrors, canonical instrument keys, user settings, the problem-details error contract, HTTP and session conventions, the me and health payloads and exact money helpers, as Zod schemas. ESM and CJS.",
   "type": "module",
   "engines": {
     "node": ">=24.11"
@@ -42,7 +42,7 @@
     "@finlytics/tsconfig": "workspace:*",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
-    "fast-check": "^4.10.2",
+    "fast-check": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

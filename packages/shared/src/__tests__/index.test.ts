@@ -38,9 +38,24 @@ describe("@finlytics/shared entry point", () => {
         "isRetryableErrorCode",
         "MAX_FIELD_ERRORS",
         "PROBLEM_JSON_MEDIA_TYPE",
+        "PROBLEM_LIMITS",
         "ProblemDetailsSchema",
         "problemTypeUrl",
+        "REQUEST_ID_PATTERN",
         "RETRYABLE_ERROR_CODES",
+        // schemas/http
+        "HEADERS",
+        "IdempotencyKeySchema",
+        "RequestIdSchema",
+        // schemas/session
+        "SESSION_COOKIE_NAME",
+        "SESSION_LIMITS",
+        "SESSION_TOKEN_PATTERN",
+        // schemas/me
+        "MeSchema",
+        // schemas/health
+        "HealthLiveSchema",
+        "HealthReadySchema",
         // money
         "DecimalStringSchema",
         "formatInr",

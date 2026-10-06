@@ -35,6 +35,16 @@ assert.equal(
   "the client guard tolerates a newer server (RFC 9457 §3.2)",
 );
 assert.equal(shared.isKnownErrorCode("STEP_UP_REQUIRED"), false, "isKnownErrorCode narrows received codes");
+assert.equal(
+  shared.ProblemDetailsSchema.safeParse({ ...killSwitch, status: 409 }).success,
+  false,
+  "status, title and type are tied to the code",
+);
+assert.equal(shared.isRetryableErrorCode("SERVICE_UNAVAILABLE"), true, "SERVICE_UNAVAILABLE is retryable");
+assert.equal(shared.IdempotencyKeySchema.safeParse(crypto.randomUUID()).success, true, "UUIDs are idempotency keys");
+assert.equal(shared.SESSION_TOKEN_PATTERN.test(crypto.randomUUID()), true, "Auth.js session tokens match");
+assert.equal(shared.SESSION_COOKIE_NAME.production, "__Host-authjs.session-token", "session contract is exported");
+assert.equal(shared.HealthLiveSchema.safeParse({ status: "ok" }).success, true, "health schemas are exported");
 assert.equal(shared.ExchangeSchema.parse("NFO"), "NFO", "enum mirrors are exported");
 assert.equal(shared.DecimalStringSchema.safeParse("1e5").success, false, "DecimalStringSchema rejects exponents");
 
