@@ -9,7 +9,8 @@
 // Hypertables (Tick, Candle, OptionChainSnapshot) are converted by migrations/<timestamp>_timescale; database guards
 // (AuditLog append-only triggers, GlobalControl singleton CHECK) live in migrations/<timestamp>_db_guards, and
 // migrations/<timestamp>_kill_switch_and_audit_guards makes GlobalControl permanent and those triggers fire in replica
-// mode. Prisma never generates that DDL, so every statement in those migrations is hand-written and idempotent.
+// mode; migrations/<timestamp>_audit_actor_checks adds the AuditLog actor CHECKs. Prisma never generates that DDL, so
+// every statement in those migrations is hand-written and idempotent.
 
 // Prisma 7: connection URL lives in prisma.config.ts; client uses @prisma/adapter-pg (driver adapter).
 // Defaults: ESM output with extensionless imports (inferred from moduleResolution "bundler" in ../tsconfig.json).
@@ -96,12 +97,13 @@ model Account {
 
 model Session {
   id           String   @id @default(cuid())
-  sessionToken String   @unique
+  sessionToken String   @unique // SHA-256 (hex) of the cookie token, never the token itself (docs/06)
   userId       String
   expires      DateTime
   ip           String?
   userAgent    String?
   lastSeenAt   DateTime @default(now())
+  createdAt    DateTime @default(now()) // the api enforces the 30-day absolute lifetime from this column
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
@@ -804,8 +806,9 @@ model NotificationChannel {
 // the user is deleted. Monthly partitioning is deferred (pg_partman, production; needs PK (id, createdAt)).
 model AuditLog {
   id         BigInt   @id @default(autoincrement())
-  userId     String?
-  actorType  String // user | system | agent | admin
+  userId     String? // subject: whose data the action concerns
+  actorType  String // user | admin | system | agent (CHECK in migrations/<timestamp>_audit_actor_checks)
+  actorId    String? // who acted (user, admin or agent-run id); null only for system (CHECK)
   action     String // order.place, broker.connect, killswitch.on ...
   entityType String?
   entityId   String?
@@ -817,4 +820,5 @@ model AuditLog {
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([action, createdAt(sort: Desc)])
+  @@index([actorId, createdAt(sort: Desc)])
 }

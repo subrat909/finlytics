@@ -47,6 +47,33 @@ describe("constraints", () => {
     });
   });
 
+  it("sets Session.createdAt by default", async () => {
+    const user = await prisma.user.create({ data: { email: `session-${uniqueSuffix()}@example.test` } });
+    const id = `session-${uniqueSuffix()}`;
+    const databaseNow = async (): Promise<number> => {
+      const rows = await prisma.$queryRaw<{ now: Date }[]>`SELECT now() AS now`;
+      return rows[0]?.now.getTime() ?? Number.NaN;
+    };
+
+    const before = await databaseNow();
+    // Without createdAt, as Auth.js's adapter creates a session, and in plain SQL, so the column's own default is what
+    // sets it (not Prisma).
+    await prisma.$executeRaw`
+      INSERT INTO "Session" ("id", "sessionToken", "userId", "expires")
+      VALUES (${id}, ${`sha256-${uniqueSuffix()}`}, ${user.id}, ${new Date(Date.now() + 7 * DAY_MS)})`;
+    const after = await databaseNow();
+    const session = await prisma.session.findUniqueOrThrow({
+      where: { id },
+      select: { createdAt: true, lastSeenAt: true },
+    });
+
+    // TIMESTAMP(3) keeps milliseconds, so allow 1 ms of rounding on either side.
+    expect(session.createdAt.getTime()).toBeGreaterThanOrEqual(before - 1);
+    expect(session.createdAt.getTime()).toBeLessThanOrEqual(after + 1);
+    // Both defaults are the inserting transaction's CURRENT_TIMESTAMP.
+    expect(session.createdAt).toEqual(session.lastSeenAt);
+  });
+
   it("allows NSE and BSE holidays on the same date", async () => {
     const date = unusedHolidayDate();
 

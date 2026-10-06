@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import type * as DatabasePackage from "../../src/index";
 import type { PrismaClient } from "../../src/index";
-import { PACKAGE_ROOT, runProcess } from "./database-admin";
+import { PACKAGE_ROOT, runProcess } from "../../src/testing/index";
 import { sharedDatabaseUrl } from "./harness";
 
 /** The package's own name: from inside packages/database it resolves through package.json `exports` (self-reference). */

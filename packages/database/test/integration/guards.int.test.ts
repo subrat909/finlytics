@@ -77,7 +77,9 @@ describe("database guards (migrations/<timestamp>_db_guards and <timestamp>_kill
 
   it("deletes a user who has audit rows and keeps their userId", async () => {
     const user = await prisma.user.create({ data: { email: `audited-${uniqueSuffix()}@example.test` } });
-    await prisma.auditLog.create({ data: { userId: user.id, actorType: "user", action: "test.signin" } });
+    await prisma.auditLog.create({
+      data: { userId: user.id, actorType: "user", actorId: user.id, action: "test.signin" },
+    });
 
     await prisma.user.delete({ where: { id: user.id } });
 
@@ -85,6 +87,82 @@ describe("database guards (migrations/<timestamp>_db_guards and <timestamp>_kill
     expect(
       await prisma.auditLog.findMany({ where: { userId: user.id }, select: { userId: true, action: true } }),
     ).toEqual([{ userId: user.id, action: "test.signin" }]);
+  });
+
+  it("rejects an audit row whose actorType is unknown", async () => {
+    const action = `test.actor.${uniqueSuffix()}`;
+    const attempts = ["service", "User", "", "system "].map((actorType) =>
+      prisma.auditLog
+        .create({ data: { actorType, actorId: "actor-1", action } })
+        .then(() => undefined)
+        .catch(databaseError),
+    );
+
+    const failures = await Promise.all(attempts);
+
+    expect(failures).toHaveLength(4);
+    for (const failure of failures) {
+      expect(failure).toMatchObject({
+        sqlState: CHECK_VIOLATION,
+        message: 'new row for relation "AuditLog" violates check constraint "AuditLog_actorType_check"',
+      });
+    }
+    expect(await prisma.auditLog.count({ where: { action } })).toBe(0);
+  });
+
+  it("requires actorId unless actorType is system", async () => {
+    const action = `test.actor.${uniqueSuffix()}`;
+
+    const unnamed = await Promise.all(
+      ["user", "admin", "agent"].map((actorType) =>
+        prisma.auditLog
+          .create({ data: { actorType, action } })
+          .then(() => undefined)
+          .catch(databaseError),
+      ),
+    );
+    // Every kind of actor is accepted once it is named; the system needs no name.
+    for (const actorType of ["user", "admin", "agent"]) {
+      await prisma.auditLog.create({ data: { actorType, actorId: `${actorType}-1`, action } });
+    }
+    await prisma.auditLog.create({ data: { actorType: "system", action } });
+
+    expect(unnamed.map((failure) => failure?.message)).toEqual(
+      Array.from(
+        { length: 3 },
+        () => 'new row for relation "AuditLog" violates check constraint "AuditLog_actorId_check"',
+      ),
+    );
+    expect(
+      await prisma.auditLog.findMany({
+        where: { action },
+        select: { actorType: true, actorId: true },
+        orderBy: { id: "asc" },
+      }),
+    ).toEqual([
+      { actorType: "user", actorId: "user-1" },
+      { actorType: "admin", actorId: "admin-1" },
+      { actorType: "agent", actorId: "agent-1" },
+      { actorType: "system", actorId: null },
+    ]);
+  });
+
+  it("keeps the actor checks with session_replication_role = replica", async () => {
+    // Replica mode skips triggers that are not ENABLE ALWAYS, and foreign keys, but never CHECK constraints.
+    const action = `test.actor.${uniqueSuffix()}`;
+    const roles: string[] = [];
+
+    await expect(
+      inReplicaMode(prisma, roles, (tx) =>
+        tx.auditLog.create({ data: { actorType: "service", actorId: "x", action } }),
+      ),
+    ).rejects.toThrow("AuditLog_actorType_check");
+    await expect(
+      inReplicaMode(prisma, roles, (tx) => tx.auditLog.create({ data: { actorType: "agent", action } })),
+    ).rejects.toThrow("AuditLog_actorId_check");
+
+    expect(roles).toEqual(["replica", "replica"]);
+    expect(await prisma.auditLog.count({ where: { action } })).toBe(0);
   });
 
   it("rejects a second GlobalControl row", async () => {

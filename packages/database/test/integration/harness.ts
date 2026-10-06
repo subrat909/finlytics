@@ -4,17 +4,18 @@
  * - Most tests share the migrated app database (`sharedDatabaseUrl()`) and keep their rows apart with `uniqueSuffix()`.
  * - Tests that need an empty or freshly migrated database create their own: `createEmptyDatabase()` or
  *   `createMigratedDatabase()`. They are dropped with the container at the end of the run.
- * - Prisma CLI commands go through `runPrismaCli(args, prismaCliTarget(url))` (database-admin.ts), which sets
+ * - Prisma CLI commands go through `runPrismaCli(args, prismaCliTarget(url))` (src/testing), which sets
  *   DATABASE_URL, DATABASE_DIRECT_URL and SHADOW_DATABASE_URL so nothing from the root .env applies.
  */
 import { randomUUID } from "node:crypto";
 
+import pg from "pg";
 import { inject } from "vitest";
 
 import { createPrismaClient, Prisma } from "../../src/index";
 import type { PrismaClient } from "../../src/index";
-import { createDatabase, migrateDeploy, uniqueDatabaseName } from "./database-admin";
-import type { PrismaCliTarget, ProcessResult, TestDatabase } from "./database-admin";
+import { createDatabase, migrateDeploy, parseTestDatabaseUrl, uniqueDatabaseName } from "../../src/testing/index";
+import type { PrismaCliTarget, ProcessResult, TestDatabase } from "../../src/testing/index";
 
 /** The shared app database, migrated once by the global setup. */
 export function sharedDatabaseUrl(): string {
@@ -43,6 +44,28 @@ export async function createMigratedDatabase(prefix: string): Promise<TestDataba
   const database = await createEmptyDatabase(prefix);
   await migrateDeploy(prismaCliTarget(database.url));
   return database;
+}
+
+/** An IANA time zone name such as `America/Los_Angeles`. */
+const TIME_ZONE = /^[A-Za-z_]+(?:\/[A-Za-z_+-]+)*$/;
+
+/**
+ * Makes `timeZone` the default `TimeZone` of every new session to `database` (ALTER DATABASE … SET), including a Prisma
+ * CLI child process's. The way to give a test database another session time zone: createPrismaClient refuses a URL
+ * `options` parameter. Connects with `pg`, like createDatabase: ALTER DATABASE takes no bind parameters, so the name is
+ * quoted by pg and the zone is checked against a strict pattern first.
+ */
+export async function setDatabaseTimeZone(database: TestDatabase, timeZone: string): Promise<void> {
+  if (!TIME_ZONE.test(timeZone)) throw new Error(`Invalid time zone: ${JSON.stringify(timeZone)}`);
+  const client = new pg.Client({ connectionString: parseTestDatabaseUrl(database.url).href });
+  await client.connect();
+  try {
+    await client.query(
+      `ALTER DATABASE ${pg.escapeIdentifier(database.name)} SET timezone TO ${pg.escapeLiteral(timeZone)}`,
+    );
+  } finally {
+    await client.end();
+  }
 }
 
 /**

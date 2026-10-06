@@ -4,7 +4,7 @@ import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import type { PrismaClient } from "../../src/index";
-import { migrateDeploy, PACKAGE_ROOT, runPrismaCli } from "./database-admin";
+import { migrateDeploy, PACKAGE_ROOT, runPrismaCli } from "../../src/testing/index";
 import { connect, createEmptyDatabase, createMigratedDatabase, outputOf, prismaCliTarget, withClient } from "./harness";
 
 const MIGRATIONS_DIR = path.join(PACKAGE_ROOT, "prisma", "migrations");
@@ -81,12 +81,14 @@ describe("migrations", () => {
         SELECT migration_name AS name, finished_at IS NOT NULL AS finished, rolled_back_at IS NOT NULL AS "rolledBack"
         FROM _prisma_migrations ORDER BY started_at, migration_name`;
       expect(applied).toEqual(migrationFolders().map((name) => ({ name, finished: true, rolledBack: false })));
-      expect(applied.slice(0, 5).map(({ name }) => name.slice("YYYYMMDDHHMMSS_".length))).toEqual([
+      expect(applied.slice(0, 7).map(({ name }) => name.slice("YYYYMMDDHHMMSS_".length))).toEqual([
         "init",
         "timescale",
         "db_guards",
         "tenant_fks",
         "kill_switch_and_audit_guards",
+        "audit_actor_and_session_created_at",
+        "audit_actor_checks",
       ]);
     });
   });

@@ -6,8 +6,15 @@ import { PLANS } from "../../prisma/seed/plans";
 import type { PlanSeed } from "../../prisma/seed/plans";
 import { runSeed } from "../../prisma/seed/run";
 import type { PrismaClient } from "../../src/index";
-import { runPrismaCli } from "./database-admin";
-import { createEmptyDatabase, createMigratedDatabase, outputOf, prismaCliTarget, withClient } from "./harness";
+import { runPrismaCli } from "../../src/testing/index";
+import {
+  createEmptyDatabase,
+  createMigratedDatabase,
+  outputOf,
+  prismaCliTarget,
+  setDatabaseTimeZone,
+  withClient,
+} from "./harness";
 
 /** A holiday as PostgreSQL itself prints it: the date is the column's text, untouched by any client time zone. */
 interface StoredHoliday {
@@ -162,15 +169,15 @@ describe("seed", () => {
   it("stores holiday dates without timezone shift", async () => {
     const database = await createMigratedDatabase("seed");
     // Time zones on both sides of UTC: the seed process runs ahead of it (IST), the database session behind it
-    // (Los Angeles). A date built from local time, or sent as a timestamp, would land on a neighbouring day.
-    const behindUtc = new URL(database.url);
-    behindUtc.searchParams.set("options", "-c timezone=America/Los_Angeles");
-    const sessionTimeZone = await withClient(behindUtc.href, async (prisma) => {
+    // (Los Angeles, the database's default for new sessions). A date built from local time, or sent as a timestamp,
+    // would land on a neighbouring day.
+    await setDatabaseTimeZone(database, "America/Los_Angeles");
+    const sessionTimeZone = await withClient(database.url, async (prisma) => {
       const rows = await prisma.$queryRaw<{ timeZone: string }[]>`SELECT current_setting('TimeZone') AS "timeZone"`;
       return rows[0]?.timeZone;
     });
 
-    const result = await runPrismaCli(["db", "seed"], prismaCliTarget(behindUtc.href), { TZ: "Asia/Kolkata" });
+    const result = await runPrismaCli(["db", "seed"], prismaCliTarget(database.url), { TZ: "Asia/Kolkata" });
 
     expect(sessionTimeZone).toBe("America/Los_Angeles");
     expect(result.exitCode, outputOf(result)).toBe(0);

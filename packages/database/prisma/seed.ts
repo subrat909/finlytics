@@ -18,7 +18,7 @@ async function main(): Promise<void> {
   console.log(`Seeding ${describeDatabaseUrl(url)}`);
   // The seed runs one statement at a time: two connections are plenty, whatever DB_POOL_MAX says for the app. Errors
   // are printed once, by the catch below, so Prisma logs warnings only.
-  const prisma = createPrismaClient({ url, poolMax: 2, log: ["warn"] });
+  const prisma = createPrismaClient({ url, poolMax: 2, applicationName: "finlytics-seed", log: ["warn"] });
   try {
     const summary = await runSeed(prisma);
     for (const line of formatSeedSummary(summary)) console.log(line);

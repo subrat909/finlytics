@@ -19,6 +19,16 @@
         "default": "./dist/index.cjs"
       }
     },
+    "./testing": {
+      "import": {
+        "types": "./dist/testing.d.ts",
+        "default": "./dist/testing.js"
+      },
+      "require": {
+        "types": "./dist/testing.d.cts",
+        "default": "./dist/testing.cjs"
+      }
+    },
     "./package.json": "./package.json"
   },
   "main": "./dist/index.cjs",
@@ -34,7 +44,7 @@
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "check:pkg": "publint --strict && attw --pack . && node test/pkg/smoke.mjs && node test/pkg/smoke.cjs && node test/pkg/types.mjs",
+    "check:pkg": "publint --strict && attw --pack . --exclude-entrypoints ./testing && attw --pack . --profile node16 --entrypoints ./testing && node test/pkg/smoke.mjs && node test/pkg/smoke.cjs && node test/pkg/types.mjs",
     "migrate": "prisma migrate dev",
     "deploy": "prisma migrate deploy",
     "status": "prisma migrate status",
@@ -51,14 +61,26 @@
   "devDependencies": {
     "@finlytics/shared": "workspace:*",
     "@finlytics/tsconfig": "workspace:*",
-    "@testcontainers/postgresql": "^12.2.0",
+    "@testcontainers/postgresql": "catalog:",
     "@types/node": "catalog:",
     "@types/pg": "^8.23.1",
     "prisma": "catalog:",
-    "testcontainers": "^12.2.0",
+    "testcontainers": "catalog:",
     "tsdown": "catalog:",
     "tsx": "^4.23.15",
     "typescript": "catalog:",
     "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "testcontainers": "^12.2.0",
+    "@testcontainers/postgresql": "^12.2.0"
+  },
+  "peerDependenciesMeta": {
+    "testcontainers": {
+      "optional": true
+    },
+    "@testcontainers/postgresql": {
+      "optional": true
+    }
   }
 }

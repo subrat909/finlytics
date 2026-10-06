@@ -1,9 +1,10 @@
 # 03 — Database Schema
 
-Source of truth: `packages/database/prisma/schema.prisma`, plus the hand-written SQL in the `timescale`, `db_guards`
-and `kill_switch_and_audit_guards` migrations (see [Migrations](#migrations)): Prisma never generates TimescaleDB DDL,
-triggers, functions or CHECK constraints. Apps use the bundled client from `@finlytics/database` (`getPrisma()`,
-`createPrismaClient()`).
+Source of truth: `packages/database/prisma/schema.prisma`, plus the hand-written SQL in the `timescale`, `db_guards`,
+`kill_switch_and_audit_guards` and `audit_actor_checks` migrations (see [Migrations](#migrations)): Prisma never
+generates TimescaleDB DDL, triggers, functions or CHECK constraints. Apps use the bundled client from
+`@finlytics/database` (`getPrisma()`, `createPrismaClient()`); integration tests get a migrated database from
+`@finlytics/database/testing` (see [Test databases](#test-databases)).
 
 ## Entity map
 ```
@@ -73,6 +74,15 @@ No foreign keys: AuditLog (append-only; userId kept after the user is deleted) ;
   `ON DELETE SET NULL` contradict each other), so deleting a user succeeds and the audit rows keep their `userId`, which
   the 5-year SEBI audit trail needs. **Monthly partitioning is still deferred**: it is planned for production with
   pg_partman (plus archiving to object storage) and needs the primary key to become `(id, createdAt)`.
+  - **Subject and actor**: `userId` is whose data the action concerns; `actorId` is who acted (a user or admin id, or
+    an agent run id), indexed `(actorId, createdAt DESC)`. Two CHECK constraints guard every new row: `actorType` is
+    one of `user`, `admin`, `system`, `agent`, and `actorId` is required unless `actorType` is `system`. They are
+    `NOT VALID` (existing rows are not re-checked; append-only rows could never be corrected anyway), and unlike
+    triggers and foreign keys they also hold in replica mode. The api writes `actorId` through `AuditService`.
+- **Sessions** (Auth.js, validated by the api): `Session.sessionToken` holds the SHA-256 (lowercase hex) of the cookie
+  token, never the token itself, so a database read can't be replayed as a session. `createdAt` (database default)
+  anchors the 30-day absolute lifetime; `lastSeenAt` the 7-day idle limit, written by the api at most every 5 minutes.
+  The contract (cookie names, token format, limits) is in `@finlytics/shared` (`SESSION_*`).
 - **Kill switch**: `GlobalControl` is a singleton, enforced by `CHECK ("id" = 1)`. The seed creates the row but never
   updates it, so a re-seed cannot switch off an engaged kill switch. The row is also **permanent**: triggers reject
   `DELETE` and `TRUNCATE` (`ENABLE ALWAYS`, so replica mode doesn't bypass them). Otherwise a deleted row would come back
@@ -94,6 +104,8 @@ No foreign keys: AuditLog (append-only; userId kept after the user is deleted) ;
 | `20261005144949_db_guards` | hand-written | The `GlobalControl_singleton` CHECK (`id = 1`), and the `audit_log_append_only()` function with two triggers on `AuditLog`: a row trigger for `UPDATE`/`DELETE` and a statement trigger for `TRUNCATE`. |
 | `20261005172722_tenant_fks` | Prisma (`--create-only`), plus a header comment | Tenancy binding (see Tenancy above). Adds the unique indexes `(id, userId)` on BrokerAccount, Strategy, StrategyDeployment, Order and AgentRun. Replaces 10 single-column foreign keys with composite `(<fk>, userId)` keys, and adds the new `AutoTradeConfig → BrokerAccount` key: CASCADE where the relation is required, NO ACTION where it is optional. Adds `StrategyDeployment.userId` (NOT NULL without a default, applied before any deployment existed; foreign key to User, cascade) with an index `(userId, startedAt DESC)`. Indexes the foreign key columns that had no leading index: `Trade(orderId)`, `Order(agentRunId)`, `Backtest(strategyId, createdAt DESC)`, `StrategyDeployment(brokerAccountId)`. |
 | `20261005172756_kill_switch_and_audit_guards` | hand-written | `ENABLE ALWAYS` on both `AuditLog` triggers, so they fire with `session_replication_role = replica` too. The `global_control_permanent()` function with a row trigger rejecting `DELETE` and a statement trigger rejecting `TRUNCATE` on `GlobalControl`, both `ENABLE ALWAYS`. `UPDATE` is not guarded. |
+| `20261005191736_audit_actor_and_session_created_at` | Prisma (`--create-only`), plus a header comment and `IF NOT EXISTS` | Adds the nullable `AuditLog.actorId` (catalog-only: no row rewritten, no trigger fired, the guard triggers keep `ENABLE ALWAYS`) with the index `AuditLog(actorId, createdAt DESC)`, and `Session.createdAt` (`NOT NULL DEFAULT CURRENT_TIMESTAMP`, added without a table rewrite; existing rows get the migration time). |
+| `20261005191803_audit_actor_checks` | hand-written | Two `NOT VALID` CHECKs on `AuditLog`: `AuditLog_actorType_check` (`actorType` in `user`, `admin`, `system`, `agent`) and `AuditLog_actorId_check` (`actorType = 'system' OR actorId IS NOT NULL`). Each is dropped if it exists before it is added. |
 
 Rules:
 - Create a migration with `pnpm db:migrate --create-only --name <snake_case>`. When the schema hasn't changed, Prisma
@@ -126,15 +138,79 @@ Rules:
   already set): Prisma CLI commands use `DATABASE_DIRECT_URL`, falling back to `DATABASE_URL` (blank counts as unset);
   `SHADOW_DATABASE_URL` is optional. The seed resolves its database the same way (`resolveCliDatabaseUrl` in
   `src/env.ts`), so `db:deploy && db:seed` always seed the database just migrated, and it prints that target as
-  `host:port/database`. The runtime client (`getPrisma()`) reads `DATABASE_URL` and `DB_POOL_MAX` (default 10),
-  validated by Zod on first use. To point the CLI at another database, set `DATABASE_DIRECT_URL` (and `SHADOW_DATABASE_URL`)
+  `host:port/database`. To point the CLI at another database, set `DATABASE_DIRECT_URL` (and `SHADOW_DATABASE_URL`)
   explicitly: setting only `DATABASE_URL` is not enough when `.env` defines `DATABASE_DIRECT_URL`.
+
+## Runtime connections
+`getPrisma()` creates the process-wide client on its first call from the variables below, validated by Zod
+(`loadDatabaseEnv`); `createPrismaClient()` takes the same settings as options. The api builds its env schema from the
+same shape (`databaseEnvShape` plus the `checkDatabaseEnv` refinement) and its client with
+`createPrismaClient({ ...prismaClientOptionsFromEnv(env), applicationName: "finlytics-api" })`.
+
+| Variable | Rule | Default | Becomes |
+|---|---|---|---|
+| `NODE_ENV` | `development`, `test` or `production` | `development` | — |
+| `DATABASE_URL` | required; a `postgres://` or `postgresql://` URL without `query_timeout`, `statement_timeout`, `idle_in_transaction_session_timeout`, `application_name` or `options` parameters; surrounding whitespace is trimmed | — | the pg pool's `connectionString` (trimmed) |
+| `DB_POOL_MAX` | integer 1–100 | `10` | pool size (`max`) |
+| `DB_CONNECT_TIMEOUT_MS` | integer 100–60 000 | `5000` | the longest wait for a pooled or new connection (`connectionTimeoutMillis`) |
+| `DB_STATEMENT_TIMEOUT_MS` | integer 100–11 000, below the 12 s transaction timeout (and so the api's 15 s request timeout) | `10000` | the server-side `statement_timeout` |
+| `DEBUG` | must be empty when `NODE_ENV=production` (Prisma's and ioredis' debug output includes query parameters) | unset | — |
+
+- **Every connection** carries `statement_timeout`, `idle_in_transaction_session_timeout` (15 s) and `application_name`
+  (`finlytics` unless the caller names itself) as startup parameters, so they hold for every query, including Prisma's
+  own. Server-side timeouts cancel the work in PostgreSQL; there is deliberately no client-side `query_timeout`, which
+  would give up on a query and leave it running. No URL parameter can change them: pg merges URL parameters over the
+  pool's options, so `statement_timeout`, `idle_in_transaction_session_timeout` and `application_name` in the URL would
+  replace the configured values, and `options` (`-c name=value`) would add server settings of its own. The URL rules
+  above reject all of them, and `createPrismaClient()` applies the same rules to its `url` (TypeError).
+- **One trimmed URL**: `createPrismaClient()` trims `url` once and both checks and connects with the trimmed string.
+  pg would read a URL with a leading space as a relative path, so the whole URL, password included, would become the
+  database name.
+- **Interactive transactions** (`$transaction(async (tx) => …)`): by default at most 5 s to get a connection
+  (`maxWait`) and 12 s to finish (`timeout`); the api passes `{ maxWaitMs: 2000, timeoutMs: 12000 }`. The statement
+  timeout must stay below the transaction timeout, so PostgreSQL cancels a slow statement before Prisma gives up on the
+  transaction: `createPrismaClient()` throws a `RangeError` unless `statementTimeoutMs < transaction.timeoutMs`, and
+  `DB_STATEMENT_TIMEOUT_MS` is capped at 11 000 so any valid environment passes with a 12 s transaction timeout. The
+  15 s idle-in-transaction timeout ends a session stranded inside a transaction and releases its locks.
+- **How each limit fails** (what the api maps to `503 SERVICE_UNAVAILABLE`): a statement timeout is Prisma `P2010` with
+  SQLSTATE `57014` in `meta.driverAdapterError.cause.originalCode`; a transaction past its timeout, or one that can't
+  start within `maxWait`, is `P2028`; a query that waits longer than `DB_CONNECT_TIMEOUT_MS` for a pooled connection is
+  a plain `Error` from pg-pool, `"timeout exceeded when trying to connect"`, with no Prisma name or code. A session
+  ended by the idle-in-transaction timeout gets PostgreSQL's FATAL `25P03` ("terminating connection due to
+  idle-in-transaction timeout") as an `error` event on its connection (adapter-pg's `onConnectionError`), and the
+  transaction's next statement fails with a plain `Error`, `"Client has encountered a connection error and is not
+  queryable"`. The pool recovers from all of them (`client.int.test.ts`).
+- **Logging**: `log` accepts only the strings `info`, `warn` and `error`; `query` and log-event definitions
+  (`{ level, emit }`) are refused, because query logs carry bound parameters.
+- **One client per process**: `getPrisma()` caches the client on `globalThis` under
+  `Symbol.for("@finlytics/database/prisma")` in every environment, so the ESM and CJS builds of the package (each with
+  its own module scope) share one client and one pool. The client may come from the other build, so recognise Prisma
+  errors by `name` and `code`, never with `instanceof`.
+
+## Test databases
+`@finlytics/database/testing` (source: `packages/database/src/testing/`, built as a separate entry, so the client
+entry never loads testcontainers) gives integration tests a real PostgreSQL + TimescaleDB. It needs Docker and the
+optional peer dependencies `testcontainers` and `@testcontainers/postgresql`.
+
+- `startTestDatabase({ migrate = true })` starts one container from `TIMESCALE_IMAGE` (the tag pinned in
+  `docker-compose.yml`; a unit test keeps them equal) with a **random password per container**, creates `finlytics_it`
+  (migrated with `prisma migrate deploy`, target asserted) and an empty `finlytics_it_shadow`, and returns
+  `{ adminUrl, databaseUrl, shadowDatabaseUrl, stop() }`. Testcontainers publishes the port on all host interfaces
+  (it has no host-IP option); that is accepted, because the container lives for one run and its password is random.
+  When a step after the start fails, it stops the container and rethrows that step's error; if stopping fails too, it
+  throws an `AggregateError` holding both, so a failed stop never hides why the setup failed.
+- `createDatabase(adminUrl, name)`, `uniqueDatabaseName(prefix)`, `migrateDeploy(target)`, `runPrismaCli(args, target)`
+  and `runProcess(...)` are the building blocks. Every helper refuses a URL on port 5432 or 5433, or without a port,
+  so a test can never touch the dev database, and every Prisma CLI run sets `DATABASE_URL`, `DATABASE_DIRECT_URL` and
+  `SHADOW_DATABASE_URL` itself, so nothing from the root `.env` applies.
 
 ## Key queries & indexes
 | Query | Index |
 |---|---|
 | Orders page | `Order(userId, placedAt DESC)`, `Order(userId, status)` |
 | Order idempotency | unique `Order(userId, idempotencyKey)` |
+| Session lookup (every authenticated request) | unique `Session(sessionToken)` (the token's SHA-256) |
+| A user's audit trail / what an actor did | `AuditLog(userId, createdAt DESC)` / `AuditLog(actorId, createdAt DESC)` |
 | Deployments page | `StrategyDeployment(userId, startedAt DESC)` |
 | Backtests of a strategy | `Backtest(strategyId, createdAt DESC)` |
 | Trades of an order | `Trade(orderId)` |

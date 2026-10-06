@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { TIMESCALE_IMAGE } from "../../test/integration/timescale-image";
+import { TIMESCALE_IMAGE } from "../testing/images";
 
 const COMPOSE_FILE = fileURLToPath(new URL("../../../../docker-compose.yml", import.meta.url));
 
