@@ -29,12 +29,12 @@ export default async function SectionPage({ params }: SectionPageProps) {
   const { Icon, label, description, accent, arrivesIn } = item;
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-6">
+    <div className="space-y-6">
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight text-fg">{label}</h1>
         <p className="text-sm text-fg-muted">{description}</p>
       </header>
-      <section className="rounded-md bg-surface-1" aria-label={`${label} status`}>
+      <section className="rounded-md border border-border bg-surface-1" aria-label={`${label} status`}>
         <EmptyState
           icon={<Icon className={accent} />}
           title={`${label} is on its way`}

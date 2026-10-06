@@ -82,16 +82,17 @@ export function CommandPalette() {
         <Dialog.Content
           data-slot="command-palette"
           aria-describedby={undefined}
-          className="fixed top-[12vh] left-1/2 z-50 w-[calc(100vw-2rem)] max-w-xl -translate-x-1/2 overflow-hidden rounded-md bg-surface-1 ring-1 ring-surface-3 motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0 motion-safe:data-[state=open]:zoom-in-95"
+          className="fixed top-[12vh] left-1/2 z-50 w-[calc(100vw-2rem)] max-w-xl -translate-x-1/2 overflow-hidden rounded-md border border-border bg-surface-1 motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0 motion-safe:data-[state=open]:zoom-in-95"
         >
           <Dialog.Title className="sr-only">Command palette</Dialog.Title>
           <Command label="Command palette" loop>
-            {/* A filled field (no border); the ring is drawn around the field, so the input itself draws none. */}
-            <div className="m-2 flex items-center gap-2 rounded-md bg-surface-2 px-3 has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-ring has-[input:focus-visible]:outline-solid">
+            {/* A filled field with the input edge (border-strong); the focus outline is drawn around the field, so the
+                input inside draws none. */}
+            <div className="m-2 flex items-center gap-2 rounded-md border border-border-strong bg-surface-2 px-3 has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-ring has-[input:focus-visible]:outline-solid">
               <Search aria-hidden="true" className="size-4 shrink-0 text-fg-muted" />
               <Command.Input
                 placeholder="Search sections and actions…"
-                className="h-11 w-full bg-transparent text-sm text-fg placeholder:text-fg-muted focus-visible:outline-none"
+                className="h-10 w-full bg-transparent text-sm text-fg placeholder:text-fg-muted focus-visible:outline-none"
               />
             </div>
             <Command.List className="max-h-[min(24rem,60vh)] overflow-y-auto overscroll-contain px-1 pb-2">

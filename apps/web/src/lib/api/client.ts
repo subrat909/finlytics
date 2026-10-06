@@ -20,6 +20,10 @@ export class ApiError extends Error {
   /** For support (ErrorState's "Reference"). */
   readonly requestId: string | undefined;
   readonly retryAfterSec: number | undefined;
+  /** The problem's `detail`: safe to show (the api writes it for users, e.g. which plan limit was reached). */
+  readonly detail: string | undefined;
+  /** Field-level validation errors (`errors[]`), keyed the way react-hook-form names fields. */
+  readonly fieldErrors: readonly { path: string; message: string }[];
 
   constructor(status: number, code: string, problem?: ReceivedProblemDetails) {
     super(problem?.title ?? code);
@@ -27,6 +31,8 @@ export class ApiError extends Error {
     this.code = code;
     this.requestId = problem?.requestId;
     this.retryAfterSec = problem?.retryAfterSec;
+    this.detail = problem?.detail;
+    this.fieldErrors = problem?.errors ?? [];
   }
 
   /** Signed out: the session is gone or was never valid. */

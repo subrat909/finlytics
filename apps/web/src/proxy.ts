@@ -14,7 +14,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 import { buildContentSecurityPolicy, createNonce } from "@/lib/csp";
-import { runtimeMode } from "@/lib/env";
+import { realtimeOrigin, runtimeMode } from "@/lib/env";
 
 /** Paths anyone may open. Everything else needs a session cookie. */
 const PUBLIC_PATHS = ["/login", "/verify", "/api/auth"];
@@ -41,7 +41,7 @@ export function proxy(request: NextRequest): NextResponse {
   }
 
   const nonce = createNonce();
-  const csp = buildContentSecurityPolicy({ nonce, dev: mode === "development" });
+  const csp = buildContentSecurityPolicy({ nonce, dev: mode === "development", realtimeOrigin: realtimeOrigin() });
   const headers = new Headers(request.headers);
   headers.set("x-nonce", nonce);
   headers.set("content-security-policy", csp);

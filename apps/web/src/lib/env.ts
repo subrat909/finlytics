@@ -17,6 +17,9 @@ export const DEV_DEFAULTS = Object.freeze({
   EMAIL_SERVER: "smtp://127.0.0.1:1025",
   EMAIL_FROM: "Finlytics <no-reply@finlytics.local>",
   API_INTERNAL_URL: "http://127.0.0.1:4000",
+  // The browser's realtime socket (plan 1.4): `localhost`, not 127.0.0.1, so the session cookie (set for localhost by
+  // the web app) is sent; cookies ignore ports.
+  RT_URL: "http://localhost:4000",
 });
 
 export interface OAuthClient {
@@ -36,6 +39,11 @@ export interface WebEnv {
   emailFrom: string;
   /** Where the `/v1` rewrite and server-side api calls go; undefined in production when the ingress routes `/v1`. */
   apiInternalUrl: string | undefined;
+  /**
+   * The realtime socket's origin (`NEXT_PUBLIC_RT_URL`, plan 1.4). Undefined means the page's own origin (`/rt` through
+   * the ingress, production's default). Read on the server and passed to the client, so it's runtime configuration.
+   */
+  rtUrl: string | undefined;
 }
 
 export class WebEnvError extends Error {
@@ -122,6 +130,7 @@ const RawEnvSchema = z.object({
       .optional(),
   ),
   API_INTERNAL_URL: optionalOrigin,
+  NEXT_PUBLIC_RT_URL: optionalOrigin,
 });
 
 type RawEnv = z.infer<typeof RawEnvSchema>;
@@ -188,7 +197,24 @@ export function parseWebEnv(source: Readonly<Record<string, string | undefined>>
         : dev
           ? DEV_DEFAULTS.API_INTERNAL_URL
           : undefined,
+    rtUrl: realtimeOriginFrom(env.NEXT_PUBLIC_RT_URL, env.NODE_ENV),
   };
+}
+
+function realtimeOriginFrom(value: string | undefined, mode: RuntimeMode): string | undefined {
+  if (value !== undefined) return stripTrailingSlash(value);
+  return mode === "production" ? undefined : DEV_DEFAULTS.RT_URL;
+}
+
+/**
+ * The realtime origin without validating anything else (the proxy's CSP needs only this): `NEXT_PUBLIC_RT_URL` when
+ * it's a valid origin, else the development default, else undefined (same origin). Startup validation reports a bad
+ * value; this never throws.
+ */
+export function realtimeOrigin(source: Readonly<Record<string, string | undefined>> = process.env): string | undefined {
+  const raw = source.NEXT_PUBLIC_RT_URL?.trim();
+  const value = raw !== undefined && raw !== "" && isHttpOrigin(raw) ? raw : undefined;
+  return realtimeOriginFrom(value, runtimeMode(source.NODE_ENV));
 }
 
 let cached: WebEnv | undefined;

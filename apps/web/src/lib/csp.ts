@@ -19,9 +19,34 @@ export interface CspOptions {
   nonce: string;
   /** Development: React needs `'unsafe-eval'` for its debugging aids, and the page isn't upgraded to https. */
   dev: boolean;
+  /**
+   * The realtime socket's origin when it isn't the page's own (development: the api on :4000; plan 1.4). Production
+   * is same origin (`/rt` through the ingress), so `'self'` covers it and this is undefined.
+   */
+  realtimeOrigin?: string | undefined;
 }
 
-export function buildContentSecurityPolicy({ nonce, dev }: CspOptions): string {
+/**
+ * Sources for a socket origin: the http(s) origin (long-polling) and its ws(s) twin (the WebSocket). CSP Level 3 lets
+ * an http source match ws, but not every browser does, so both are listed. Anything that isn't an http(s) origin is
+ * dropped rather than written into the policy.
+ */
+export function socketSources(origin: string | undefined): string[] {
+  if (origin === undefined) return [];
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch {
+    return [];
+  }
+  if ((url.protocol !== "http:" && url.protocol !== "https:") || url.pathname !== "/" || url.username !== "") {
+    return [];
+  }
+  const ws = url.protocol === "https:" ? "wss:" : "ws:";
+  return [url.origin, `${ws}//${url.host}`];
+}
+
+export function buildContentSecurityPolicy({ nonce, dev, realtimeOrigin }: CspOptions): string {
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${dev ? " 'unsafe-eval'" : ""}`,
@@ -31,7 +56,7 @@ export function buildContentSecurityPolicy({ nonce, dev }: CspOptions): string {
     "style-src-attr 'unsafe-inline'",
     `img-src 'self' blob: data: ${AVATAR_ORIGINS.join(" ")}`,
     "font-src 'self'",
-    "connect-src 'self'",
+    ["connect-src 'self'", ...socketSources(realtimeOrigin)].join(" "),
     "object-src 'none'",
     "base-uri 'none'",
     `form-action 'self' ${OAUTH_FORM_ORIGINS.join(" ")}`,

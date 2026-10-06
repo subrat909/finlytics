@@ -12,13 +12,13 @@ export const metadata: Metadata = { title: "Dashboard" };
 /** The dashboard before a broker is connected (docs/05): the account, then the empty state with its next step. */
 export default function DashboardPage() {
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-6">
+    <div className="space-y-6">
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight text-fg">Dashboard</h1>
         <p className="text-sm text-fg-muted">Funds, P&amp;L, positions and agent insights appear here.</p>
       </header>
       <AccountCard />
-      <section aria-labelledby="portfolio-heading" className="rounded-md bg-surface-1">
+      <section aria-labelledby="portfolio-heading" className="rounded-md border border-border bg-surface-1">
         <h2 id="portfolio-heading" className="sr-only">
           Portfolio
         </h2>

@@ -15,6 +15,7 @@ const ENV: WebEnv = {
   emailServer: "smtp://127.0.0.1:1025",
   emailFrom: "Finlytics <no-reply@finlytics.local>",
   apiInternalUrl: "http://127.0.0.1:4000",
+  rtUrl: "http://localhost:4000",
 };
 const ADAPTER: Adapter = {};
 

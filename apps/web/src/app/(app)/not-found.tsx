@@ -7,7 +7,7 @@ import { EmptyState } from "@finlytics/ui/components/empty-state";
 /** Not found inside the shell: the sidebar stays, so the user can go anywhere from here. */
 export default function AppNotFound() {
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div>
       <h1 className="sr-only">Page not found</h1>
       <EmptyState
         icon={<Compass className="text-highlight" />}

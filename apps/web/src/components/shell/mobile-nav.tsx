@@ -50,9 +50,9 @@ export function MobileNav() {
         <Dialog.Overlay className="fixed inset-0 z-40 bg-bg/80 backdrop-blur-sm motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0 motion-safe:data-[state=closed]:animate-out motion-safe:data-[state=closed]:fade-out-0" />
         <Dialog.Content
           data-slot="mobile-nav"
-          className="fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col bg-surface-1 motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:slide-in-from-left motion-safe:data-[state=closed]:animate-out motion-safe:data-[state=closed]:slide-out-to-left"
+          className="fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col border-r border-border bg-surface-1 motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:slide-in-from-left motion-safe:data-[state=closed]:animate-out motion-safe:data-[state=closed]:slide-out-to-left"
         >
-          <div className="flex h-14 shrink-0 items-center justify-between px-4">
+          <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
             <Logo />
             <Dialog.Close asChild>
               <Button variant="ghost" size="icon-sm" aria-label="Close navigation">
@@ -62,7 +62,7 @@ export function MobileNav() {
           </div>
           <Dialog.Title className="sr-only">Navigation</Dialog.Title>
           <Dialog.Description className="sr-only">Go to a section of Finlytics.</Dialog.Description>
-          <nav aria-label="Main" className="flex-1 overflow-y-auto px-3 py-2">
+          <nav aria-label="Main" className="flex-1 overflow-y-auto px-3 py-3">
             <SidebarNav
               idPrefix="mobile-nav"
               onNavigate={() => {

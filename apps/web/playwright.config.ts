@@ -29,13 +29,17 @@ export default defineConfig({
       command: "node --env-file-if-exists=../../.env --enable-source-maps dist/main.js",
       cwd: "../api",
       url: `${API_URL}/health/ready`,
-      env: { APP_ROLE: "http" },
+      // Every role (plan P1): the realtime gateway and the paper feed drive the live-price e2e, always on so it passes
+      // outside market hours.
+      env: { APP_ROLE: "http,gateway,feed,worker", MARKET_FEED_SOURCE: "paper", MARKET_FEED_ALWAYS_ON: "true" },
       reuseExistingServer: !CI,
       timeout: 60_000,
     },
     {
       command: "pnpm exec next dev --hostname localhost --port 3000",
       url: `${WEB_URL}/login`,
+      // The browser's realtime socket goes to the api directly in development (`localhost`, so the session cookie goes).
+      env: { NEXT_PUBLIC_RT_URL: "http://localhost:4000" },
       reuseExistingServer: !CI,
       timeout: 180_000,
     },

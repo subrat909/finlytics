@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import NextTopLoader from "nextjs-toploader";
 import type * as React from "react";
 
@@ -7,6 +7,7 @@ import { ThemeProvider } from "@finlytics/ui/components/theme-provider";
 import { cn } from "@finlytics/ui/lib/utils";
 
 import { Providers } from "@/components/providers";
+import { DENSITY_COOKIE, densityFromCookie } from "@/components/shell/density";
 import { StyleNonce } from "@/components/style-nonce";
 import { getSession } from "@/lib/auth/session";
 
@@ -27,16 +28,23 @@ export const viewport: Viewport = {
 
 /**
  * The root layout: fonts, the theme (no flash: next-themes' pre-paint script carries the CSP nonce from src/proxy.ts),
- * the route progress bar and the client providers. The account's theme is the default on devices without a choice.
+ * the route progress bar and the client providers. The account's theme is the default on devices without a choice; the
+ * density comes from its hint cookie (the settings page keeps it in step with the account).
  */
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const nonce = (await headers()).get("x-nonce") ?? undefined;
   const session = await getSession();
+  const density = densityFromCookie((await cookies()).get(DENSITY_COOKIE)?.value);
 
   return (
-    <html lang="en-IN" suppressHydrationWarning className={cn(inter.variable, jetbrainsMono.variable)}>
+    <html
+      lang="en-IN"
+      suppressHydrationWarning
+      data-density={density}
+      className={cn(inter.variable, jetbrainsMono.variable)}
+    >
       <body className="min-h-dvh antialiased">
-        <ThemeProvider defaultTheme={session?.theme ?? "system"} nonce={nonce}>
+        <ThemeProvider defaultTheme={session?.theme ?? "system"} nonce={nonce} density={density}>
           <NextTopLoader
             color="var(--primary)"
             height={2}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildContentSecurityPolicy, createNonce } from "../csp";
+import { buildContentSecurityPolicy, createNonce, socketSources } from "../csp";
 
 describe("createNonce", () => {
   it("returns 128 random bits as base64, different every time", () => {
@@ -37,5 +37,21 @@ describe("buildContentSecurityPolicy", () => {
     const policy = buildContentSecurityPolicy({ nonce: "abc", dev: true });
     expect(policy).toContain("script-src 'self' 'nonce-abc' 'strict-dynamic' 'unsafe-eval'");
     expect(policy).not.toContain("upgrade-insecure-requests");
+  });
+});
+
+describe("realtime sources", () => {
+  it("allows the realtime origin and its WebSocket twin in connect-src", () => {
+    const policy = buildContentSecurityPolicy({ nonce: "abc", dev: true, realtimeOrigin: "http://localhost:4000" });
+    expect(policy).toContain("connect-src 'self' http://localhost:4000 ws://localhost:4000;");
+    expect(socketSources("https://rt.example.com")).toEqual(["https://rt.example.com", "wss://rt.example.com"]);
+  });
+
+  it("stays same origin without one, and never writes a malformed value into the policy", () => {
+    expect(buildContentSecurityPolicy({ nonce: "abc", dev: false })).toContain("connect-src 'self';");
+    expect(socketSources(undefined)).toEqual([]);
+    expect(socketSources("not a url; script-src *")).toEqual([]);
+    expect(socketSources("javascript:alert(1)")).toEqual([]);
+    expect(socketSources("https://rt.example.com/path")).toEqual([]);
   });
 });

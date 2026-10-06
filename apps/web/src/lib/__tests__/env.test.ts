@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { DEV_DEFAULTS, WebEnvError, isHttpOrigin, parseWebEnv, runtimeMode } from "../env";
+import { DEV_DEFAULTS, WebEnvError, isHttpOrigin, parseWebEnv, realtimeOrigin, runtimeMode } from "../env";
 
 const SECRET = "s".repeat(44);
 
@@ -25,6 +25,7 @@ describe("parseWebEnv", () => {
       emailServer: DEV_DEFAULTS.EMAIL_SERVER,
       emailFrom: DEV_DEFAULTS.EMAIL_FROM,
       apiInternalUrl: DEV_DEFAULTS.API_INTERNAL_URL,
+      rtUrl: DEV_DEFAULTS.RT_URL,
     });
   });
 
@@ -80,6 +81,16 @@ describe("parseWebEnv", () => {
     });
     expect(env.authUrl).toBe("https://app.example.com");
     expect(env.apiInternalUrl).toBeUndefined();
+    expect(env.rtUrl).toBeUndefined(); // same origin: /rt through the ingress
+  });
+
+  it("takes the realtime origin from NEXT_PUBLIC_RT_URL and validates it", () => {
+    expect(parseWebEnv({ AUTH_SECRET: SECRET, NEXT_PUBLIC_RT_URL: "https://rt.example.com/" }).rtUrl).toBe(
+      "https://rt.example.com",
+    );
+    expect(issuesOf({ AUTH_SECRET: SECRET, NEXT_PUBLIC_RT_URL: "wss://rt.example.com" })).toEqual([
+      "NEXT_PUBLIC_RT_URL: must be an http(s) origin (scheme://host[:port], no path)",
+    ]);
   });
 
   it("rejects an unknown NODE_ENV", () => {
@@ -111,5 +122,19 @@ describe("runtimeMode", () => {
     expect(runtimeMode("")).toBe("development");
     expect(runtimeMode()).toBe("test"); // Vitest sets NODE_ENV=test
     expect(runtimeMode("staging")).toBe("development");
+  });
+});
+
+describe("realtimeOrigin", () => {
+  it("defaults to the api on localhost outside production and to same origin in production", () => {
+    expect(realtimeOrigin({ NODE_ENV: "development" })).toBe(DEV_DEFAULTS.RT_URL);
+    expect(realtimeOrigin({ NODE_ENV: "production" })).toBeUndefined();
+    expect(realtimeOrigin({ NODE_ENV: "production", NEXT_PUBLIC_RT_URL: "https://rt.example.com/" })).toBe(
+      "https://rt.example.com",
+    );
+  });
+
+  it("ignores an invalid value instead of throwing", () => {
+    expect(realtimeOrigin({ NODE_ENV: "production", NEXT_PUBLIC_RT_URL: "javascript:alert(1)" })).toBeUndefined();
   });
 });

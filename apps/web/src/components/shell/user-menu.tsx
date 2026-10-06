@@ -43,13 +43,13 @@ export function UserMenu({ user }: { user: ShellUser }) {
           align="end"
           sideOffset={8}
           data-slot="user-menu"
-          className="z-50 min-w-56 rounded-md bg-surface-1 p-1.5 ring-1 ring-surface-3 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-95"
+          className="z-50 min-w-56 rounded-md border border-border bg-surface-1 p-1.5 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-95"
         >
           <DropdownMenu.Label className="px-2 py-1.5">
             <span className="block truncate text-sm font-medium text-fg">{displayName}</span>
             {user.name ? <span className="block truncate text-xs text-fg-muted">{user.email}</span> : null}
           </DropdownMenu.Label>
-          <DropdownMenu.Separator className="my-1 h-px bg-surface-3" />
+          <DropdownMenu.Separator className="my-1 h-px bg-border" />
           <DropdownMenu.Item asChild className={itemClasses}>
             <Link href="/settings">
               <Settings aria-hidden="true" />
