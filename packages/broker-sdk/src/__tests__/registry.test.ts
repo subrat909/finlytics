@@ -7,6 +7,7 @@ import { BROKER_METHODS } from "../adapter";
 import type { BrokerAdapter, BrokerMethodsMatchInterface } from "../adapter";
 import { PaperAdapter } from "../brokers/paper/adapter";
 import { MemoryQuoteSource } from "../brokers/paper/quotes";
+import { UpstoxAdapter } from "../brokers/upstox/adapter";
 import { BrokerRegistry, createBrokerRegistry } from "../registry";
 
 import { REDIS_IMAGE } from "../../test/integration/containers";
@@ -23,8 +24,9 @@ describe("BROKER_METHODS", () => {
 describe("BrokerRegistry", () => {
   it("builds the paper adapter from the default registry", () => {
     const registry = createBrokerRegistry();
-    expect(registry.codes()).toEqual(["PAPER"]);
-    expect(registry.has("UPSTOX")).toBe(false);
+    expect(registry.codes()).toEqual(expect.arrayContaining(["PAPER", "DHAN"]));
+    expect(registry.has("UPSTOX")).toBe(true);
+    expect(registry.create("UPSTOX", {})).toBeInstanceOf(UpstoxAdapter);
     expect(registry.create("PAPER", { quotes: new MemoryQuoteSource() })).toBeInstanceOf(PaperAdapter);
   });
 

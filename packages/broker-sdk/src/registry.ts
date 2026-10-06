@@ -9,8 +9,12 @@ import { BROKER_CODES } from "@finlytics/shared";
 import type { BrokerCode } from "@finlytics/shared";
 
 import type { BrokerAdapter } from "./adapter";
+import { DhanAdapter } from "./brokers/dhan/adapter";
+import type { DhanAdapterOptions } from "./brokers/dhan/adapter";
 import { PaperAdapter } from "./brokers/paper/adapter";
 import type { PaperAdapterOptions } from "./brokers/paper/adapter";
+import { UpstoxAdapter } from "./brokers/upstox/adapter";
+import type { UpstoxAdapterOptions } from "./brokers/upstox/adapter";
 import type { Secret } from "./credentials";
 
 /** Options for brokers without an entry in {@link BrokerFactoryOptionsMap}: the platform's own app credentials. */
@@ -21,6 +25,8 @@ export interface DefaultBrokerFactoryOptions {
 /** Factory options per broker. */
 export interface BrokerFactoryOptionsMap {
   PAPER: PaperAdapterOptions;
+  DHAN: DhanAdapterOptions;
+  UPSTOX: UpstoxAdapterOptions;
 }
 
 export type BrokerFactoryOptions<C extends BrokerCode> = C extends keyof BrokerFactoryOptionsMap
@@ -67,5 +73,8 @@ export class BrokerRegistry {
 
 /** A registry with every adapter this package ships: PAPER now; UPSTOX in 1.2, DHAN in 1.3. */
 export function createBrokerRegistry(): BrokerRegistry {
-  return new BrokerRegistry().register("PAPER", (options) => new PaperAdapter(options));
+  return new BrokerRegistry()
+    .register("PAPER", (options) => new PaperAdapter(options))
+    .register("DHAN", (options) => new DhanAdapter(options))
+    .register("UPSTOX", (options) => new UpstoxAdapter(options));
 }

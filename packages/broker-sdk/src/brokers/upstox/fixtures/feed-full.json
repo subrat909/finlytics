@@ -1,0 +1,70 @@
+{
+  "type": "live_feed",
+  "feeds": {
+    "NSE_FO|45450": {
+      "fullFeed": {
+        "marketFF": {
+          "ltpc": { "ltp": 219.3, "ltt": "1740729552723", "ltq": "75", "cp": 494.05 },
+          "marketLevel": {
+            "bidAskQuote": [
+              { "bidQ": "1500", "bidP": 219.25, "askQ": "675", "askP": 219.4 },
+              { "bidQ": "2250", "bidP": 219.2, "askQ": "900", "askP": 219.45 },
+              { "bidQ": "0", "bidP": 0, "askQ": "0", "askP": 0 }
+            ]
+          },
+          "optionGreeks": { "delta": 0.4521, "theta": -12.31, "gamma": 0.0011, "vega": 9.87, "rho": 1.02 },
+          "marketOHLC": {
+            "ohlc": [
+              {
+                "interval": "1d",
+                "open": 480.1,
+                "high": 495.6,
+                "low": 201.15,
+                "close": 219.3,
+                "vol": "10234500",
+                "ts": "1740681000000"
+              },
+              {
+                "interval": "I1",
+                "open": 220.1,
+                "high": 220.4,
+                "low": 219.1,
+                "close": 219.3,
+                "vol": "45225",
+                "ts": "1740729540000"
+              }
+            ]
+          },
+          "atp": 312.45,
+          "vtt": "10234500",
+          "oi": 4521300,
+          "iv": 0.1432,
+          "tbq": 512300,
+          "tsq": 498775
+        }
+      },
+      "requestMode": "full_d5"
+    },
+    "NSE_INDEX|Nifty 50": {
+      "fullFeed": {
+        "indexFF": {
+          "ltpc": { "ltp": 22545.05, "ltt": "1740729552000", "cp": 22604.85 },
+          "marketOHLC": {
+            "ohlc": [
+              {
+                "interval": "1d",
+                "open": 22508.75,
+                "high": 22613.25,
+                "low": 22432.5,
+                "close": 22545.05,
+                "ts": "1740681000000"
+              }
+            ]
+          }
+        }
+      },
+      "requestMode": "full_d5"
+    }
+  },
+  "currentTs": "1740729566039"
+}

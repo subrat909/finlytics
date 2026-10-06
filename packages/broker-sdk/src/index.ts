@@ -144,9 +144,24 @@ export type {
   DefaultBrokerFactoryOptions,
 } from "./registry";
 
+export { DHAN_CAPABILITIES, DhanAdapter } from "./brokers/dhan/adapter";
+export type { DhanAdapterOptions } from "./brokers/dhan/adapter";
+export type { DhanFeedOptions, DhanSocket, DhanWebSocketFactory } from "./brokers/dhan/feed";
+export type { DhanFetch } from "./brokers/dhan/http";
+export { DhanInstrumentMap } from "./brokers/dhan/instruments";
+export type { DhanInstrumentRef } from "./brokers/dhan/instruments";
+
 export { PAPER_CAPABILITIES, PaperAdapter } from "./brokers/paper/adapter";
 export type { PaperAdapterOptions } from "./brokers/paper/adapter";
 export { zeroCharges } from "./brokers/paper/charges";
 export type { PaperChargesFn, PaperFill } from "./brokers/paper/charges";
 export { MemoryQuoteSource } from "./brokers/paper/quotes";
 export type { PaperQuote, PaperQuoteSource } from "./brokers/paper/quotes";
+
+export { UPSTOX_CAPABILITIES, UpstoxAdapter } from "./brokers/upstox/adapter";
+export type { UpstoxAdapterOptions, UpstoxAppCredentials, UpstoxAuthUrlInput } from "./brokers/upstox/adapter";
+export type { UpstoxSocket, UpstoxSocketFactory, UpstoxSocketHandlers } from "./brokers/upstox/feed";
+export type { UpstoxFetch } from "./brokers/upstox/http";
+export { UpstoxInstrumentMap } from "./brokers/upstox/instruments";
+export type { UpstoxInstrumentRef, UpstoxInstrumentResolver } from "./brokers/upstox/instruments";
+export { upstoxTokenExpiry } from "./brokers/upstox/mappers";

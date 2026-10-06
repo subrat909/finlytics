@@ -17,7 +17,7 @@ const { brokerOrderId } = await gateway.placeOrder({ accountId, creds }, order);
 | Broker                    | Auth                | Token life              | Market feed                                                      | Order feed            | Docs                                            |
 | ------------------------- | ------------------- | ----------------------- | ---------------------------------------------------------------- | --------------------- | ----------------------------------------------- |
 | Upstox (API v2 / v3 feed) | OAuth2 code         | till 03:30 IST next day | WSS protobuf (`MarketDataFeedV3`, modes ltpc/full/option_greeks) | WSS portfolio stream  | https://upstox.com/developer/api-documentation/ |
-| Dhan (DhanHQ v2)          | static access token | 30 days                 | WSS binary packets, ≤5000 instruments/conn                       | WSS live order update | https://dhanhq.co/docs/v2/                      |
+| Dhan (DhanHQ v2)          | pasted access token | 24 h (v2.4); RenewToken | WSS binary packets, ≤5000 instruments/conn                       | WSS live order update | https://dhanhq.co/docs/v2/                      |
 | Paper                     | none                | never expires           | quote source (mirrors a real feed)                               | simulated fills       | internal (`src/brokers/paper`)                  |
 
 Upstox lands in 1.2 and Dhan in 1.3, each in `src/brokers/<name>/` (`adapter.ts`, `feed.ts`, `mappers.ts`, `types.ts`,
@@ -70,6 +70,18 @@ after 15 s for one trial call. Only `BROKER_UNAVAILABLE` and `INTERNAL` count as
 LIMIT when crossed, SL/SL_M on the LTP trigger, IOC cancels the rest, `maxFillQtyPerMatch` for partial fills,
 `charges(fill)` pluggable. RMS-style rejections (lot size, freeze quantity, tick size, funds, no quote) end in
 `REJECTED`. Positions, P&L and margin follow from its trades in exact decimals. State is per process (2.x persists it).
+
+## Upstox broker (1.2)
+
+`UpstoxAdapter` (`src/brokers/upstox/`; quirks and limits at the top of `adapter.ts`) needs an
+`UpstoxInstrumentResolver` for canonical ↔ Upstox keys (`NSE_FO|52618`, `NSE_EQ|<ISIN>`): the api backs it with
+`InstrumentBrokerToken`; `UpstoxInstrumentMap` is the in-memory one. `fetch` and the WebSocket factory are injectable
+(Node 24's globals by default). Users bring their own Upstox app: `getAuthUrl({ state, redirectUri, apiKey })` and
+`exchangeToken({ code, redirectUri, fields: { apiKey, apiSecret } })`, else the platform's `appCredentials`. Tokens end
+at 03:30 IST (`upstoxTokenExpiry`); `refreshToken` is NEEDS_RELOGIN. Feeds: V3 protobuf market feed (the
+`MarketDataFeedV3.proto` text ships inside the bundle; `quote` is `option_greeks` for options, `full` otherwise) and
+the portfolio stream for orders (`orderFeedScope: "account"`). Tests: `src/brokers/upstox/__tests__/` (a fake Upstox
+serving the doc-derived fixtures, plus the contract suite).
 
 ## Writing an adapter (1.2, 1.3)
 

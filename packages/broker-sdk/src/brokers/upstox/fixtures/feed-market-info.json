@@ -1,0 +1,9 @@
+{
+  "type": "market_info",
+  "currentTs": "1732775008661",
+  "marketInfo": {
+    "segmentStatus": { "NSE_COM": "NORMAL_OPEN", "NSE_EQ": "NORMAL_OPEN" },
+    "casMarketStatus": { "NSE_EQ": { "status": "CAS_LM_START", "updatedTime": "1732775008661" } },
+    "preOpenSessionStatus": { "NSE_EQ": { "status": "PRE_OPEN_END", "updatedTime": "1732761608661" } }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "type": "live_feed",
+  "feeds": {
+    "NSE_FO|45450": {
+      "firstLevelWithGreeks": {
+        "ltpc": { "ltp": 219.3, "ltt": "1740729552723", "ltq": "75", "cp": 494.05 },
+        "firstDepth": { "bidQ": "1500", "bidP": 219.25, "askQ": "675", "askP": 219.4 },
+        "optionGreeks": { "delta": 0.4521, "theta": -12.31, "gamma": 0.0011, "vega": 9.87, "rho": 1.02 },
+        "vtt": "10234500",
+        "oi": 4521300,
+        "iv": 0.1432
+      },
+      "requestMode": "option_greeks"
+    }
+  },
+  "currentTs": "1740729566039"
+}
