@@ -33,6 +33,7 @@ import type {
   RtStatus,
   RtSubscribeAck,
   RtUnsubscribeAck,
+  RtUserEvent,
 } from "@finlytics/shared";
 
 import { feedStateOf } from "../../feed/feed-source";
@@ -79,6 +80,11 @@ export interface RtNamespace {
   broadcastLocal(event: string, payload: unknown): void;
   /** Whether the socket's transport has more than `limit` packets waiting (a slow client). */
   backedUp(id: string, limit: number): boolean;
+}
+
+/** The Socket.IO room of a user's sockets (instrument rooms are keys, which always contain `|`). */
+export function userRoom(userId: string): string {
+  return `user:${userId}`;
 }
 
 export interface RealtimeLogger {
@@ -152,6 +158,15 @@ export class RealtimeEngine {
     return this.#status;
   }
 
+  /** A `user` event from Redis: this pod's sockets of that user refetch what it names. */
+  onUserEvent(event: { readonly userId: string; readonly kind: RtUserEvent["kind"] }): void {
+    const namespace = this.#namespace;
+    const members = namespace?.roomMembers(userRoom(event.userId));
+    if (namespace === undefined || members === undefined) return;
+    const payload: RtUserEvent = { kind: event.kind };
+    for (const id of members) namespace.socket(id)?.emit(RT_EVENTS.user, payload);
+  }
+
   /** Binds the namespace (the gateway's `afterInit`). Nothing runs until {@link start}. */
   attach(namespace: RtNamespace): void {
     this.#namespace = namespace;
@@ -200,6 +215,8 @@ export class RealtimeEngine {
       closed: false,
     };
     this.#sockets.set(socket.id, state);
+    // The user's own room: `user` events (notifications, broker accounts) reach every tab of theirs.
+    socket.join(userRoom(identity.userId));
     socket.emit(RT_EVENTS.status, this.#status);
   }
 

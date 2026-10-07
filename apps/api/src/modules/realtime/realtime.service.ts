@@ -31,6 +31,7 @@ export type HandshakeResult =
 @Injectable()
 export class RealtimeService implements OnApplicationBootstrap, BeforeApplicationShutdown {
   readonly engine: RealtimeEngine;
+  private readonly quotes: QuoteSubscriber;
   readonly allowedOrigins: ReadonlySet<string>;
   private readonly cookieName: string;
   private readonly isTrustedProxy: (address: string) => boolean;
@@ -56,7 +57,11 @@ export class RealtimeService implements OnApplicationBootstrap, BeforeApplicatio
       (depth) => {
         this.engine.onDepth(depth);
       },
+      (event) => {
+        this.engine.onUserEvent(event);
+      },
     );
+    this.quotes = quotes;
     this.engine = new RealtimeEngine({ repository, quotes, logger });
   }
 
@@ -100,6 +105,9 @@ export class RealtimeService implements OnApplicationBootstrap, BeforeApplicatio
   /** After every module's init (Redis is connecting by then): start flushing and polling the feed status. */
   onApplicationBootstrap(): void {
     this.engine.start();
+    this.quotes.subscribeUserEvents().catch((error: unknown) => {
+      this.logger.warn({ err: error }, "could not subscribe to user events");
+    });
   }
 
   /** Runs before Nest closes the server: releases every local subscription while Redis is still open. */

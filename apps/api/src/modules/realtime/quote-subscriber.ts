@@ -3,8 +3,10 @@
  * dedicated ioredis connection in subscriber mode, ref-counted locally so the pod subscribes to a channel once however
  * many of its sockets want it. ioredis re-subscribes every channel by itself after a reconnect.
  */
-import type { InstrumentKey, RtDepth } from "@finlytics/shared";
+import { RtUserEventSchema } from "@finlytics/shared";
+import type { InstrumentKey, RtDepth, RtUserEvent } from "@finlytics/shared";
 import { Redis } from "ioredis";
+import { z } from "zod";
 
 import { decodeDepth, decodeQuoteUpdate } from "../../feed/quote-update";
 import type { QuoteUpdate } from "../../feed/quote-update";
@@ -71,6 +73,29 @@ class ChannelCounts {
   }
 }
 
+const USER_EVENTS_CHANNEL = redisKeys.userEventsChannel();
+
+/** A message on the user-event channel (published by UserEventsRelay). */
+export interface UserEventMessage {
+  readonly userId: string;
+  readonly kind: RtUserEvent["kind"];
+}
+
+const UserEventMessageSchema = z.strictObject({
+  userId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
+  kind: RtUserEventSchema.shape.kind,
+});
+
+/** Parses a user-event message; anything malformed is dropped. */
+export function decodeUserEvent(message: string): UserEventMessage | undefined {
+  try {
+    const parsed = UserEventMessageSchema.safeParse(JSON.parse(message));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export class QuoteSubscriber {
   readonly #quotes = new ChannelCounts((key) => redisKeys.quoteChannel(key));
   readonly #depths = new ChannelCounts((key) => redisKeys.depthChannel(key));
@@ -81,9 +106,13 @@ export class QuoteSubscriber {
     onUpdate: (update: QuoteUpdate) => void,
     private readonly logger: QuoteSubscriberLogger,
     onDepth: (depth: RtDepth) => void = () => undefined,
+    private readonly onUserEvent: (event: UserEventMessage) => void = () => undefined,
   ) {
     connection.on("message", (channel, message) => {
-      if (channel.startsWith(QUOTE_PREFIX)) {
+      if (channel === USER_EVENTS_CHANNEL) {
+        const event = decodeUserEvent(message);
+        if (event !== undefined) this.onUserEvent(event);
+      } else if (channel.startsWith(QUOTE_PREFIX)) {
         const update = decodeQuoteUpdate(message);
         if (update !== undefined && `${QUOTE_PREFIX}${update.k}` === channel) onUpdate(update);
       } else if (channel.startsWith(DEPTH_PREFIX)) {
@@ -108,6 +137,11 @@ export class QuoteSubscriber {
       maxRetriesPerRequest: null,
       retryStrategy: (attempt) => reconnectDelayMs(attempt),
     });
+  }
+
+  /** Subscribes the user-event channel once (the gateway's `user:<id>` rooms). */
+  async subscribeUserEvents(): Promise<void> {
+    await this.connection.subscribe(USER_EVENTS_CHANNEL);
   }
 
   /** Local quote subscribers of `key`. */

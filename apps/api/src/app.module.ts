@@ -38,6 +38,7 @@ import { CandlesModule } from "./modules/candles/candles.module";
 import { HealthModule } from "./modules/health/health.module";
 import { InstrumentsModule } from "./modules/instruments/instruments.module";
 import { MarketModule } from "./modules/market/market.module";
+import { NotificationsModule, UserEventsModule } from "./modules/notifications/notifications.module";
 import { PortfolioModule } from "./modules/portfolio/portfolio.module";
 import { QuotesModule } from "./modules/quotes/quotes.module";
 import { SettingsModule } from "./modules/settings/settings.module";
@@ -75,6 +76,7 @@ export class AppModule {
         IdempotencyModule,
         AuthModule,
         HealthModule,
+        UserEventsModule,
         // The `http` role's REST feature modules; `gateway`, `feed` and `worker` add theirs (role-modules.ts).
         ...(hasRole(env, "http")
           ? [
@@ -87,6 +89,7 @@ export class AppModule {
               WatchlistsModule,
               QuotesModule,
               PortfolioModule,
+              NotificationsModule,
               MarketModule,
             ]
           : []),

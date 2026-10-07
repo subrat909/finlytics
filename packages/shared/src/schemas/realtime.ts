@@ -33,6 +33,7 @@ export const RT_EVENTS = Object.freeze({
   depthSubscribe: "dsub",
   depthUnsubscribe: "dunsub",
   depth: "depth",
+  user: "user",
 } as const);
 
 /** The most keys one `sub`/`unsub` message may carry (the per-socket limit is the plan's `maxRtSubscriptions`). */
@@ -162,3 +163,11 @@ export const RtDepthSchema = z.strictObject({
   tsq: z.int().min(0).nullable(),
 });
 export type RtDepth = z.infer<typeof RtDepthSchema>;
+
+/**
+ * `user`: something of the signed-in user's changed (sent to the socket's `user:<id>` room only). The client refetches
+ * what the kind names: `notification` (the bell), `broker` (accounts and the bell). Never carries the data itself.
+ */
+export const RT_USER_EVENT_KINDS = Object.freeze(["notification", "broker"] as const);
+export const RtUserEventSchema = z.strictObject({ kind: z.enum(RT_USER_EVENT_KINDS) });
+export type RtUserEvent = z.infer<typeof RtUserEventSchema>;

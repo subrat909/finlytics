@@ -157,6 +157,8 @@ export {
   RT_NAMESPACE,
   RT_PATH,
   RT_REJECT_REASONS,
+  RT_USER_EVENT_KINDS,
+  RtUserEventSchema,
   RtDepthAckSchema,
   RtDepthLevelSchema,
   RtDepthSchema,
@@ -172,6 +174,7 @@ export {
   RtUnsubscribeSchema,
 } from "./schemas/realtime";
 export type {
+  RtUserEvent,
   RtDepth,
   RtDepthAck,
   RtDepthLevel,
@@ -337,3 +340,20 @@ export type {
   PositionsView,
   PositionView,
 } from "./schemas/portfolio";
+
+export {
+  MarkNotificationsReadSchema,
+  MAX_NOTIFICATIONS,
+  NOTIFICATION_SEVERITIES,
+  NotificationListSchema,
+  NotificationReadResultSchema,
+  NotificationSeveritySchema,
+  NotificationViewSchema,
+} from "./schemas/notifications";
+export type {
+  MarkNotificationsRead,
+  NotificationList,
+  NotificationReadResult,
+  NotificationSeverity,
+  NotificationView,
+} from "./schemas/notifications";

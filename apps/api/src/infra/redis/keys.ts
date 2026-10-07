@@ -83,6 +83,8 @@ export const redisKeys = Object.freeze({
   depth: (instrumentKey: string): string => `depth:${instrumentKeySegment(instrumentKey)}`,
   /** The depth fan-out channel of an instrument: `d:<instrumentKey>`. */
   depthChannel: (instrumentKey: string): string => `d:${instrumentKeySegment(instrumentKey)}`,
+  /** The user-event fan-out channel (JSON `{userId, kind}`): every gateway pod emits to its local `user:<id>` room. */
+  userEventsChannel: (): string => "rt:user",
   /** Time ranges already backfilled from a broker (sorted set): `candles:cov:<timeframe>:<instrumentKey>`. */
   candleCoverage: (timeframe: string, instrumentKey: string): string =>
     `candles:cov:${segment("timeframe", timeframe)}:${instrumentKeySegment(instrumentKey)}`,

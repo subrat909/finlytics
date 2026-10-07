@@ -350,6 +350,18 @@ describe("RealtimeEngine", () => {
     vi.useRealTimers();
   });
 
+  it("puts every socket in its user's room and relays user events there only", () => {
+    const { engine, connect } = harness();
+    const mine = connect("s1");
+    const other = connect("s2");
+    other.rooms.delete("user:user-1");
+    other.rooms.add("user:someone-else");
+    engine.onUserEvent({ userId: "user-1", kind: "broker" });
+    engine.onUserEvent({ userId: "nobody", kind: "notification" });
+    expect(mine.events("user")).toEqual([{ kind: "broker" }]);
+    expect(other.events("user")).toEqual([]);
+  });
+
   it("tells a new socket the feed state", () => {
     const { connect } = harness();
     expect(connect("s1").events("status")).toEqual([{ feed: "down", source: "PAPER", live: false }]);
@@ -369,7 +381,7 @@ describe("RealtimeEngine", () => {
       ],
     });
     expect(counts.get(A)).toBe(1);
-    expect(socket.rooms).toEqual(new Set([A, B]));
+    expect(socket.rooms).toEqual(new Set(["user:user-1", A, B]));
     expect(quotes.add).toHaveBeenCalledWith([A, B]);
     expect(socket.events("q")).toEqual([]);
     vi.runAllTicks();
@@ -462,7 +474,7 @@ describe("RealtimeEngine", () => {
     expect(await engine.unsubscribe("s1", { keys: [A, C, "bad"] })).toEqual({ ok: [A] });
     expect(await engine.unsubscribe("s1", { nope: true })).toEqual({ ok: [] });
     expect(counts.get(A)).toBe(0);
-    expect(socket.rooms).toEqual(new Set([B]));
+    expect(socket.rooms).toEqual(new Set(["user:user-1", B]));
     expect(quotes.remove).toHaveBeenCalledWith([A]);
   });
 

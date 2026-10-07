@@ -132,6 +132,8 @@ describe("build smoke test (dist/main.js)", () => {
         "/v1/market/overview",
         "/v1/me",
         "/v1/me/settings",
+        "/v1/notifications",
+        "/v1/notifications/read",
         "/v1/portfolio/funds",
         "/v1/portfolio/holdings",
         "/v1/portfolio/positions",
