@@ -10,7 +10,8 @@
  * | `broker.relogin`  | `POST /v1/brokers/:id/relogin` (1.2) | `{ broker }`                 |
  * | `broker.update`   | `PATCH /v1/brokers/:id` (1.2)      | `{ changed: string[] }`        |
  * | `broker.delete`   | `DELETE /v1/brokers/:id` (1.2)     | `{ broker }`                   |
- * | `broker.expire`   | broker-token-expiry job, a broker refusing a token (system) | `{ broker, reason }` |
+ * | `broker.expire`   | broker-token-expiry and -renew jobs, a broker refusing a token (system) | `{ broker, reason }` |
+ * | `broker.renew`    | broker-token-renew job (system, phase 1b) | `{ broker, tokenExpiresAt }` |
  * | `instruments.sync`| `POST /v1/admin/instruments/sync` (1.2) | `{ brokers: string[] }`   |
  *
  * Never put credentials, tokens or broker client ids in `data`.
@@ -25,6 +26,7 @@ export const AUDIT_ACTIONS = Object.freeze([
   "broker.update",
   "broker.delete",
   "broker.expire",
+  "broker.renew",
   "instruments.sync",
 ] as const);
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

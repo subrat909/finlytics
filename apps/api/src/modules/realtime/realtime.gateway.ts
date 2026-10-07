@@ -1,6 +1,6 @@
 /**
  * Socket.IO namespace `/rt` on path `/rt/socket.io` (phase 1 plan "WebSocket"). Thin: the handshake middleware and the
- * `sub`/`unsub` handlers delegate to RealtimeService. Handlers are bound per socket instead of `@SubscribeMessage`,
+ * `sub`/`unsub`/`dsub`/`dunsub` handlers delegate to RealtimeService. Handlers are bound per socket instead of `@SubscribeMessage`,
  * so no HTTP guard, pipe or interceptor runs on WebSocket messages; payloads are validated with the shared Zod schemas
  * in the engine.
  *
@@ -91,6 +91,16 @@ export class RealtimeGateway
     });
     socket.on(RT_EVENTS.unsubscribe, (payload: unknown, ack: unknown) => {
       void this.realtime.engine.unsubscribe(socket.id, payload).then((result) => {
+        reply(ack, result);
+      });
+    });
+    socket.on(RT_EVENTS.depthSubscribe, (payload: unknown, ack: unknown) => {
+      void this.realtime.engine.depthSubscribe(socket.id, payload).then((result) => {
+        reply(ack, result);
+      });
+    });
+    socket.on(RT_EVENTS.depthUnsubscribe, (payload: unknown, ack: unknown) => {
+      void this.realtime.engine.depthUnsubscribe(socket.id, payload).then((result) => {
         reply(ack, result);
       });
     });

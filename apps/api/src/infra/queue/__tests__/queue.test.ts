@@ -17,11 +17,13 @@ describe("queue configuration", () => {
     expect(QUEUE_NAMES).toEqual({
       instrumentMasterSync: "instrument-master-sync",
       brokerTokenExpiry: "broker-token-expiry",
+      brokerTokenRenew: "broker-token-renew",
     });
   });
 
-  it("schedules the sync at 08:00 IST and the expiry check at 08:30 IST", () => {
+  it("schedules the sync at 08:00 IST, the expiry check at 08:30 IST and the token renewal every 30 minutes", () => {
     expect(JOB_SCHEDULES.instrumentMasterSync).toMatchObject({ pattern: "0 8 * * *", tz: "Asia/Kolkata" });
     expect(JOB_SCHEDULES.brokerTokenExpiry).toMatchObject({ pattern: "30 8 * * *", tz: "Asia/Kolkata" });
+    expect(JOB_SCHEDULES.brokerTokenRenew).toMatchObject({ pattern: "*/30 * * * *", tz: "Asia/Kolkata" });
   });
 });

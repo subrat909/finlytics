@@ -1,12 +1,16 @@
 /**
- * `GET /v1/candles` and the UDF datafeed end to end (phase 1 plan "REST"): a gap is backfilled once from the paper
- * source into Timescale `Candle`, then served from the database; UDF answers in TradingView's shapes.
+ * `GET /v1/candles` and the UDF datafeed end to end (phase 1 plan "REST"; phase-1b "never serve synthetic candles"): a
+ * gap is backfilled once from a (non-synthetic) source into Timescale `Candle`, then served from the database; while
+ * the simulator drives the feed, paper candles are served on the fly and never stored; UDF answers in TradingView's
+ * shapes.
  */
 import type { PrismaClient } from "@finlytics/database";
 import { CandleListSchema, UdfConfigSchema, UdfHistorySchema, UdfSymbolInfoSchema } from "@finlytics/shared";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { PaperCandleSource } from "../../src/modules/candles/candle-sources";
+import { paperCandles } from "../../src/feed/paper/paper-candles";
+import { CANDLE_SOURCE_RESOLVER } from "../../src/modules/candles/candle-sources";
+import type { CandleRequest, CandleSource, CandleSourceResolver } from "../../src/modules/candles/candle-sources";
 
 import { createTestApp, json } from "./app";
 import type { TestApp } from "./app";
@@ -45,8 +49,10 @@ describe("candles and the UDF datafeed", () => {
   const candlesUrl = (tf = "M1", from = FROM_S, to = TO_S) =>
     `/v1/candles?key=${encodeURIComponent(key)}&tf=${tf}&from=${String(from)}&to=${String(to)}`;
 
-  it("backfills a range once, then serves it from Timescale", async () => {
-    const fetch = vi.spyOn(testApp.app.get(PaperCandleSource), "fetch");
+  it("backfills a range once from a broker source, then serves it from Timescale", async () => {
+    const fetch = vi.fn((request: CandleRequest) => Promise.resolve(paperCandles(request, 1)));
+    const broker: CandleSource = { name: "TEST", fetch };
+    vi.spyOn(testApp.app.get<CandleSourceResolver>(CANDLE_SOURCE_RESOLVER), "forUser").mockResolvedValue(broker);
 
     const first = await get(candlesUrl());
     expect(first.statusCode).toBe(200);
@@ -65,6 +71,18 @@ describe("candles and the UDF datafeed", () => {
     expect(CandleListSchema.parse(wider.json())).toHaveLength(60); // 08:15–09:15 IST is outside the session
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(fetch.mock.calls[1]?.[0].to.getTime()).toBe(FROM_S * 1_000);
+  });
+
+  it("serves synthetic candles on the fly while the simulator drives the feed, storing nothing", async () => {
+    const synthetic = `NSE_EQ|SYNTH${uniqueSuffix().toUpperCase()}`;
+    const url = `/v1/candles?key=${encodeURIComponent(synthetic)}&tf=M1&from=${String(FROM_S)}&to=${String(TO_S)}`;
+
+    const first = CandleListSchema.parse((await get(url)).json());
+    const second = CandleListSchema.parse((await get(url)).json());
+
+    expect(first).toHaveLength(60);
+    expect(second).toEqual(first);
+    expect(await fixtures.candle.count({ where: { instrumentKey: synthetic } })).toBe(0);
   });
 
   it("validates the query and requires a session", async () => {

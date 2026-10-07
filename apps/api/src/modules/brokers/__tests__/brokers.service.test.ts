@@ -8,11 +8,25 @@ import type { PrismaService, TenantTransaction } from "../../../infra/prisma/pri
 import type { AuthIdentity } from "../../auth/auth-identity";
 import type { AuditService } from "../../audit/audit.service";
 import { BrokerDomainError } from "../broker-errors";
-import { BrokersService, MAX_PAPER_ACCOUNTS, newBrokerAccountId } from "../brokers.service";
+import {
+  BrokersService,
+  MAX_PAPER_ACCOUNTS,
+  newBrokerAccountId,
+  paperLimitDetail,
+  planLimitDetail,
+} from "../brokers.service";
 import type { OAuthStateRecord, OAuthStateService } from "../oauth-state.service";
 
 import { MemoryAccounts } from "./memory-accounts";
-import { config, gateways as buildGateways, logger, REQUEST, SCRIPTS, vault as buildVault } from "./support";
+import {
+  config,
+  events as buildEvents,
+  gateways as buildGateways,
+  logger,
+  REQUEST,
+  SCRIPTS,
+  vault as buildVault,
+} from "./support";
 
 const ALICE: AuthIdentity = { userId: "user_alice", sessionId: "sess_alice", role: "USER" };
 const BOB: AuthIdentity = { userId: "user_bob", sessionId: "sess_bob", role: "USER" };
@@ -43,9 +57,26 @@ function setup(scripts: Parameters<typeof buildGateways>[0] = SCRIPTS) {
   };
   const audit = { record: vi.fn<AuditService["record"]>().mockResolvedValue(1n) };
   const tx = {} as TenantTransaction;
+  /** Commits and emitted events, in order: an event must come after the commit of its change. */
+  const timeline: string[] = [];
   const prisma = {
-    db: { $transaction: vi.fn((work: (client: TenantTransaction) => Promise<unknown>) => work(tx)) },
+    db: {
+      $transaction: vi.fn(async (work: (client: TenantTransaction) => Promise<unknown>) => {
+        const result = await work(tx);
+        timeline.push("commit");
+        return result;
+      }),
+    },
   };
+  const recorded = buildEvents();
+  recorded.recorder.activated.mockImplementation((event) => {
+    recorded.emitted.push({ name: "activated", event });
+    timeline.push(`activated:${event.accountId}`);
+  });
+  recorded.recorder.deactivated.mockImplementation((event) => {
+    recorded.emitted.push({ name: "deactivated", event });
+    timeline.push(`deactivated:${event.accountId}`);
+  });
   const clock: Clock = { now: () => NOW };
   const service = new BrokersService(
     prisma as unknown as PrismaService,
@@ -54,11 +85,12 @@ function setup(scripts: Parameters<typeof buildGateways>[0] = SCRIPTS) {
     gateways,
     oauth as unknown as OAuthStateService,
     audit as unknown as AuditService,
+    recorded.events,
     clock,
     config(),
     logger(),
   );
-  return { service, accounts, vault, log, oauth, audit, states };
+  return { service, accounts, vault, log, oauth, audit, states, emitted: recorded.emitted, timeline };
 }
 
 const upstoxBody = { label: "Main", apiKey: "app-key-1", apiSecret: "app-secret-1" };
@@ -107,12 +139,38 @@ describe("BrokersService: Upstox", () => {
     expect(accounts.rows.size).toBe(1);
   });
 
-  it("refuses a new account beyond the plan's limit", async () => {
+  it("refuses a new account beyond the plan's limit, saying what the plan allows", async () => {
     const { service } = setup();
     await service.connectUpstox(ALICE, upstoxBody, REQUEST);
 
-    await expect(service.connectUpstox(ALICE, { ...upstoxBody, label: "Second" }, REQUEST)).rejects.toBeInstanceOf(
-      ForbiddenError,
+    const refused = service.connectUpstox(ALICE, { ...upstoxBody, label: "Second" }, REQUEST);
+
+    await expect(refused).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(refused).rejects.toMatchObject({
+      detail: "Your plan allows 1 broker account. Remove one or upgrade your plan to connect another.",
+    });
+  });
+
+  it("allows as many broker accounts as the plan says (two on the free plan)", async () => {
+    const { service, accounts } = setup();
+    accounts.maxAccounts = 2;
+    await service.connectUpstox(ALICE, upstoxBody, REQUEST);
+    const dhan = await service.connectDhan(
+      ALICE.userId,
+      { label: "Dhan", clientId: "1100", accessToken: SCRIPTS.DHAN.validToken },
+      REQUEST,
+    );
+
+    expect(dhan.status).toBe("ACTIVE");
+    await expect(
+      service.connectDhan(
+        ALICE.userId,
+        { label: "Dhan 2", clientId: "1100", accessToken: SCRIPTS.DHAN.validToken },
+        REQUEST,
+      ),
+    ).rejects.toMatchObject({ code: "FORBIDDEN", detail: planLimitDetail(2) });
+    expect(planLimitDetail(2)).toBe(
+      "Your plan allows 2 broker accounts. Remove one or upgrade your plan to connect another.",
     );
   });
 
@@ -125,7 +183,7 @@ describe("BrokersService: Upstox", () => {
   });
 
   it("activates the account on the callback, with the 03:30 IST expiry and as the default", async () => {
-    const { service, accounts, vault, audit } = setup();
+    const { service, accounts, vault, audit, timeline } = setup();
     const { account } = await service.connectUpstox(ALICE, upstoxBody, REQUEST);
 
     const outcome = await service.upstoxCallback({ code: "good-code", state: STATE }, ALICE, REQUEST);
@@ -153,6 +211,7 @@ describe("BrokersService: Upstox", () => {
       }),
     ).toBe("UPX42");
     expect(audit.record.mock.calls.at(-1)?.[1]).toMatchObject({ data: { status: "ACTIVE", reconnect: false } });
+    expect(timeline.slice(-2)).toEqual(["commit", `activated:${account.id}`]);
   });
 
   it("rejects a malformed callback, an unknown or replayed state, and another session", async () => {
@@ -179,11 +238,12 @@ describe("BrokersService: Upstox", () => {
   });
 
   it("marks the account ERROR when Upstox rejects the code", async () => {
-    const { service, accounts } = setup();
+    const { service, accounts, emitted } = setup();
     const { account } = await service.connectUpstox(ALICE, upstoxBody, REQUEST);
 
     const outcome = await service.upstoxCallback({ code: "bad-code", state: STATE }, ALICE, REQUEST);
 
+    expect(emitted).toEqual([]);
     expect(outcome.url).toBe(`http://localhost:3000/brokers?error=broker_rejected&account=${account.id}`);
     expect(accounts.get(account.id)).toMatchObject({
       status: "ERROR",
@@ -229,9 +289,9 @@ describe("BrokersService: Dhan and paper", () => {
   const dhanBody = { label: "Dhan", clientId: "1100", accessToken: SCRIPTS.DHAN.validToken };
 
   it("validates the pasted token with the broker and stores it ACTIVE with the JWT's expiry", async () => {
-    const exp = Math.floor(NOW.getTime() / 1_000) + 20 * 86_400;
+    const exp = Math.floor(NOW.getTime() / 1_000) + 86_400;
     const token = jwt(exp);
-    const { service, accounts } = setup({ DHAN: { authMode: "token", validToken: token } });
+    const { service, accounts, timeline, emitted } = setup({ DHAN: { authMode: "token", validToken: token } });
 
     const view = await service.connectDhan(ALICE.userId, { ...dhanBody, accessToken: token }, REQUEST);
 
@@ -239,23 +299,29 @@ describe("BrokersService: Dhan and paper", () => {
     expect(view.tokenExpiresAt).toBe(new Date(exp * 1_000).toISOString());
     expect(JSON.stringify(view)).not.toContain(token);
     expect(accounts.get(view.id)?.lastLoginAt).toEqual(NOW);
+    expect(timeline).toEqual(["commit", `activated:${view.id}`]);
+    expect(emitted).toEqual([
+      { name: "activated", event: { userId: ALICE.userId, accountId: view.id, broker: "DHAN" } },
+    ]);
+    expect(JSON.stringify(emitted)).not.toContain(token);
   });
 
-  it("defaults the expiry to 30 days when the token doesn't carry one", async () => {
+  it("defaults the expiry to 24 hours when the token doesn't carry one", async () => {
     const { service } = setup();
 
     const view = await service.connectDhan(ALICE.userId, dhanBody, REQUEST);
 
-    expect(view.tokenExpiresAt).toBe(new Date(NOW.getTime() + 30 * 86_400_000).toISOString());
+    expect(view.tokenExpiresAt).toBe(new Date(NOW.getTime() + 86_400_000).toISOString());
   });
 
   it("refuses a token Dhan rejects, and stores nothing", async () => {
-    const { service, accounts } = setup();
+    const { service, accounts, emitted } = setup();
 
     await expect(
       service.connectDhan(ALICE.userId, { ...dhanBody, accessToken: "wrong-token-000000" }, REQUEST),
     ).rejects.toMatchObject({ code: "BROKER_REJECTED" });
     expect(accounts.rows.size).toBe(0);
+    expect(emitted).toEqual([]);
   });
 
   it("refuses a token that belongs to another client id", async () => {
@@ -265,6 +331,34 @@ describe("BrokersService: Dhan and paper", () => {
       code: "BROKER_REJECTED",
       detail: expect.stringContaining("another Dhan client id") as unknown,
     });
+  });
+
+  it("connects without a typed client id, storing the one the profile names", async () => {
+    const { service, accounts, vault, log } = setup({ DHAN: { ...SCRIPTS.DHAN, clientId: "1100777" } });
+
+    const view = await service.connectDhan(
+      ALICE.userId,
+      { label: "Dhan", clientId: "", accessToken: SCRIPTS.DHAN.validToken },
+      REQUEST,
+    );
+
+    expect(view.status).toBe("ACTIVE");
+    expect(log.exchanges.at(-1)?.fields).toEqual({ accessToken: SCRIPTS.DHAN.validToken });
+    const row = accounts.must(view.id);
+    const scope = { userId: ALICE.userId, brokerAccountId: view.id };
+    const dataKey = { wrapped: row.encKeyWrapped, iv: row.encKeyIv, version: row.encKeyVersion };
+    expect(
+      vault.open(scope, dataKey, "clientId", {
+        ciphertext: row.brokerClientIdEnc ?? new Uint8Array(),
+        iv: row.brokerClientIdIv ?? new Uint8Array(),
+      }),
+    ).toBe("1100777");
+    expect(
+      vault.openCredentials(scope, dataKey, {
+        ciphertext: row.encryptedCredentials ?? new Uint8Array(),
+        iv: row.credentialsIv ?? new Uint8Array(),
+      }).clientId,
+    ).toBe("1100777");
   });
 
   it("replaces the token of the same label (Dhan's re-login) and clears its error", async () => {
@@ -295,9 +389,33 @@ describe("BrokersService: Dhan and paper", () => {
       const view = await service.connectPaper(ALICE.userId, { label: `Paper ${String(index)}` }, REQUEST);
       expect(view).toMatchObject({ broker: "PAPER", status: "ACTIVE", tokenExpiresAt: null, isDefault: false });
     }
-    await expect(service.connectPaper(ALICE.userId, { label: "One more" }, REQUEST)).rejects.toBeInstanceOf(
-      ForbiddenError,
-    );
+    await expect(service.connectPaper(ALICE.userId, { label: "One more" }, REQUEST)).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      detail: paperLimitDetail(MAX_PAPER_ACCOUNTS),
+    });
+  });
+
+  it("reports the plan's limits and the accounts that count against them", async () => {
+    const { service, accounts } = setup();
+    accounts.maxAccounts = 2;
+    await service.connectDhan(ALICE.userId, dhanBody, REQUEST);
+    await service.connectPaper(ALICE.userId, { label: "Paper" }, REQUEST);
+    await service.connectPaper(BOB.userId, { label: "Not Alice's" }, REQUEST);
+
+    expect(await service.limits(ALICE.userId)).toEqual({
+      maxBrokerAccounts: 2,
+      brokerAccounts: 1,
+      maxPaperAccounts: MAX_PAPER_ACCOUNTS,
+      paperAccounts: 1,
+    });
+  });
+
+  it("emits nothing when the change doesn't commit", async () => {
+    const { service, audit, emitted } = setup();
+    audit.record.mockRejectedValueOnce(new Error("database down"));
+
+    await expect(service.connectPaper(ALICE.userId, { label: "Paper" }, REQUEST)).rejects.toThrow("database down");
+    expect(emitted).toEqual([]);
   });
 });
 
@@ -335,8 +453,8 @@ describe("BrokersService: management", () => {
     await expect(service.update(BOB.userId, a.id, { label: "Mine" }, REQUEST)).rejects.toBeInstanceOf(NotFoundError);
   });
 
-  it("deletes an account with an audit row, and 404s for someone else's", async () => {
-    const { service, accounts, audit } = setup();
+  it("deletes an account with an audit row and a deactivated event, and 404s for someone else's", async () => {
+    const { service, accounts, audit, timeline, emitted } = setup();
     const a = await service.connectPaper(ALICE.userId, { label: "A" }, REQUEST);
 
     await expect(service.remove(BOB.userId, a.id, REQUEST)).rejects.toBeInstanceOf(NotFoundError);
@@ -344,6 +462,10 @@ describe("BrokersService: management", () => {
 
     expect(accounts.rows.size).toBe(0);
     expect(audit.record.mock.calls.at(-1)?.[1]).toMatchObject({ action: "broker.delete", data: { broker: "PAPER" } });
+    expect(timeline.slice(-2)).toEqual(["commit", `deactivated:${a.id}`]);
+    expect(emitted.filter((entry) => entry.name === "deactivated")).toEqual([
+      { name: "deactivated", event: { userId: ALICE.userId, accountId: a.id, broker: "PAPER" } },
+    ]);
   });
 
   it("generates cuid-shaped ids", () => {

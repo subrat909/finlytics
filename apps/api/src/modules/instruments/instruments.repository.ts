@@ -81,6 +81,16 @@ export class InstrumentsRepository {
     return new Set(rows.map((row) => row.key));
   }
 
+  /** The keys among `keys` with an active token of `broker` (index: `(instrumentKey, broker)`). */
+  async coveredKeys(broker: BrokerCode, keys: readonly string[]): Promise<Set<string>> {
+    if (keys.length === 0) return new Set();
+    const rows = await this.prisma.db.instrumentBrokerToken.findMany({
+      where: { broker, isActive: true, instrumentKey: { in: [...keys] } },
+      select: { instrumentKey: true },
+    });
+    return new Set(rows.map((row) => row.instrumentKey));
+  }
+
   /** How many of `broker`'s tokens are active (the completeness check of a sync compares against it). */
   activeTokenCount(broker: BrokerCode): Promise<number> {
     return this.prisma.db.instrumentBrokerToken.count({ where: { broker, isActive: true } });

@@ -1,11 +1,19 @@
 /**
  * Instruments (search, lookup, the master import's repository, the admin sync trigger), watchlists (CRUD, ownership,
- * plan limits) and quotes (from the `quote:*` hashes) against the real database and Redis.
+ * plan limits), quotes and depth (from the `quote:*` hashes and `depth:*` books) and the market overview against the
+ * real database and Redis.
  */
 import type { InstrumentRow } from "@finlytics/broker-sdk";
 import { createPrismaClient } from "@finlytics/database";
 import type { PrismaClient } from "@finlytics/database";
-import { InstrumentListSchema, WatchlistListSchema, WatchlistSchema } from "@finlytics/shared";
+import {
+  InstrumentListSchema,
+  MARKET_INDEX_KEYS,
+  MarketOverviewSchema,
+  RtDepthSchema,
+  WatchlistListSchema,
+  WatchlistSchema,
+} from "@finlytics/shared";
 import { getQueueToken } from "@nestjs/bullmq";
 import type { Queue } from "bullmq";
 import { Redis } from "ioredis";
@@ -367,6 +375,104 @@ describe("market data", () => {
         [key]: { ltp: "25012.35", close: "24950", chg: "62.35", chgPct: "0.2499", ts: 1_791_273_600_000 },
       });
       expect((await get(cookie, "/v1/quotes?keys=bad")).statusCode).toBe(400);
+    });
+
+    it("returns the day's prices, ATP and quantities the feed stored", async () => {
+      const { cookie } = await signedIn();
+      const key = `NSE_EQ|Q${uniqueSuffix().toUpperCase()}`;
+      await redis.hset(`quote:${key}`, {
+        ltp: "101",
+        close: "100",
+        chg: "1",
+        chgPct: "1",
+        vol: "1200",
+        open: "99.5",
+        high: "102",
+        low: "99",
+        atp: "100.4",
+        bidQty: "40",
+        askQty: "15",
+        ltq: "5",
+        src: "UPSTOX",
+        ts: "1791273600000",
+      });
+
+      const response = await get(cookie, `/v1/quotes?keys=${encodeURIComponent(key)}`);
+
+      expect(response.json()).toEqual({
+        [key]: {
+          ltp: "101",
+          close: "100",
+          chg: "1",
+          chgPct: "1",
+          vol: "1200",
+          open: "99.5",
+          high: "102",
+          low: "99",
+          atp: "100.4",
+          bidQty: "40",
+          askQty: "15",
+          ltq: "5",
+          ts: 1_791_273_600_000,
+        },
+      });
+    });
+  });
+
+  describe("quote depth", () => {
+    it("returns the stored book, an empty one for a known instrument without one, 404 for an unknown key", async () => {
+      const { cookie } = await signedIn();
+      const { keys } = await seedInstruments(fixtures);
+      const book = {
+        k: keys.eq,
+        t: 1_791_273_600_000,
+        bids: [
+          ["101.95", 120, 3],
+          ["101.9", 80, 2],
+        ],
+        asks: [["102", 60, 1]],
+        tbq: 5_000,
+        tsq: 4_200,
+      };
+      await redis.set(`depth:${keys.eq}`, JSON.stringify(book), "PX", 60_000);
+      const depthUrl = (key: string) => `/v1/quotes/depth?key=${encodeURIComponent(key)}`;
+
+      const stored = await get(cookie, depthUrl(keys.eq));
+      expect(stored.statusCode, stored.body).toBe(200);
+      expect(RtDepthSchema.parse(stored.json())).toEqual(book);
+
+      const empty = await get(cookie, depthUrl(keys.index));
+      expect(empty.statusCode, empty.body).toBe(200);
+      expect(empty.json()).toEqual({ k: keys.index, t: 0, bids: [], asks: [], tbq: null, tsq: null });
+
+      expect((await get(cookie, depthUrl(keys.inactive))).statusCode).toBe(404);
+      expect((await get(cookie, depthUrl("NSE_EQ|NOSUCHKEY9"))).statusCode).toBe(404);
+      expect((await get(cookie, depthUrl("bad"))).statusCode).toBe(400);
+      expect((await testApp.request({ method: "GET", url: depthUrl(keys.eq) })).statusCode).toBe(401);
+    });
+  });
+
+  describe("market overview", () => {
+    it("answers sessions, the feed, every index in order and NIFTY 50 movers, for signed-in users only", async () => {
+      const { cookie } = await signedIn();
+      await redis.hset(`quote:${MARKET_INDEX_KEYS.BANKEX}`, {
+        ltp: "58123.45",
+        close: "58000",
+        chg: "123.45",
+        chgPct: "0.21",
+        ts: String(Date.now()),
+      });
+
+      const response = await get(cookie, "/v1/market/overview");
+
+      expect(response.statusCode, response.body).toBe(200);
+      const overview = MarketOverviewSchema.parse(response.json());
+      expect(overview.exchanges.map((status) => status.exchange)).toEqual(["NSE", "BSE", "MCX"]);
+      expect(overview.indices.map((quote) => quote.key)).toEqual(Object.values(MARKET_INDEX_KEYS));
+      expect(overview.indices.at(-1)?.ltp).toMatch(/^\d+(\.\d+)?$/);
+      expect(overview.gainers.length).toBeLessThanOrEqual(5);
+      expect(Object.values(overview.breadth).every((count) => count >= 0)).toBe(true);
+      expect((await testApp.request({ method: "GET", url: "/v1/market/overview" })).statusCode).toBe(401);
     });
   });
 });

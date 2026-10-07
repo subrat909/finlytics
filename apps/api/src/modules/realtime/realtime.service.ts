@@ -10,7 +10,6 @@ import { PinoLogger } from "nestjs-pino";
 
 import { RateLimitService } from "../../common/rate-limit/rate-limit.service";
 import type { Env } from "../../config/env.schema";
-import { FEED_SOURCE_BROKER } from "../../feed/feed-connector";
 import type { AuthIdentity } from "../auth/auth-identity";
 import { SessionService } from "../auth/session.service";
 
@@ -54,13 +53,11 @@ export class RealtimeService implements OnApplicationBootstrap, BeforeApplicatio
         this.engine.onQuote(update);
       },
       logger,
+      (depth) => {
+        this.engine.onDepth(depth);
+      },
     );
-    this.engine = new RealtimeEngine({
-      broker: FEED_SOURCE_BROKER[config.get("MARKET_FEED_SOURCE", { infer: true })],
-      repository,
-      quotes,
-      logger,
-    });
+    this.engine = new RealtimeEngine({ repository, quotes, logger });
   }
 
   /**

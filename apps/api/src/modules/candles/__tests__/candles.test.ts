@@ -8,12 +8,12 @@ import type { CoverageRedis, Interval } from "../candle-coverage";
 import {
   BrokerCandleSource,
   DefaultCandleSourceResolver,
-  NO_DEFAULT_BROKER_ACCOUNT,
+  NO_CANDLE_ACCOUNTS,
   PaperCandleSource,
 } from "../candle-sources";
 import type { CandleRequest, CandleSource, CandleSourceResolver } from "../candle-sources";
 import type { CandlesRepository } from "../candles.repository";
-import { defaultBrokerAccount } from "../candles.module";
+import { candleAccounts } from "../candles.module";
 import { CandlesService } from "../candles.service";
 
 const KEY = "NSE_EQ|RELIANCE" as InstrumentKey;
@@ -246,28 +246,116 @@ describe("CandlesService", () => {
   });
 });
 
+describe("CandlesService with synthetic and partial sources", () => {
+  it("serves synthetic bars on the fly: nothing stored, nothing covered", async () => {
+    const synthetic: CandleSource = {
+      name: "PAPER",
+      synthetic: true,
+      fetch: vi.fn((request: CandleRequest) =>
+        Promise.resolve([
+          bar(request.from.getTime() - MIN),
+          bar(request.from.getTime()),
+          { ...bar(request.from.getTime() + MIN), oi: 5 },
+        ]),
+      ),
+    };
+    const { service, repository } = setup({ source: synthetic });
+
+    const bars = await service.list("u", query(OPEN, OPEN + 2 * MIN));
+
+    expect(bars.map((value) => value.ts)).toEqual([OPEN, OPEN + MIN]);
+    expect(bars[1]?.oi).toBe(5);
+    expect(repository.inserts).toBe(0);
+    expect(repository.rows.size).toBe(0);
+  });
+
+  it("serves storage only for an instrument the broker has no token for", async () => {
+    const fetch = vi.fn(() => Promise.resolve([bar(OPEN)]));
+    const broker: CandleSource = { name: "UPSTOX", supports: () => Promise.resolve(false), fetch };
+    const { service } = setup({ source: broker });
+
+    expect(await service.list("u", query(OPEN, OPEN + MIN))).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
 describe("candle sources", () => {
-  it("prefers the user's default broker account, then paper, then none", async () => {
-    const gateway = { broker: "UPSTOX", getHistoricalCandles: vi.fn(() => Promise.resolve([bar(0)])) };
-    const account = { accountId: "acc", creds: {} };
-    const withAccount = new DefaultCandleSourceResolver(
-      () => Promise.resolve({ gateway: gateway as unknown as BrokerGateway, account: account as never }),
+  const request = { instrumentKey: KEY, timeframe: "M1" as const, from: new Date(OPEN), to: new Date(OPEN + MIN) };
+  const link = (broker = "UPSTOX", mapped: InstrumentKey[] = [KEY]) => {
+    const gateway = { broker, getHistoricalCandles: vi.fn(() => Promise.resolve([bar(0)])) };
+    return {
+      gateway: gateway as unknown as BrokerGateway,
+      account: { accountId: "acc", creds: {} } as never,
+      mapKeys: vi.fn((keys: readonly InstrumentKey[]) =>
+        Promise.resolve(new Set(keys.filter((key) => mapped.includes(key)))),
+      ),
+      fetches: gateway.getHistoricalCandles,
+    };
+  };
+  const feedSource =
+    (live: boolean, accountId: string | null = "feed-acc") =>
+    () =>
+      Promise.resolve({
+        broker: live ? ("UPSTOX" as const) : ("PAPER" as const),
+        live,
+        accountId,
+        since: 0,
+        reason: null,
+      });
+
+  it("prefers the user's own broker account", async () => {
+    const own = link();
+    const resolver = new DefaultCandleSourceResolver(
+      { own: () => Promise.resolve(own), feed: () => Promise.resolve(null) },
+      feedSource(false),
       new PaperCandleSource(1),
     );
-    const source = await withAccount.forUser("u");
+    const source = await resolver.forUser("u");
     expect(source).toBeInstanceOf(BrokerCandleSource);
     expect(source?.name).toBe("UPSTOX");
-    const request = { instrumentKey: KEY, timeframe: "M1" as const, from: new Date(OPEN), to: new Date(OPEN + MIN) };
     expect(await source?.fetch(request)).toEqual([bar(0)]);
-    expect(gateway.getHistoricalCandles).toHaveBeenCalledWith(account, request, { signal: undefined });
+    expect(own.fetches).toHaveBeenCalledWith(own.account, request, { signal: undefined });
+    expect(await source?.supports?.(KEY)).toBe(true);
+    expect(await source?.supports?.("NSE_EQ|NOPE" as InstrumentKey)).toBe(false);
+  });
 
-    const paper = await new DefaultCandleSourceResolver(NO_DEFAULT_BROKER_ACCOUNT, new PaperCandleSource(1)).forUser(
-      "u",
+  it("uses the live feed's account for a user without one, never paper while live", async () => {
+    const shared = link("DHAN");
+    const feed = vi.fn(() => Promise.resolve(shared));
+    const resolver = new DefaultCandleSourceResolver(
+      { own: () => Promise.resolve(null), feed },
+      feedSource(true),
+      new PaperCandleSource(1),
     );
-    expect(paper?.name).toBe("PAPER");
-    expect(await paper?.fetch(request)).toHaveLength(1);
+    expect((await resolver.forUser("u"))?.name).toBe("DHAN");
+    expect(feed).toHaveBeenCalledWith("feed-acc");
 
-    expect(await new DefaultCandleSourceResolver(NO_DEFAULT_BROKER_ACCOUNT, undefined).forUser("u")).toBeUndefined();
+    expect(
+      await new DefaultCandleSourceResolver(NO_CANDLE_ACCOUNTS, feedSource(true), new PaperCandleSource(1)).forUser(
+        "u",
+      ),
+    ).toBeUndefined();
+    expect(
+      await new DefaultCandleSourceResolver(
+        NO_CANDLE_ACCOUNTS,
+        feedSource(true, null),
+        new PaperCandleSource(1),
+      ).forUser("u"),
+    ).toBeUndefined();
+  });
+
+  it("serves synthetic paper candles only while the simulator drives the feed", async () => {
+    const paper = await new DefaultCandleSourceResolver(
+      NO_CANDLE_ACCOUNTS,
+      feedSource(false),
+      new PaperCandleSource(1),
+    ).forUser("u");
+    expect(paper?.name).toBe("PAPER");
+    expect(paper?.synthetic).toBe(true);
+    expect(await paper?.fetch(request)).toHaveLength(1);
+    expect(
+      await new DefaultCandleSourceResolver(NO_CANDLE_ACCOUNTS, feedSource(false), undefined).forUser("u"),
+    ).toBeUndefined();
   });
 });
 
@@ -278,14 +366,44 @@ describe("Interval type", () => {
   });
 });
 
-describe("defaultBrokerAccount", () => {
-  it("uses the user's default broker account, but not a paper one", async () => {
-    const connected = (broker: string) => ({ userId: "u", broker, ref: { accountId: "acc" }, gateway: { broker } });
-    const upstox = defaultBrokerAccount({ defaultAccountRef: () => Promise.resolve(connected("UPSTOX") as never) });
-    expect((await upstox("u"))?.account).toEqual({ accountId: "acc" });
+describe("candleAccounts", () => {
+  const connected = (broker: string) => ({ userId: "u", broker, ref: { accountId: "acc" }, gateway: { broker } });
+  const gateways = {
+    has: (broker: string) => broker !== "ZERODHA",
+    gateway: vi.fn((broker: string) => ({ broker }) as never),
+    mapKeys: vi.fn(() => Promise.resolve(new Set<InstrumentKey>([KEY]))),
+  };
 
-    const paper = defaultBrokerAccount({ defaultAccountRef: () => Promise.resolve(connected("PAPER") as never) });
-    expect(await paper("u")).toBeNull();
-    expect(await defaultBrokerAccount({ defaultAccountRef: () => Promise.resolve(null) })("u")).toBeNull();
+  it("links the user's own account and the feed account to the market-data gateways, never a paper one", async () => {
+    const accounts = candleAccounts(
+      {
+        defaultAccountRef: () => Promise.resolve(connected("UPSTOX") as never),
+        systemAccountRef: () => Promise.resolve(connected("DHAN") as never),
+      },
+      gateways,
+    );
+    const own = await accounts.own("u");
+    expect(own?.account).toEqual({ accountId: "acc" });
+    expect(await own?.mapKeys([KEY])).toEqual(new Set([KEY]));
+    expect(gateways.mapKeys).toHaveBeenCalledWith("UPSTOX", [KEY]);
+    expect((await accounts.feed("acc"))?.gateway).toEqual({ broker: "DHAN" });
+
+    const none = candleAccounts(
+      {
+        defaultAccountRef: () => Promise.resolve(connected("PAPER") as never),
+        systemAccountRef: () => Promise.resolve(null),
+      },
+      gateways,
+    );
+    expect(await none.own("u")).toBeNull();
+    expect(await none.feed("acc")).toBeNull();
+    const unregistered = candleAccounts(
+      {
+        defaultAccountRef: () => Promise.resolve(connected("ZERODHA") as never),
+        systemAccountRef: () => Promise.resolve(null),
+      },
+      gateways,
+    );
+    expect(await unregistered.own("u")).toBeNull();
   });
 });

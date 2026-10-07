@@ -39,8 +39,23 @@ const SECRET_SELECT = {
 
 export type BrokerAccountSecretRow = Prisma.BrokerAccountGetPayload<{ select: typeof SECRET_SELECT }>;
 
-/** Plan limits when a user has no plan, or the plan has gone: the free plan's defaults (schema.prisma `Plan`). */
-export const DEFAULT_MAX_BROKER_ACCOUNTS = 1;
+/** The broker-account limit when a user has no plan, or the plan has gone: the free plan's (seed/plans.ts). */
+export const DEFAULT_MAX_BROKER_ACCOUNTS = 2;
+
+/** A conditional write: the change applies only while the account is still in this state. */
+export interface AccountCondition {
+  readonly status?: BrokerAccountStatus;
+  /** The token expiry read before a broker call (null matches an account without one): the token hasn't changed. */
+  readonly tokenExpiresAt?: Date | null;
+}
+
+/** An in-app notification about an account (category `broker`, which users can't turn off: docs/04 §2). */
+export interface BrokerNotification {
+  readonly title: string;
+  readonly body: string;
+  readonly severity: "info" | "warning";
+  readonly data: { readonly brokerAccountId: string; readonly broker: BrokerCode };
+}
 
 type Db = TenantPrismaClient | TenantTransaction;
 
@@ -119,16 +134,24 @@ export class BrokersRepository {
     return tx.brokerAccount.create({ data, select: VIEW_SELECT });
   }
 
-  /** Updates one account of the user; false when it doesn't exist (or isn't theirs). */
+  /** Updates one account of the user; false when it doesn't exist, isn't theirs or no longer meets `where`. */
   async update(
     db: Db,
     userId: string,
     id: string,
     data: Prisma.BrokerAccountUncheckedUpdateManyInput,
-    where: { status?: BrokerAccountStatus } = {},
+    where: AccountCondition = {},
   ): Promise<boolean> {
     const result = await db.brokerAccount.updateMany({ where: { id, userId, ...where }, data });
     return result.count === 1;
+  }
+
+  /** Writes an in-app notification for the account's owner, in the caller's transaction. */
+  async notify(tx: TenantTransaction, userId: string, input: BrokerNotification): Promise<void> {
+    await tx.notification.create({
+      data: { userId, category: "broker", ...input, data: { ...input.data } },
+      select: { id: true },
+    });
   }
 
   async clearDefault(tx: TenantTransaction, userId: string): Promise<void> {

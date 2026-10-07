@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 
 import { RateLimitModule } from "../../common/rate-limit/rate-limit.module";
+import { FeedStateModule } from "../../feed/feed-state.module";
 import { AuthModule } from "../auth/auth.module";
 
 import { RealtimeGateway } from "./realtime.gateway";
@@ -12,7 +13,7 @@ import { RealtimeService } from "./realtime.service";
  * (./realtime-io.adapter.ts) before init whenever this module is part of the app.
  */
 @Module({
-  imports: [AuthModule, RateLimitModule],
+  imports: [AuthModule, RateLimitModule, FeedStateModule],
   providers: [RealtimeRepository, RealtimeService, RealtimeGateway],
   exports: [RealtimeService],
 })

@@ -44,9 +44,16 @@ export const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(["127.0.0.1", "::1", 
 export const APP_ROLES = ["http", "gateway", "feed", "worker"] as const;
 export type AppRole = (typeof APP_ROLES)[number];
 
-/** Where the shared market feed comes from (plan P2): the deterministic simulator, or Upstox's market WebSocket. */
-export const MARKET_FEED_SOURCES = ["paper", "upstox"] as const;
+/**
+ * Where the shared market feed comes from (plan P2; phase-1b "Feed source"): `auto` (development default) drives it
+ * from the best ACTIVE broker account and falls back to the deterministic simulator; `paper` is the simulator only;
+ * `upstox` and `dhan` use the BrokerAccount in MARKET_FEED_ACCOUNT_ID (production requires one of these two).
+ */
+export const MARKET_FEED_SOURCES = ["auto", "paper", "upstox", "dhan"] as const;
 export type MarketFeedSource = (typeof MARKET_FEED_SOURCES)[number];
+
+/** The sources that name one broker account (MARKET_FEED_ACCOUNT_ID). */
+export const BROKER_FEED_SOURCES: readonly MarketFeedSource[] = Object.freeze(["upstox", "dhan"]);
 
 const APP_ROLE_REASON = `must be a comma-separated list of ${APP_ROLES.join(", ")}`;
 
@@ -244,7 +251,7 @@ const apiEnvShape = {
   API_RATE_LIMIT_USER_PER_MIN: z.preprocess(emptyToUndefined, integer(1, 100_000).default(600)),
   MASTER_KEY: optional(masterKeyVariable),
   API_PUBLIC_URL: optional(publicUrlVariable),
-  MARKET_FEED_SOURCE: optional(z.enum(MARKET_FEED_SOURCES, { error: "must be paper or upstox" })),
+  MARKET_FEED_SOURCE: optional(z.enum(MARKET_FEED_SOURCES, { error: "must be auto, paper, upstox or dhan" })),
   MARKET_FEED_ACCOUNT_ID: optional(
     z
       .string()
@@ -288,18 +295,22 @@ export function checkApiEnv(env: ApiEnvRuleInput, ctx: z.RefinementCtx): void {
   }
 
   const roles = Array.isArray(env?.["APP_ROLE"]) ? (env["APP_ROLE"] as readonly string[]) : [];
+  const feedSource = env?.["MARKET_FEED_SOURCE"];
   if (
-    env?.["MARKET_FEED_SOURCE"] === "upstox" &&
+    typeof feedSource === "string" &&
+    BROKER_FEED_SOURCES.includes(feedSource as MarketFeedSource) &&
     roles.includes("feed") &&
-    env["MARKET_FEED_ACCOUNT_ID"] === undefined
+    env?.["MARKET_FEED_ACCOUNT_ID"] === undefined
   ) {
-    issue("MARKET_FEED_ACCOUNT_ID", "is required when MARKET_FEED_SOURCE is upstox and APP_ROLE includes feed");
+    issue("MARKET_FEED_ACCOUNT_ID", `is required when MARKET_FEED_SOURCE is ${feedSource} and APP_ROLE includes feed`);
   }
 
   if (env?.["NODE_ENV"] !== "production") return;
 
   if (roles.length > 1) issue("APP_ROLE", "must name one role per process in production");
-  if (env["MARKET_FEED_SOURCE"] === undefined && (roles.includes("feed") || roles.includes("gateway"))) {
+  if (feedSource === "auto" || feedSource === "paper") {
+    issue("MARKET_FEED_SOURCE", "must be upstox or dhan in production: never simulated or picked from user accounts");
+  } else if (feedSource === undefined && (roles.includes("feed") || roles.includes("gateway"))) {
     issue("MARKET_FEED_SOURCE", "must be set in production when APP_ROLE is feed or gateway");
   }
 
@@ -370,7 +381,7 @@ export const EnvSchema = z
       API_DOCS_ENABLED: env.API_DOCS_ENABLED ?? !production,
       API_SHUTDOWN_DRAIN_MS: env.API_SHUTDOWN_DRAIN_MS ?? (production ? PRODUCTION_DRAIN_MS : 0),
       API_PUBLIC_URL: env.API_PUBLIC_URL ?? DEVELOPMENT_ORIGIN,
-      MARKET_FEED_SOURCE: env.MARKET_FEED_SOURCE ?? "paper",
+      MARKET_FEED_SOURCE: env.MARKET_FEED_SOURCE ?? "auto",
       MARKET_FEED_ALWAYS_ON: env.MARKET_FEED_ALWAYS_ON ?? !production,
     } satisfies Record<string, unknown>;
     return Object.freeze(resolved);

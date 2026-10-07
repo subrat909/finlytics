@@ -40,16 +40,6 @@ export class BrokerTokenExpiryRepository {
       ORDER BY "id" LIMIT ${EXPIRY_SCAN_LIMIT}`;
   }
 
-  /** ACTIVE Dhan accounts whose token expires in (now, until] and that haven't been reminded. */
-  dueForReminder(now: Date, until: Date, afterId = ""): Promise<ExpiryCandidate[]> {
-    return this.prisma.db.$queryRaw<ExpiryCandidate[]>`
-      SELECT "id", "userId", "broker"::text AS "broker", "label", "tokenExpiresAt"
-      FROM "BrokerAccount"
-      WHERE "status" = 'ACTIVE' AND "broker" = 'DHAN' AND "expiryNotifiedAt" IS NULL
-        AND "tokenExpiresAt" > ${now}::timestamp(3) AND "tokenExpiresAt" <= ${until}::timestamp(3) AND "id" > ${afterId}
-      ORDER BY "id" LIMIT ${EXPIRY_SCAN_LIMIT}`;
-  }
-
   /** ACTIVE → NEEDS_RELOGIN, only if the token is still expired and the account still ACTIVE. */
   async markExpired(tx: TenantTransaction, candidate: ExpiryCandidate, now: Date): Promise<boolean> {
     const result = await tx.brokerAccount.updateMany({
@@ -59,15 +49,6 @@ export class BrokerTokenExpiryRepository {
         lastError: "The broker session has expired. Log in again.",
         expiryNotifiedAt: now,
       },
-    });
-    return result.count === 1;
-  }
-
-  /** Records the reminder, only if none was recorded for the current token. */
-  async markReminded(tx: TenantTransaction, candidate: ExpiryCandidate, now: Date): Promise<boolean> {
-    const result = await tx.brokerAccount.updateMany({
-      where: { id: candidate.id, userId: candidate.userId, status: "ACTIVE", expiryNotifiedAt: null },
-      data: { expiryNotifiedAt: now },
     });
     return result.count === 1;
   }

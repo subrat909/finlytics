@@ -1,12 +1,20 @@
 /**
- * Where missing candles come from (phase 1 plan "Candles"): the user's default ACTIVE broker account through
- * `BrokerGateway.getHistoricalCandles`, or the paper source. Paper candles are synthetic, so they are only used (and
- * stored) while the whole platform runs on the paper feed (MARKET_FEED_SOURCE=paper); otherwise a user without a
- * broker account is served what Timescale already has.
+ * Where missing candles come from (phase 1 plan "Candles"; phase-1b "never serve synthetic candles"):
+ *
+ * 1. the user's own default ACTIVE broker account, through its market-data gateway;
+ * 2. else, while a broker drives the platform feed, that feed account's history: market data only, the account's
+ *    credentials stay in the vault and nothing of the account reaches the user (development's `auto` feed runs on a
+ *    developer's own account; production names the platform's account);
+ * 3. else, while the feed is the simulator (and outside production), deterministic paper candles, generated on the
+ *    fly and never stored;
+ * 4. else none: Timescale serves what it has.
+ *
+ * A broker source serves only instruments it has a token for (`supports`); others are served from storage.
  */
 import type { BrokerAccountRef, BrokerGateway, Candle } from "@finlytics/broker-sdk";
 import type { CandleTimeframe, InstrumentKey } from "@finlytics/shared";
 
+import type { FeedSourceRecord } from "../../feed/feed-source";
 import { paperCandles } from "../../feed/paper/paper-candles";
 
 export interface CandleRequest {
@@ -20,6 +28,10 @@ export interface CandleRequest {
 export interface CandleSource {
   /** For logs: `PAPER`, `UPSTOX`, … */
   readonly name: string;
+  /** Synthetic bars (the simulator): served on the fly, never stored or recorded as covered. */
+  readonly synthetic?: boolean;
+  /** Whether the source has `key` at all (a broker needs an instrument token); absent: always. */
+  supports?(key: InstrumentKey): Promise<boolean>;
   fetch(request: CandleRequest, signal?: AbortSignal): Promise<Candle[]>;
 }
 
@@ -31,19 +43,34 @@ export interface CandleSourceResolver {
 /** DI token for the {@link CandleSourceResolver}. */
 export const CANDLE_SOURCE_RESOLVER = Symbol("CANDLE_SOURCE_RESOLVER");
 
-/** DI token for a function returning the user's default ACTIVE broker account (gateway + credentials), or null. */
-export const DEFAULT_BROKER_ACCOUNT = Symbol("DEFAULT_BROKER_ACCOUNT");
+/** DI token for the {@link CandleAccounts}. */
+export const CANDLE_ACCOUNTS = Symbol("CANDLE_ACCOUNTS");
 
-export type DefaultBrokerAccountLookup = (
-  userId: string,
-) => Promise<{ readonly gateway: BrokerGateway; readonly account: BrokerAccountRef } | null>;
+/** A broker account a backfill may use: its market-data gateway, its credentials and its instrument lookup. */
+export interface CandleAccount {
+  readonly gateway: BrokerGateway;
+  readonly account: BrokerAccountRef;
+  mapKeys(keys: readonly InstrumentKey[]): Promise<Set<InstrumentKey>>;
+}
 
-/** No broker integration in this process: nobody has a default account. */
-export const NO_DEFAULT_BROKER_ACCOUNT: DefaultBrokerAccountLookup = () => Promise.resolve(null);
+/** The accounts a backfill may use. */
+export interface CandleAccounts {
+  /** The user's default ACTIVE broker account (never a paper one), or null. */
+  own(userId: string): Promise<CandleAccount | null>;
+  /** The account driving the live feed, or null when it isn't ACTIVE any more. */
+  feed(accountId: string): Promise<CandleAccount | null>;
+}
 
-/** Deterministic paper candles (feed/paper/paper-candles.ts). */
+/** No broker integration in this process: nobody has an account. */
+export const NO_CANDLE_ACCOUNTS: CandleAccounts = Object.freeze({
+  own: () => Promise.resolve(null),
+  feed: () => Promise.resolve(null),
+});
+
+/** Deterministic paper candles (feed/paper/paper-candles.ts): synthetic, never stored. */
 export class PaperCandleSource implements CandleSource {
   readonly name = "PAPER";
+  readonly synthetic = true;
 
   constructor(private readonly seed: number) {}
 
@@ -56,28 +83,34 @@ export class PaperCandleSource implements CandleSource {
 export class BrokerCandleSource implements CandleSource {
   readonly name: string;
 
-  constructor(
-    private readonly gateway: BrokerGateway,
-    private readonly account: BrokerAccountRef,
-  ) {
-    this.name = gateway.broker;
+  constructor(private readonly link: CandleAccount) {
+    this.name = link.gateway.broker;
+  }
+
+  async supports(key: InstrumentKey): Promise<boolean> {
+    return (await this.link.mapKeys([key])).has(key);
   }
 
   fetch(request: CandleRequest, signal?: AbortSignal): Promise<Candle[]> {
-    return this.gateway.getHistoricalCandles(this.account, request, { signal });
+    return this.link.gateway.getHistoricalCandles(this.link.account, request, { signal });
   }
 }
 
-/** The user's default active account, else the paper source when the platform runs on paper, else none. */
+/** The order of sources above: own account, the live feed's account, the simulator (when allowed), none. */
 export class DefaultCandleSourceResolver implements CandleSourceResolver {
   constructor(
-    private readonly defaultAccount: DefaultBrokerAccountLookup,
+    private readonly accounts: CandleAccounts,
+    private readonly feedSource: () => Promise<FeedSourceRecord>,
     private readonly paper: PaperCandleSource | undefined,
   ) {}
 
   async forUser(userId: string): Promise<CandleSource | undefined> {
-    const found = await this.defaultAccount(userId);
-    if (found !== null) return new BrokerCandleSource(found.gateway, found.account);
-    return this.paper;
+    const own = await this.accounts.own(userId);
+    if (own !== null) return new BrokerCandleSource(own);
+    const feed = await this.feedSource();
+    if (!feed.live) return this.paper;
+    if (feed.accountId === null) return undefined;
+    const shared = await this.accounts.feed(feed.accountId);
+    return shared === null ? undefined : new BrokerCandleSource(shared);
   }
 }

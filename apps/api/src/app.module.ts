@@ -12,6 +12,7 @@
 import { Module } from "@nestjs/common";
 import type { DynamicModule, ForwardReference, Type } from "@nestjs/common";
 import { APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from "@nestjs/core";
+import { EventEmitterModule } from "@nestjs/event-emitter";
 import { ZodSerializerInterceptor } from "nestjs-zod";
 import type { DestinationStream } from "pino";
 
@@ -36,6 +37,8 @@ import { SessionGuard } from "./modules/auth/session.guard";
 import { CandlesModule } from "./modules/candles/candles.module";
 import { HealthModule } from "./modules/health/health.module";
 import { InstrumentsModule } from "./modules/instruments/instruments.module";
+import { MarketModule } from "./modules/market/market.module";
+import { PortfolioModule } from "./modules/portfolio/portfolio.module";
 import { QuotesModule } from "./modules/quotes/quotes.module";
 import { SettingsModule } from "./modules/settings/settings.module";
 import { UdfModule } from "./modules/udf/udf.module";
@@ -63,6 +66,8 @@ export class AppModule {
       imports: [
         configModule(env),
         loggerModule(env, options.logDestination),
+        // Domain events (`broker.account.activated`, …): in-process, emitted after commit, never across processes.
+        EventEmitterModule.forRoot(),
         PrismaModule,
         RedisModule,
         LifecycleModule,
@@ -81,6 +86,8 @@ export class AppModule {
               InstrumentsModule,
               WatchlistsModule,
               QuotesModule,
+              PortfolioModule,
+              MarketModule,
             ]
           : []),
         ...roleModules(env),

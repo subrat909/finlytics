@@ -30,3 +30,35 @@ describe("QuotesService", () => {
     await expect(service.get({ keys })).rejects.toBe(error);
   });
 });
+
+describe("QuotesService.depth", () => {
+  const key = "NSE_EQ|INFY" as InstrumentKey;
+  const book = {
+    k: key,
+    t: 1_791_273_600_000,
+    bids: [["1500.45", 120, 3]],
+    asks: [["1500.5", 80, 0]],
+    tbq: null,
+    tsq: null,
+  };
+  const serviceWith = (stored: string | null, known = true) =>
+    new QuotesService({
+      depth: vi.fn(() => Promise.resolve(stored)),
+      isActiveInstrument: vi.fn(() => Promise.resolve(known)),
+    } as unknown as QuotesRepository);
+  const empty = { k: key, t: 0, bids: [], asks: [], tbq: null, tsq: null };
+
+  it("returns the stored book of the key", async () => {
+    expect(await serviceWith(JSON.stringify(book)).depth({ key })).toEqual(book);
+  });
+
+  it("answers an empty book for a known instrument without a usable one", async () => {
+    expect(await serviceWith(null).depth({ key })).toEqual(empty);
+    expect(await serviceWith("{oops").depth({ key })).toEqual(empty);
+    expect(await serviceWith(JSON.stringify({ ...book, k: "NSE_EQ|TCS" })).depth({ key })).toEqual(empty);
+  });
+
+  it("answers 404 for a key that names no active instrument", async () => {
+    await expect(serviceWith(null, false).depth({ key })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});

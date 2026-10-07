@@ -1,10 +1,12 @@
-import type { InstrumentKey } from "@finlytics/shared";
+import type { InstrumentKey, RtDepth } from "@finlytics/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { QuoteUpdate } from "../../../feed/quote-update";
 import { handshakeClientIp, isAllowedHandshakeOrigin, readCookie, trustedProxies } from "../handshake";
 import { QuoteSubscriber } from "../quote-subscriber";
-import { feedState, MAX_MESSAGES_PER_SECOND, RealtimeEngine } from "../realtime.engine";
+import type { FeedSnapshot } from "../../../feed/feed-source";
+import { DepthThrottle } from "../depth-throttle";
+import { depthRoom, MAX_MESSAGES_PER_SECOND, RealtimeEngine, statusOf } from "../realtime.engine";
 import type { RealtimeEngineOptions, RtNamespace, RtSocket } from "../realtime.engine";
 import { TickCoalescer } from "../tick-coalescer";
 
@@ -15,6 +17,22 @@ const IDENTITY = { userId: "user-1", sessionId: "s1", role: "USER" as const };
 
 function update(key: InstrumentKey, ltp: string, ts = 1): QuoteUpdate {
   return { k: key, ltp, chg: "0", chgPct: "0", vol: 0, ts };
+}
+
+/** The 12-tuple row of {@link update}. */
+function row(key: InstrumentKey, ltp: string, ts = 1): unknown[] {
+  return [key, ltp, "0", "0", 0, ts, null, null, null, null, null, null];
+}
+
+function book(key: InstrumentKey, t: number): RtDepth {
+  return { k: key, t, bids: [["10", 1, 1]], asks: [["10.05", 2, 1]], tbq: 5, tsq: 6 };
+}
+
+function snapshot(status: FeedSnapshot["status"], broker: "PAPER" | "UPSTOX" = "PAPER"): FeedSnapshot {
+  return {
+    source: { broker, live: broker !== "PAPER", accountId: null, since: 0, reason: null },
+    status,
+  };
 }
 
 describe("TickCoalescer", () => {
@@ -129,6 +147,33 @@ describe("QuoteSubscriber", () => {
     expect(subscriber.count(A)).toBe(0);
   });
 
+  it("ref-counts depth channels apart from quote channels and passes on valid books", async () => {
+    const conn = connection();
+    const books: RtDepth[] = [];
+    const subscriber = new QuoteSubscriber(
+      conn,
+      () => undefined,
+      { warn: vi.fn() },
+      (depth) => books.push(depth),
+    );
+
+    await subscriber.add([A]);
+    await subscriber.addDepth([A]);
+    await subscriber.addDepth([A]);
+    expect([...conn.subscribed].sort()).toEqual([`d:${A}`, `q:${A}`]);
+    expect(subscriber.depthCount(A)).toBe(2);
+
+    conn.emit("message", `d:${A}`, JSON.stringify(book(A, 1)));
+    conn.emit("message", `d:${B}`, JSON.stringify(book(A, 1)));
+    conn.emit("message", `d:${A}`, "garbage");
+    expect(books).toHaveLength(1);
+
+    expect(await subscriber.removeDepth([A])).toEqual([]);
+    expect(await subscriber.removeDepth([A])).toEqual([A]);
+    expect([...conn.subscribed]).toEqual([`q:${A}`]);
+    await subscriber.close();
+  });
+
   it("passes on valid updates for the channel they came from only", () => {
     const conn = connection();
     const received: QuoteUpdate[] = [];
@@ -159,16 +204,47 @@ describe("QuoteSubscriber", () => {
   });
 });
 
-describe("feedState", () => {
-  it("maps the leader's report and tick freshness to up, stale or down", () => {
+describe("statusOf", () => {
+  it("maps the leader's report and tick freshness to up, stale or down, with the source", () => {
     const now = 100_000;
-    expect(feedState(undefined, now, true, now)).toBe("down");
-    expect(feedState({ status: "up", ts: now - 20_000 }, now, true, now)).toBe("down");
-    expect(feedState({ status: "up", ts: now }, now, true, now - 1_000)).toBe("up");
-    expect(feedState({ status: "up", ts: now }, now, true, now - 6_000)).toBe("stale");
-    expect(feedState({ status: "up", ts: now }, now, false, 0)).toBe("up");
-    expect(feedState({ status: "degraded", ts: now }, now, true, now)).toBe("stale");
-    expect(feedState({ status: "connecting", ts: now }, now, true, now)).toBe("down");
+    const up = { status: "up", ts: now, lastTickAt: null };
+    expect(statusOf(snapshot(undefined), now, true, now)).toEqual({ feed: "down", source: "PAPER", live: false });
+    expect(statusOf(snapshot({ ...up, ts: now - 20_000 }), now, true, now).feed).toBe("down");
+    expect(statusOf(snapshot(up, "UPSTOX"), now, true, now - 1_000)).toEqual({
+      feed: "up",
+      source: "UPSTOX",
+      live: true,
+    });
+    expect(statusOf(snapshot(up), now, true, now - 6_000).feed).toBe("stale");
+    expect(statusOf(snapshot(up), now, false, 0).feed).toBe("up");
+    expect(statusOf(snapshot({ ...up, status: "degraded" }), now, true, now).feed).toBe("stale");
+    expect(statusOf(snapshot({ ...up, status: "connecting" }), now, true, now).feed).toBe("down");
+  });
+});
+
+describe("DepthThrottle", () => {
+  it("keeps the newest book per key and sends each key at most 4 times a second", () => {
+    const throttle = new DepthThrottle();
+    throttle.push(book(A, 2));
+    throttle.push(book(A, 1)); // older: ignored
+    expect(throttle.drain(1_000).get(A)?.t).toBe(2);
+
+    throttle.push(book(A, 3));
+    expect(throttle.drain(1_100).size).toBe(0);
+    expect(throttle.size).toBe(1);
+    expect(throttle.drain(1_245).get(A)?.t).toBe(3); // within the jitter allowance
+
+    let sent = 0;
+    for (let now = 2_000; now < 3_000; now += 100) {
+      throttle.push(book(A, now));
+      sent += throttle.drain(now).size;
+    }
+    expect(sent).toBe(4);
+    throttle.sent(B, 5_000);
+    throttle.push(book(B, 1));
+    expect(throttle.drain(5_100).size).toBe(0);
+    throttle.forget(B);
+    expect(throttle.size).toBe(0);
   });
 });
 
@@ -199,8 +275,9 @@ function harness(overrides: Partial<RealtimeEngineOptions["repository"]> = {}) {
   const sockets = new Map<string, FakeSocket>();
   const broadcasts: unknown[] = [];
   const backedUp = new Set<string>();
+  let feed: FeedSnapshot = snapshot({ status: "up", ts: now, lastTickAt: null });
   const repository = {
-    acquire: vi.fn((_broker: string, keys: readonly InstrumentKey[]) => {
+    acquire: vi.fn((keys: readonly InstrumentKey[]) => {
       for (const key of keys) counts.set(key, (counts.get(key) ?? 0) + 1);
       return Promise.resolve();
     }),
@@ -209,7 +286,10 @@ function harness(overrides: Partial<RealtimeEngineOptions["repository"]> = {}) {
       return Promise.resolve();
     }),
     snapshots: vi.fn((keys: readonly InstrumentKey[]) => Promise.resolve(keys.map((key) => update(key, "9")))),
-    feedStatus: vi.fn(() => Promise.resolve<{ status: string; ts: number } | undefined>({ status: "up", ts: now })),
+    feedSnapshot: vi.fn(() =>
+      Promise.resolve({ ...feed, status: feed.status === undefined ? undefined : { ...feed.status, ts: now } }),
+    ),
+    depthSnapshot: vi.fn((key: InstrumentKey) => Promise.resolve<RtDepth | undefined>(book(key, 1))),
     activeInstrumentKeys: vi.fn((keys: readonly InstrumentKey[]) =>
       Promise.resolve(new Set(keys.filter((key) => key !== C))),
     ),
@@ -221,10 +301,12 @@ function harness(overrides: Partial<RealtimeEngineOptions["repository"]> = {}) {
   const quotes = {
     add: vi.fn(() => Promise.resolve()),
     remove: vi.fn((keys: readonly InstrumentKey[]) => Promise.resolve([...keys])),
+    addDepth: vi.fn(() => Promise.resolve()),
+    removeDepth: vi.fn((keys: readonly InstrumentKey[]) => Promise.resolve([...keys])),
     close: vi.fn(() => Promise.resolve()),
   };
   const logger = { debug: vi.fn(), warn: vi.fn() };
-  const engine = new RealtimeEngine({ broker: "PAPER", repository, quotes, logger, now: () => now });
+  const engine = new RealtimeEngine({ repository, quotes, logger, now: () => now });
   const namespace: RtNamespace = {
     roomMembers: (room) => {
       const members = new Set(
@@ -254,6 +336,9 @@ function harness(overrides: Partial<RealtimeEngineOptions["repository"]> = {}) {
     connect,
     advance: (ms: number) => (now += ms),
     now: () => now,
+    setFeed: (next: FeedSnapshot) => {
+      feed = next;
+    },
   };
 }
 
@@ -267,7 +352,7 @@ describe("RealtimeEngine", () => {
 
   it("tells a new socket the feed state", () => {
     const { connect } = harness();
-    expect(connect("s1").events("status")).toEqual([{ feed: "down" }]);
+    expect(connect("s1").events("status")).toEqual([{ feed: "down", source: "PAPER", live: false }]);
   });
 
   it("subscribes valid active keys, counts them in Redis and sends a snapshot after the ack", async () => {
@@ -291,10 +376,7 @@ describe("RealtimeEngine", () => {
     await vi.runAllTimersAsync();
     const snapshots = socket.events("q") as { t: number; d: unknown[] }[];
     expect(snapshots).toHaveLength(1);
-    expect(snapshots[0]?.d).toEqual([
-      [A, "9", "0", "0", 0, 1],
-      [B, "9", "0", "0", 0, 1],
-    ]);
+    expect(snapshots[0]?.d).toEqual([row(A, "9"), row(B, "9")]);
   });
 
   it("answers an already subscribed key as ok without counting it twice", async () => {
@@ -417,13 +499,10 @@ describe("RealtimeEngine", () => {
     expect(s1.events("q")).toEqual([
       {
         t: now(),
-        d: [
-          [A, "2", "0", "0", 0, 1],
-          [B, "3", "0", "0", 0, 1],
-        ],
+        d: [row(A, "2"), row(B, "3")],
       },
     ]);
-    expect(s2.events("q")).toEqual([{ t: now(), d: [[B, "3", "0", "0", 0, 1]] }]);
+    expect(s2.events("q")).toEqual([{ t: now(), d: [row(B, "3")] }]);
     expect(s3.events("q")).toEqual([]);
 
     engine.onQuote(update(A, "5"));
@@ -436,22 +515,28 @@ describe("RealtimeEngine", () => {
     engine.flush(now()); // nothing pending
   });
 
-  it("broadcasts feed state changes only", async () => {
-    const { engine, broadcasts, repository, connect, advance } = harness();
+  it("broadcasts status changes only: the state, the source and whether it is live", async () => {
+    const { engine, broadcasts, repository, connect, advance, setFeed } = harness();
     await engine.refreshStatus();
     await engine.refreshStatus();
-    expect(broadcasts).toEqual([{ feed: "up" }]);
+    expect(broadcasts).toEqual([{ feed: "up", source: "PAPER", live: false }]);
 
     connect("s1");
     await engine.subscribe("s1", { keys: [A] });
     advance(6_000);
-    repository.feedStatus.mockResolvedValue({ status: "up", ts: Number.MAX_SAFE_INTEGER });
     await engine.refreshStatus();
-    expect(broadcasts).toEqual([{ feed: "up" }, { feed: "stale" }]);
+    expect(broadcasts.at(-1)).toEqual({ feed: "stale", source: "PAPER", live: false });
 
-    repository.feedStatus.mockRejectedValue(new Error("redis down"));
+    engine.onQuote(update(A, "1"));
+    setFeed(snapshot({ status: "up", ts: 0, lastTickAt: null }, "UPSTOX"));
+    await engine.refreshStatus();
+    expect(broadcasts.at(-1)).toEqual({ feed: "up", source: "UPSTOX", live: true });
+    expect(engine.status.live).toBe(true);
+
+    repository.feedSnapshot.mockRejectedValue(new Error("redis down"));
     await engine.refreshStatus();
     expect(engine.feedState).toBe("down");
+    expect(engine.status.source).toBe("UPSTOX");
   });
 
   it("releases every socket and closes the quote connection on shutdown", async () => {
@@ -473,7 +558,131 @@ describe("RealtimeEngine", () => {
     engine.start();
     engine.start();
     await vi.advanceTimersByTimeAsync(2_100);
-    expect(repository.feedStatus.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(repository.feedSnapshot.mock.calls.length).toBeGreaterThanOrEqual(2);
     await engine.close();
+  });
+});
+
+describe("RealtimeEngine depth", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setImmediate"] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("streams depth only for keys the socket holds, sends the stored book after the ack", async () => {
+    const { engine, connect, quotes, repository } = harness();
+    const socket = connect("s1");
+    await engine.subscribe("s1", { keys: [A] });
+
+    expect(await engine.depthSubscribe("s1", { key: B })).toEqual({ ok: false, reason: "invalid_key" });
+    expect(await engine.depthSubscribe("s1", { key: "bad key" })).toEqual({ ok: false, reason: "invalid_key" });
+    expect(await engine.depthSubscribe("s1", { nope: 1 })).toEqual({ ok: false, reason: "invalid_key" });
+    expect(await engine.depthSubscribe("nobody", { key: A })).toEqual({ ok: false, reason: "invalid_key" });
+
+    expect(await engine.depthSubscribe("s1", { key: A })).toEqual({ ok: true });
+    expect(await engine.depthSubscribe("s1", { key: A })).toEqual({ ok: true });
+    expect(quotes.addDepth).toHaveBeenCalledTimes(1);
+    expect(socket.rooms.has(depthRoom(A))).toBe(true);
+    expect(engine.depthKeysOf("s1")).toEqual([A]);
+    vi.runAllTicks();
+    await vi.runAllTimersAsync();
+    expect(socket.events("depth")).toEqual([book(A, 1)]);
+    expect(repository.depthSnapshot).toHaveBeenCalledWith(A);
+  });
+
+  it("holds at most three depth streams per socket", async () => {
+    const { engine, connect } = harness();
+    connect("s1");
+    const keys = ["NSE_EQ|A1", "NSE_EQ|A2", "NSE_EQ|A3", "NSE_EQ|A4"] as InstrumentKey[];
+    await engine.subscribe("s1", { keys });
+    for (const key of keys.slice(0, 3)) expect(await engine.depthSubscribe("s1", { key })).toEqual({ ok: true });
+    expect(await engine.depthSubscribe("s1", { key: keys[3] })).toEqual({ ok: false, reason: "limit" });
+  });
+
+  it("counts depth messages against the per-socket rate limit", async () => {
+    const { engine, connect } = harness();
+    connect("s1");
+    await engine.subscribe("s1", { keys: [A] });
+    for (let index = 1; index < MAX_MESSAGES_PER_SECOND; index += 1) await engine.depthSubscribe("s1", { key: A });
+    expect(await engine.depthSubscribe("s1", { key: A })).toEqual({ ok: false, reason: "rate_limited" });
+    expect(await engine.depthUnsubscribe("s1", { key: A })).toEqual({ ok: false });
+  });
+
+  it("refuses depth as unavailable when the channel can't be subscribed", async () => {
+    const { engine, connect, quotes } = harness();
+    connect("s1");
+    await engine.subscribe("s1", { keys: [A] });
+    quotes.addDepth.mockRejectedValueOnce(new Error("redis down"));
+    expect(await engine.depthSubscribe("s1", { key: A })).toEqual({ ok: false, reason: "unavailable" });
+    expect(engine.depthKeysOf("s1")).toEqual([]);
+  });
+
+  it("flushes books to the key's depth room at most 4 times a second, skipping slow sockets", async () => {
+    const { engine, connect, advance, now, backedUp } = harness();
+    const s1 = connect("s1");
+    const s2 = connect("s2");
+    const s3 = connect("s3");
+    for (const id of ["s1", "s2", "s3"]) await engine.subscribe(id, { keys: [A] });
+    await engine.depthSubscribe("s1", { key: A });
+    await engine.depthSubscribe("s3", { key: A });
+    backedUp.add("s3");
+    vi.runAllTicks();
+    await vi.runAllTimersAsync();
+    const before = s1.events("depth").length;
+
+    engine.onDepth(book(A, 2));
+    engine.onDepth(book(B, 2)); // nobody streams it here
+    engine.flush(now());
+    expect(s1.events("depth").slice(before)).toEqual([book(A, 2)]);
+    expect(s2.events("depth")).toEqual([]);
+    expect(s3.events("depth")).toEqual([book(A, 1)]); // the snapshot only: its transport is backed up
+
+    engine.onDepth(book(A, 3));
+    advance(100);
+    engine.flush(now());
+    expect(s1.events("depth").length).toBe(before + 1);
+    advance(150);
+    engine.flush(now());
+    expect(s1.events("depth").length).toBe(before + 2);
+  });
+
+  it("stops a depth stream on dunsub, on unsub of the key and on disconnect", async () => {
+    const { engine, connect, quotes } = harness();
+    const socket = connect("s1");
+    const C2 = "NSE_EQ|C2" as InstrumentKey;
+    await engine.subscribe("s1", { keys: [A, B, C2] });
+    await engine.depthSubscribe("s1", { key: A });
+    await engine.depthSubscribe("s1", { key: B });
+    await engine.depthSubscribe("s1", { key: C2 });
+
+    expect(await engine.depthUnsubscribe("s1", { key: A })).toEqual({ ok: true });
+    expect(await engine.depthUnsubscribe("s1", { key: A })).toEqual({ ok: false });
+    expect(await engine.depthUnsubscribe("s1", { bad: true })).toEqual({ ok: false });
+    expect(socket.rooms.has(depthRoom(A))).toBe(false);
+
+    await engine.unsubscribe("s1", { keys: [B] });
+    expect(engine.depthKeysOf("s1")).toEqual([C2]);
+    expect(quotes.removeDepth).toHaveBeenCalledWith([B]);
+
+    quotes.removeDepth.mockRejectedValueOnce(new Error("redis down"));
+    await engine.unregister("s1");
+    expect(engine.depthKeysOf("s1")).toEqual([]);
+    expect(quotes.removeDepth).toHaveBeenCalledWith([C2]);
+  });
+
+  it("skips a missing or failed depth snapshot", async () => {
+    const { engine, connect, repository, logger } = harness();
+    const socket = connect("s1");
+    await engine.subscribe("s1", { keys: [A, B] });
+    repository.depthSnapshot.mockResolvedValueOnce(undefined);
+    repository.depthSnapshot.mockRejectedValueOnce(new Error("redis down"));
+    await engine.depthSubscribe("s1", { key: A });
+    await engine.depthSubscribe("s1", { key: B });
+    vi.runAllTicks();
+    await vi.runAllTimersAsync();
+    expect(socket.events("depth")).toEqual([]);
+    expect(logger.debug).toHaveBeenCalledWith(expect.anything(), "depth snapshot failed");
   });
 });

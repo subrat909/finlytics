@@ -1,12 +1,15 @@
 import { BrokerUnavailableError } from "@finlytics/broker-sdk";
 import type { InstrumentRow } from "@finlytics/broker-sdk";
+import type { EventEmitter2 } from "@nestjs/event-emitter";
 import type { Queue } from "bullmq";
 import type { PinoLogger } from "nestjs-pino";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Clock } from "../../../common/clock";
 import { ForbiddenError, NotFoundError, ValidationError } from "../../../common/problem-json/domain-errors";
+import { PINNED_KEYS } from "../../../feed/pinned-keys";
 import type { PrismaService, TenantTransaction } from "../../../infra/prisma/prisma.service";
+import type { RedisService } from "../../../infra/redis/redis.service";
 import type { AuthIdentity } from "../../auth/auth-identity";
 import type { AuditService } from "../../audit/audit.service";
 import { gateways as buildGateways, REQUEST } from "../../brokers/__tests__/support";
@@ -21,7 +24,21 @@ import { escapeLike, parseSearchTerms } from "../search-terms";
 
 const NOW = new Date("2026-10-06T02:30:00.000Z");
 const clock: Clock = { now: () => NOW };
-const logger = { setContext: vi.fn(), warn: vi.fn(), info: vi.fn() } as unknown as PinoLogger;
+const warn = vi.fn();
+const logger = { setContext: vi.fn(), warn, info: vi.fn(), debug: vi.fn() } as unknown as PinoLogger;
+
+/** A Redis client with GET and SET (EX) on a map. */
+function fakeRedis(initial: Record<string, string> = {}) {
+  const strings = new Map(Object.entries(initial));
+  const client = {
+    get: vi.fn((key: string) => Promise.resolve(strings.get(key) ?? null)),
+    set: vi.fn((key: string, value: string) => {
+      strings.set(key, value);
+      return Promise.resolve("OK");
+    }),
+  };
+  return { strings, client, service: { client } as unknown as RedisService };
+}
 
 const RELIANCE: InstrumentRecord = {
   key: "NSE_EQ|RELIANCE",
@@ -98,7 +115,8 @@ function setupService(role: AuthIdentity["role"] = "ADMIN") {
       Promise.resolve(key === RELIANCE.key ? RELIANCE : null),
     ),
   };
-  const master = { syncableBrokers: () => ["UPSTOX", "DHAN"] } as unknown as InstrumentMasterService;
+  const lastSyncedAt = vi.fn<InstrumentMasterService["lastSyncedAt"]>().mockResolvedValue(null);
+  const master = { syncableBrokers: () => ["UPSTOX", "DHAN"], lastSyncedAt } as unknown as InstrumentMasterService;
   const audit = { record: vi.fn<AuditService["record"]>().mockResolvedValue(1n) };
   const prisma = { db: { $transaction: (work: (tx: TenantTransaction) => unknown) => work({} as TenantTransaction) } };
   const queue = { add: vi.fn().mockResolvedValue({}) };
@@ -109,9 +127,10 @@ function setupService(role: AuthIdentity["role"] = "ADMIN") {
     audit as unknown as AuditService,
     queue as unknown as Queue<InstrumentSyncJobData>,
     clock,
+    logger,
   );
   const identity: AuthIdentity = { userId: "admin1", sessionId: "s", role };
-  return { service, repository, audit, queue, identity };
+  return { service, repository, audit, queue, identity, lastSyncedAt };
 }
 
 describe("InstrumentsService", () => {
@@ -153,6 +172,36 @@ describe("InstrumentsService", () => {
     expect(audit.record.mock.calls[0]?.[1]).toMatchObject({ action: "instruments.sync", actor: { type: "admin" } });
   });
 
+  it("queues the broker's master after an activation unless it synced in the last 20 hours", async () => {
+    const { service, queue, lastSyncedAt } = setupService();
+    const hour = String(Math.floor(NOW.getTime() / 3_600_000));
+
+    expect(await service.queueIfStale("UPSTOX")).toBe(`activated-UPSTOX-${hour}`);
+    expect(queue.add).toHaveBeenCalledWith("sync", { broker: "UPSTOX" }, { jobId: `activated-UPSTOX-${hour}` });
+
+    lastSyncedAt.mockResolvedValueOnce(NOW.getTime() - 19 * 3_600_000);
+    expect(await service.queueIfStale("DHAN")).toBeUndefined();
+    lastSyncedAt.mockResolvedValueOnce(NOW.getTime() - 21 * 3_600_000);
+    expect(await service.queueIfStale("DHAN")).toBe(`activated-DHAN-${hour}`);
+  });
+
+  it("listens to activations: ignores malformed payloads and brokers without a master, never throws", async () => {
+    const { service, queue } = setupService();
+    service.onBrokerAccountActivated({ nope: true });
+    service.onBrokerAccountActivated({ userId: "u", accountId: "a", broker: "PAPER" });
+    await Promise.resolve();
+    expect(queue.add).not.toHaveBeenCalled();
+
+    queue.add.mockRejectedValueOnce(new Error("redis down"));
+    service.onBrokerAccountActivated({ userId: "u", accountId: "a", broker: "DHAN" });
+    await vi.waitFor(() => {
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({ broker: "DHAN" }),
+        "could not queue the instrument master after an activation",
+      );
+    });
+  });
+
   it("refuses non-admins and brokers without a master", async () => {
     const user = setupService("USER");
     await expect(user.service.requestSync(user.identity, {}, REQUEST)).rejects.toBeInstanceOf(ForbiddenError);
@@ -174,14 +223,19 @@ describe("InstrumentMasterService", () => {
       activeTokenCount: vi.fn().mockResolvedValue(activeBefore),
       upsertBatch: vi.fn().mockResolvedValue(undefined),
       deactivateMissing: vi.fn().mockResolvedValue(7),
+      coveredKeys: vi.fn((_broker: string, keys: readonly string[]) => Promise.resolve(new Set(keys.slice(1)))),
     };
+    const redis = fakeRedis();
+    const events = { emit: vi.fn() };
     const service = new InstrumentMasterService(
       gateways,
       repository as unknown as InstrumentsRepository,
       clock,
       logger,
+      redis.service,
+      events as unknown as EventEmitter2,
     );
-    return { service, repository };
+    return { service, repository, redis, events };
   }
 
   it("upserts in batches, then deactivates what the run didn't see", async () => {
@@ -219,6 +273,43 @@ describe("InstrumentMasterService", () => {
 
     expect(await service.sync("UPSTOX")).toMatchObject({ rows: 1, deactivated: 0, skippedDeactivation: true });
     expect(repository.deactivateMissing).not.toHaveBeenCalled();
+  });
+
+  it("records the sync, tells the feed, and lists pinned keys without a token", async () => {
+    const { service, redis, events } = setupMaster([row(1), row(2)], 0);
+
+    await service.sync("UPSTOX");
+
+    expect(redis.strings.get("instruments:synced:UPSTOX")).toBe(String(NOW.getTime()));
+    const { set } = redis.client;
+    expect(set).toHaveBeenCalledWith("instruments:synced:UPSTOX", String(NOW.getTime()), "EX", 604_800);
+    expect(await service.lastSyncedAt("UPSTOX")).toBe(NOW.getTime());
+    expect(await service.lastSyncedAt("DHAN")).toBeNull();
+    expect(events.emit).toHaveBeenCalledWith("instruments.synced", { broker: "UPSTOX", rows: 2 });
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        broker: "UPSTOX",
+        pinned: `${String(PINNED_KEYS.length - 1)}/${String(PINNED_KEYS.length)}`,
+        missingPinned: [PINNED_KEYS[0]],
+      }),
+      "instrument master synced; some pinned keys have no token",
+    );
+  });
+
+  it("records an incomplete run that stored rows, and survives a failing record or listener", async () => {
+    const { service, repository, redis, events } = setupMaster([row(1)], 100);
+    repository.coveredKeys.mockImplementation((_broker: string, keys: readonly string[]) =>
+      Promise.resolve(new Set(keys)),
+    );
+    const { set } = redis.client;
+    set.mockRejectedValueOnce(new Error("redis down"));
+    events.emit.mockImplementationOnce(() => {
+      throw new Error("listener failed");
+    });
+
+    expect(await service.sync("UPSTOX")).toMatchObject({ rows: 1, skippedDeactivation: true });
+    expect(warn).toHaveBeenCalledWith(expect.anything(), "could not record the instrument master sync");
+    expect(warn).toHaveBeenCalledWith(expect.anything(), "an instruments.synced listener failed");
   });
 
   it("maps a failed download to a broker problem", async () => {

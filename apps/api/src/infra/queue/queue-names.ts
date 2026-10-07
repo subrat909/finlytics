@@ -8,8 +8,10 @@ import type { DefaultJobOptions } from "bullmq";
 export const QUEUE_NAMES = Object.freeze({
   /** Daily 08:00 IST per broker, and on demand (`POST /v1/admin/instruments/sync`). */
   instrumentMasterSync: "instrument-master-sync",
-  /** Daily 08:30 IST: expired tokens → NEEDS_RELOGIN, Dhan renewal reminders. */
+  /** Daily 08:30 IST: expired tokens → NEEDS_RELOGIN. */
   brokerTokenExpiry: "broker-token-expiry",
+  /** Every 30 minutes: renews ACTIVE Dhan tokens expiring within 3 hours (phase 1b). Payload `{}`. */
+  brokerTokenRenew: "broker-token-renew",
 } as const);
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
@@ -25,4 +27,5 @@ export const DEFAULT_JOB_OPTIONS: DefaultJobOptions = Object.freeze({
 export const JOB_SCHEDULES = Object.freeze({
   instrumentMasterSync: { id: "instrument-master-sync:daily", pattern: "0 8 * * *", tz: "Asia/Kolkata" },
   brokerTokenExpiry: { id: "broker-token-expiry:daily", pattern: "30 8 * * *", tz: "Asia/Kolkata" },
+  brokerTokenRenew: { id: "broker-token-renew:30m", pattern: "*/30 * * * *", tz: "Asia/Kolkata" },
 } as const);

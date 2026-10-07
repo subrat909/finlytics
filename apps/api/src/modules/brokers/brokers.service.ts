@@ -7,11 +7,13 @@
  *   a signed, single-use nonce bound to the user's session (OAuthStateService). The callback exchanges the code, reads
  *   the profile and activates the account; the token expires at 03:30 IST.
  * - Dhan: the pasted client id + access token are checked with `getProfile` (the token must belong to that client id);
- *   posting the same label again replaces the token (Dhan has no OAuth re-login).
+ *   posting the same label again replaces the token (Dhan has no OAuth re-login). Tokens last 24 hours; the
+ *   broker-token-renew job renews them (BrokerTokenService).
  * - Paper: the built-in paper broker, no credentials, never expires; outside the plan's broker limit (at most
  *   {@link MAX_PAPER_ACCOUNTS}).
- * - Plan limit `Plan.maxBrokerAccounts` (real brokers), checked under a row lock on the user.
- * - Network calls never run inside a database transaction. Every write is audited in its transaction.
+ * - Plan limit `Plan.maxBrokerAccounts` (real brokers), checked under a row lock on the user; `limits()` reports it.
+ * - Network calls never run inside a database transaction. Every write is audited in its transaction, and the
+ *   `broker.account.*` events (BrokerEvents) are emitted only after it has committed.
  */
 import { randomBytes } from "node:crypto";
 
@@ -21,6 +23,7 @@ import type {
   BrokerAuthRedirect,
   BrokerCallbackError,
   BrokerCode,
+  BrokerLimits,
   ConnectDhan,
   ConnectPaper,
   ConnectUpstox,
@@ -47,6 +50,7 @@ import { AuditService } from "../audit/audit.service";
 
 import { toBrokerAccountView } from "./broker-account.mapper";
 import { BrokerDomainError, brokerProblem, lastErrorFor } from "./broker-errors";
+import { BrokerEvents } from "./broker-events";
 import { BrokerGateways } from "./broker-gateways";
 import type { BrokerAppCredentials } from "./broker-gateways";
 import { BrokersRepository } from "./brokers.repository";
@@ -83,6 +87,7 @@ export class BrokersService {
     private readonly gateways: BrokerGateways,
     private readonly oauthStates: OAuthStateService,
     private readonly audit: AuditService,
+    private readonly events: BrokerEvents,
     @Inject(CLOCK) private readonly clock: Clock,
     config: ConfigService<Env, true>,
     private readonly logger: PinoLogger,
@@ -99,6 +104,20 @@ export class BrokersService {
   /** `GET /v1/brokers`. */
   async list(userId: string): Promise<BrokerAccountView[]> {
     return (await this.accounts.list(userId)).map(toBrokerAccountView);
+  }
+
+  /** `GET /v1/brokers/limits`: the plan's limits and how many accounts count against them. */
+  async limits(userId: string): Promise<BrokerLimits> {
+    const [counts, maxBrokerAccounts] = await Promise.all([
+      this.accounts.counts(this.prisma.db, userId),
+      this.accounts.maxBrokerAccounts(this.prisma.db, userId),
+    ]);
+    return {
+      maxBrokerAccounts,
+      brokerAccounts: counts.brokers,
+      maxPaperAccounts: MAX_PAPER_ACCOUNTS,
+      paperAccounts: counts.paper,
+    };
   }
 
   // Upstox -----------------------------------------------------------------------------------------------------------
@@ -217,19 +236,22 @@ export class BrokersService {
     if (existing === null) await this.assertWithinPlan(this.prisma.db, userId, "DHAN");
     const id = existing?.id ?? newBrokerAccountId();
     const gateway = this.gateways.gateway("DHAN");
+    // An empty client id is left out: the adapter reads it from the token and the profile, and cleans the paste.
+    const typedClientId = body.clientId === undefined || body.clientId === "" ? undefined : body.clientId;
     const { creds, profile } = await this.validateWithBroker(gateway, id, {
-      fields: { clientId: body.clientId, accessToken: body.accessToken },
+      fields: { accessToken: body.accessToken, ...(typedClientId === undefined ? {} : { clientId: typedClientId }) },
     });
-    if (profile.brokerClientId !== body.clientId) {
+    const clientId = typedClientId ?? creds.clientId ?? profile.brokerClientId;
+    if (profile.brokerClientId !== clientId) {
       throw new BrokerDomainError("BROKER_REJECTED", "The access token belongs to another Dhan client id.");
     }
     const now = this.clock.now();
     return this.store(userId, id, existing, {
       broker: "DHAN",
       label: body.label,
-      creds: { ...creds, clientId: body.clientId },
-      clientId: body.clientId,
-      tokenExpiresAt: dhanExpiry(creds.expiresAt, body.accessToken, now),
+      creds: { ...creds, clientId },
+      clientId,
+      tokenExpiresAt: dhanExpiry(creds.expiresAt, creds.accessToken.reveal(), now),
       now,
       request,
     });
@@ -324,7 +346,7 @@ export class BrokersService {
 
   /** `DELETE /v1/brokers/:id`: removes the account and its encrypted credentials. */
   async remove(userId: string, id: string, request: RequestMetadata): Promise<void> {
-    await this.prisma.db.$transaction(async (tx) => {
+    const broker = await this.prisma.db.$transaction(async (tx) => {
       const current = await this.accounts.findView(userId, id, tx);
       if (current === null || !(await this.accounts.delete(tx, userId, id))) {
         throw new NotFoundError("Broker account not found.");
@@ -337,7 +359,9 @@ export class BrokersService {
         request,
         data: { broker: current.broker },
       });
+      return current.broker;
     });
+    this.events.deactivated({ userId, accountId: id, broker });
   }
 
   // Helpers ----------------------------------------------------------------------------------------------------------
@@ -350,15 +374,11 @@ export class BrokersService {
   ): Promise<void> {
     const counts = await this.accounts.counts(db, userId);
     if (broker === "PAPER") {
-      if (counts.paper >= MAX_PAPER_ACCOUNTS) {
-        throw new ForbiddenError(`You can have at most ${String(MAX_PAPER_ACCOUNTS)} paper accounts.`);
-      }
+      if (counts.paper >= MAX_PAPER_ACCOUNTS) throw new ForbiddenError(paperLimitDetail(MAX_PAPER_ACCOUNTS));
       return;
     }
     const limit = await this.accounts.maxBrokerAccounts(db, userId);
-    if (counts.brokers >= limit) {
-      throw new ForbiddenError(`Your plan allows ${String(limit)} broker account${limit === 1 ? "" : "s"}.`);
-    }
+    if (counts.brokers >= limit) throw new ForbiddenError(planLimitDetail(limit));
   }
 
   /** `exchangeToken` then `getProfile`: the credentials work, or a curated problem (nothing is stored). */
@@ -433,6 +453,7 @@ export class BrokersService {
       return this.accounts.findView(userId, id, tx);
     });
     if (view === null) throw new NotFoundError("Broker account not found.");
+    this.events.activated({ userId, accountId: id, broker: input.broker });
     return toBrokerAccountView(view);
   }
 
@@ -473,6 +494,7 @@ export class BrokersService {
         data: { broker: input.broker, status: "ACTIVE", reconnect: input.reconnect },
       });
     });
+    this.events.activated({ userId, accountId: id, broker: input.broker });
   }
 
   /** Marks a failed login on the account (curated text; the status only changes for a PENDING account). */
@@ -524,6 +546,17 @@ export class BrokersService {
     const account = accountId === undefined ? "" : `&account=${encodeURIComponent(accountId)}`;
     return { url: `${this.publicUrl}/brokers?error=${error}${account}` };
   }
+}
+
+/** The 403 detail over the plan's broker-account limit (stable text: the web app shows it as it is). */
+export function planLimitDetail(limit: number): string {
+  const accounts = `${String(limit)} broker account${limit === 1 ? "" : "s"}`;
+  return `Your plan allows ${accounts}. Remove one or upgrade your plan to connect another.`;
+}
+
+/** The 403 detail over the paper-account cap. */
+export function paperLimitDetail(limit: number): string {
+  return `You can have at most ${String(limit)} paper accounts. Remove one to add another.`;
 }
 
 /** The stored data key of a row. */

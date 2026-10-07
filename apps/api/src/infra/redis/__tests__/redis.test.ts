@@ -20,10 +20,15 @@ describe("redisKeys", () => {
     expect(redisKeys.ticks("UPSTOX")).toBe("ticks:UPSTOX");
     expect(redisKeys.subscriptions("NSE_EQ|RELIANCE")).toBe("subs:NSE_EQ|RELIANCE");
     expect(redisKeys.subscriptions("NSE_INDEX|NIFTY 50")).toBe("subs:NSE_INDEX|NIFTY 50");
-    expect(redisKeys.subscriptionsWanted("PAPER")).toBe("subs:wanted:PAPER");
-    expect(redisKeys.feedLock("DHAN")).toBe("lock:feed:DHAN");
+    expect(redisKeys.subscriptionsWanted()).toBe("subs:wanted");
+    expect(redisKeys.feedLock("market")).toBe("lock:feed:market");
+    expect(redisKeys.feedSource()).toBe("feed:source");
     expect(redisKeys.feedStatus("UPSTOX")).toBe("feed:status:UPSTOX");
+    expect(redisKeys.depth("NSE_EQ|RELIANCE")).toBe("depth:NSE_EQ|RELIANCE");
+    expect(redisKeys.depthChannel("NSE_EQ|RELIANCE")).toBe("d:NSE_EQ|RELIANCE");
     expect(redisKeys.candleCoverage("M1", "NSE_EQ|RELIANCE")).toBe("candles:cov:M1:NSE_EQ|RELIANCE");
+    expect(redisKeys.candleOrigin()).toBe("candles:origin");
+    expect(redisKeys.instrumentsSynced("DHAN")).toBe("instruments:synced:DHAN");
   });
 
   it("refuses segments that could forge another key", () => {

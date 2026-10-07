@@ -4,6 +4,9 @@
  *
  * - The range is widened to whole bars and clipped at the start of the current bar: the live bar is the client's job
  *   (it draws it from ticks), so an incomplete bar is never stored or covered.
+ * - A synthetic source (the simulator, while it drives the feed) is served on the fly: never stored, never covered,
+ *   so a live feed never serves a synthetic bar (phase-1b).
+ * - A broker source that has no token for the instrument is skipped: the request is served from storage.
  * - Concurrent requests for the same instrument and timeframe share one backfill in this process.
  * - A backfill failure is logged; the request is then served from what is stored, or fails when nothing is.
  */
@@ -43,9 +46,11 @@ export class CandlesService {
   async list(userId: string, query: CandlesQuery): Promise<CandleBar[]> {
     const range = this.completeRange(query.tf, query.from.getTime(), query.to.getTime());
     if (range.end <= range.start) return [];
+    const source = await this.sources.forUser(userId);
+    if (source?.synthetic === true) return this.synthetic(source, query.key, query.tf, range);
     let failure: Error | undefined;
     try {
-      await this.backfill(userId, query.key, query.tf, range);
+      if (source !== undefined) await this.backfill(source, query.key, query.tf, range);
     } catch (error: unknown) {
       failure = error instanceof Error ? error : new Error("Candle backfill failed", { cause: error });
       this.logger.warn({ err: error, timeframe: query.tf }, "candle backfill failed; serving stored bars");
@@ -63,9 +68,35 @@ export class CandlesService {
     return { start: alignToBar(from, barMs), end };
   }
 
+  /** Synthetic bars for the range, straight from the source: nothing is read from or written to storage. */
+  private async synthetic(
+    source: CandleSource,
+    key: InstrumentKey,
+    timeframe: CandleTimeframe,
+    range: Interval,
+  ): Promise<CandleBar[]> {
+    const bars = await source.fetch({
+      instrumentKey: key,
+      timeframe,
+      from: new Date(range.start),
+      to: new Date(range.end),
+    });
+    return bars
+      .filter((bar) => bar.ts >= range.start && bar.ts < range.end)
+      .map((bar) => ({
+        ts: bar.ts,
+        open: bar.open,
+        high: bar.high,
+        low: bar.low,
+        close: bar.close,
+        volume: bar.volume,
+        ...(bar.oi === undefined ? {} : { oi: bar.oi }),
+      }));
+  }
+
   /** One backfill at a time per instrument and timeframe in this process; a waiter re-reads the coverage after. */
   private async backfill(
-    userId: string,
+    source: CandleSource,
     key: InstrumentKey,
     timeframe: CandleTimeframe,
     range: Interval,
@@ -75,7 +106,7 @@ export class CandlesService {
       await running.catch(() => undefined);
     }
     // No await between the check above and this: the next request for the key waits on this one.
-    const run = this.backfillGaps(userId, key, timeframe, range).finally(() => {
+    const run = this.backfillGaps(source, key, timeframe, range).finally(() => {
       this.inflight.delete(flightKey);
     });
     this.inflight.set(flightKey, run);
@@ -83,7 +114,7 @@ export class CandlesService {
   }
 
   private async backfillGaps(
-    userId: string,
+    source: CandleSource,
     key: InstrumentKey,
     timeframe: CandleTimeframe,
     range: Interval,
@@ -91,8 +122,7 @@ export class CandlesService {
     const covered = await this.coverage.read(timeframe, key);
     const gaps = findGaps(covered, range);
     if (gaps.length === 0) return;
-    const source = await this.sources.forUser(userId);
-    if (source === undefined) return;
+    if (source.supports !== undefined && !(await source.supports(key))) return;
     await this.fill(source, key, timeframe, covered, gaps);
   }
 

@@ -1,4 +1,4 @@
-import type { BrokerAccountView, BrokerAuthRedirect } from "@finlytics/shared";
+import type { BrokerAccountView, BrokerAuthRedirect, BrokerLimits } from "@finlytics/shared";
 import { SESSION_COOKIE_NAME, SESSION_TOKEN_PATTERN } from "@finlytics/shared";
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, Redirect, Req } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -21,6 +21,7 @@ import {
   BrokerAccountParamsDto,
   BrokerAccountViewDto,
   BrokerAuthRedirectDto,
+  BrokerLimitsDto,
   ConnectDhanDto,
   ConnectPaperDto,
   ConnectUpstoxDto,
@@ -50,6 +51,16 @@ export class BrokersController {
   @ZodResponse({ status: 200, description: "The user's broker accounts, oldest first", type: BrokerAccountListDto })
   list(@CurrentUser() identity: AuthIdentity): Promise<BrokerAccountView[]> {
     return this.brokers.list(identity.userId);
+  }
+
+  @Get("limits")
+  @ZodResponse({
+    status: 200,
+    description: "The plan's broker and paper account limits, and how many the user has",
+    type: BrokerLimitsDto,
+  })
+  limits(@CurrentUser() identity: AuthIdentity): Promise<BrokerLimits> {
+    return this.brokers.limits(identity.userId);
   }
 
   @Post("upstox")

@@ -1,8 +1,13 @@
 /** An in-memory BrokersRepository for service unit tests: the same scoping (every method takes userId). */
-import type { BrokerAccountStatus, BrokerCode } from "@finlytics/shared";
+import type { BrokerCode } from "@finlytics/shared";
 
 import type { BrokerAccountViewRow } from "../broker-account.mapper";
-import type { BrokerAccountSecretRow, BrokersRepository } from "../brokers.repository";
+import type {
+  AccountCondition,
+  BrokerAccountSecretRow,
+  BrokerNotification,
+  BrokersRepository,
+} from "../brokers.repository";
 
 type Row = BrokerAccountSecretRow & { createdAt: number; expiryNotifiedAt: Date | null };
 
@@ -21,6 +26,7 @@ function view(row: Row): BrokerAccountViewRow {
 
 export class MemoryAccounts {
   readonly rows = new Map<string, Row>();
+  readonly notifications: (BrokerNotification & { userId: string })[] = [];
   maxAccounts = 1;
   locks = 0;
   #clock = 0;
@@ -94,19 +100,21 @@ export class MemoryAccounts {
       this.rows.set(row.id, row);
       return Promise.resolve(view(row));
     },
-    update: (
-      _db: unknown,
-      userId: string,
-      id: string,
-      data: Record<string, unknown>,
-      where: { status?: BrokerAccountStatus } = {},
-    ) => {
+    update: (_db: unknown, userId: string, id: string, data: Record<string, unknown>, where: AccountCondition = {}) => {
       const row = this.find(userId, id);
-      if (row === undefined || (where.status !== undefined && row.status !== where.status)) {
+      if (
+        row === undefined ||
+        (where.status !== undefined && row.status !== where.status) ||
+        (where.tokenExpiresAt !== undefined && row.tokenExpiresAt?.getTime() !== where.tokenExpiresAt?.getTime())
+      ) {
         return Promise.resolve(false);
       }
       this.rows.set(id, { ...row, ...data });
       return Promise.resolve(true);
+    },
+    notify: (_tx: unknown, userId: string, input: BrokerNotification) => {
+      this.notifications.push({ ...input, userId });
+      return Promise.resolve();
     },
     clearDefault: (_tx: unknown, userId: string) => {
       for (const row of this.mine(userId)) this.rows.set(row.id, { ...row, isDefault: false });

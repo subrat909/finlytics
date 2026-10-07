@@ -1,6 +1,7 @@
 /**
  * Registers the repeating jobs (BullMQ job schedulers, idempotent by id) when a worker starts: the instrument master at
- * 08:00 IST and the broker-token check at 08:30 IST. Runs in the background so a slow Redis never blocks the boot.
+ * 08:00 IST, the broker-token check at 08:30 IST and the Dhan token renewal every 30 minutes. Runs in the background so
+ * a slow Redis never blocks the boot.
  */
 import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable } from "@nestjs/common";
@@ -15,6 +16,7 @@ export class JobSchedulerService implements OnApplicationBootstrap {
   constructor(
     @InjectQueue(QUEUE_NAMES.instrumentMasterSync) private readonly syncQueue: Queue,
     @InjectQueue(QUEUE_NAMES.brokerTokenExpiry) private readonly expiryQueue: Queue,
+    @InjectQueue(QUEUE_NAMES.brokerTokenRenew) private readonly renewQueue: Queue,
     private readonly logger: PinoLogger,
   ) {
     logger.setContext(JobSchedulerService.name);
@@ -27,7 +29,7 @@ export class JobSchedulerService implements OnApplicationBootstrap {
   }
 
   async schedule(): Promise<void> {
-    const { instrumentMasterSync: sync, brokerTokenExpiry: expiry } = JOB_SCHEDULES;
+    const { instrumentMasterSync: sync, brokerTokenExpiry: expiry, brokerTokenRenew: renew } = JOB_SCHEDULES;
     await this.syncQueue.upsertJobScheduler(
       sync.id,
       { pattern: sync.pattern, tz: sync.tz },
@@ -37,6 +39,11 @@ export class JobSchedulerService implements OnApplicationBootstrap {
       expiry.id,
       { pattern: expiry.pattern, tz: expiry.tz },
       { name: "check", data: {} },
+    );
+    await this.renewQueue.upsertJobScheduler(
+      renew.id,
+      { pattern: renew.pattern, tz: renew.tz },
+      { name: "renew", data: {} },
     );
   }
 }

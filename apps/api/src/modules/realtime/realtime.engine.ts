@@ -1,35 +1,53 @@
 /**
- * The realtime gateway's logic (phase 1 plan "WebSocket", backend.md "Realtime pipeline"):
+ * The realtime gateway's logic (phase 1 plan "WebSocket"; phase-1b "Quotes, depth and realtime"; backend.md
+ * "Realtime pipeline"):
  *
  * - `sub` / `unsub` with acks, validated with the shared Zod schemas; each socket holds at most its user's
- *   `Plan.maxRtSubscriptions` keys, only keys of active instruments, and sends at most 10 messages a second.
- * - Ref-counts in Redis (`subs:<key>`, `subs:wanted:<BROKER>`) for the feed; a local ref-count per pod for `q:<key>`.
- * - Coalescing: updates from `q:<key>` are kept per key and flushed every 100 ms as one `q` per socket, each key at
- *   most 10 times a second (TickCoalescer). A socket with a backed-up transport skips a flush instead of queueing.
- * - `status`: the feed's state (`up`, `down`, or `stale` when no tick arrived for 5 s while subscribed), sent on
- *   connect and broadcast on change.
+ *   `Plan.maxRtSubscriptions` keys, only keys of active instruments, and sends at most 10 messages a second (`sub`,
+ *   `unsub`, `dsub` and `dunsub` together).
+ * - Ref-counts in Redis (`subs:<key>`, `subs:wanted`) for the feed; a local ref-count per pod for `q:<key>`/`d:<key>`.
+ * - Coalescing: updates from `q:<key>` are kept per key and flushed every 100 ms as one `q` per socket (12-tuple rows),
+ *   each key at most 10 times a second (TickCoalescer). A socket with a backed-up transport skips a flush.
+ * - Depth: `dsub {key}` streams `depth` for a key the socket already holds through `sub`, at most
+ *   {@link RT_MAX_DEPTH_KEYS} per socket, each key at most 4 times a second (DepthThrottle); the stored book is sent
+ *   right after the ack. `dunsub`, `unsub` of the key, and disconnecting stop it.
+ * - `status` `{feed, source, live}`: the feed's state (`up`, `down`, or `stale` when no tick arrived for 5 s while
+ *   subscribed) and the source driving it (`live` false for the simulator), sent on connect and on every change.
  *
  * Per-socket operations run one at a time, so a disconnect never races a subscribe half-way through.
  */
-import { isInstrumentKey, RT_COALESCE_MS, RT_EVENTS, RtSubscribeSchema, RtUnsubscribeSchema } from "@finlytics/shared";
-import type { InstrumentKey, RtFeedState, RtSubscribeAck, RtUnsubscribeAck } from "@finlytics/shared";
+import {
+  isInstrumentKey,
+  RT_COALESCE_MS,
+  RT_EVENTS,
+  RT_MAX_DEPTH_KEYS,
+  RtDepthSubscribeSchema,
+  RtSubscribeSchema,
+  RtUnsubscribeSchema,
+} from "@finlytics/shared";
+import type {
+  InstrumentKey,
+  RtDepth,
+  RtDepthAck,
+  RtFeedState,
+  RtStatus,
+  RtSubscribeAck,
+  RtUnsubscribeAck,
+} from "@finlytics/shared";
 
+import { feedStateOf } from "../../feed/feed-source";
+import type { FeedSnapshot } from "../../feed/feed-source";
 import { toQuoteRow } from "../../feed/quote-update";
 import type { QuoteUpdate } from "../../feed/quote-update";
 import type { AuthIdentity } from "../auth/auth-identity";
 
+import { DepthThrottle } from "./depth-throttle";
 import type { QuoteSubscriber } from "./quote-subscriber";
-import type { RealtimeRepository, ReportedFeedStatus } from "./realtime.repository";
+import type { RealtimeRepository } from "./realtime.repository";
 import { TickCoalescer } from "./tick-coalescer";
 
-/** Messages (`sub` + `unsub`) one socket may send per second. */
+/** Messages (`sub`, `unsub`, `dsub`, `dunsub`) one socket may send per second. */
 export const MAX_MESSAGES_PER_SECOND = 10;
-
-/** No tick for this long while subscribed: the feed is `stale`. */
-export const STALE_AFTER_MS = 5_000;
-
-/** A feed status older than this is `down` (the leader refreshes it every second, with a 15 s TTL). */
-const STATUS_MAX_AGE_MS = 15_000;
 
 /** How often the feed status is read. */
 export const STATUS_POLL_MS = 2_000;
@@ -40,6 +58,11 @@ const MAX_WRITE_BUFFER = 64;
 /** Known-active instrument keys are cached this long (positive answers only). */
 const INSTRUMENT_CACHE_MS = 600_000;
 const INSTRUMENT_CACHE_MAX = 50_000;
+
+/** The room of a key's depth stream (keys never contain `:`, so it can't collide with a quote room). */
+export function depthRoom(key: InstrumentKey): string {
+  return `d:${key}`;
+}
 
 /** The socket calls the service makes. */
 export interface RtSocket {
@@ -68,6 +91,7 @@ interface SocketState {
   readonly identity: AuthIdentity;
   readonly maxSubscriptions: number;
   readonly keys: Set<InstrumentKey>;
+  readonly depthKeys: Set<InstrumentKey>;
   windowStart: number;
   messages: number;
   queue: Promise<unknown>;
@@ -75,45 +99,44 @@ interface SocketState {
 }
 
 export interface RealtimeEngineOptions {
-  readonly broker: string;
   readonly repository: Pick<
     RealtimeRepository,
-    "acquire" | "release" | "snapshots" | "feedStatus" | "activeInstrumentKeys"
+    "acquire" | "release" | "snapshots" | "feedSnapshot" | "activeInstrumentKeys" | "depthSnapshot"
   >;
-  readonly quotes: Pick<QuoteSubscriber, "add" | "remove" | "close">;
+  readonly quotes: Pick<QuoteSubscriber, "add" | "remove" | "addDepth" | "removeDepth" | "close">;
   readonly logger: RealtimeLogger;
   readonly now?: () => number;
 }
 
-/** Maps the feed leader's report to the client-facing state. */
-export function feedState(
-  reported: ReportedFeedStatus | undefined,
-  now: number,
-  subscribed: boolean,
-  lastTickAt: number,
-): RtFeedState {
-  if (reported === undefined || now - reported.ts > STATUS_MAX_AGE_MS) return "down";
-  switch (reported.status) {
-    case "up":
-      return subscribed && now - lastTickAt > STALE_AFTER_MS ? "stale" : "up";
-    case "degraded":
-      return "stale";
-    default:
-      return "down";
-  }
+/** The status before the first read: down, on the simulator. */
+const INITIAL_STATUS: RtStatus = Object.freeze({ feed: "down", source: "PAPER", live: false });
+
+/**
+ * The `status` event for a snapshot: the leader's report mapped to `up`/`stale`/`down` (`stale` when no tick reached
+ * this pod for 5 s while it holds subscriptions), with the source.
+ */
+export function statusOf(snapshot: FeedSnapshot, now: number, subscribed: boolean, lastTickAt: number): RtStatus {
+  return {
+    feed: feedStateOf(snapshot.status, now, subscribed ? lastTickAt : undefined),
+    source: snapshot.source.broker,
+    live: snapshot.source.live,
+  };
 }
 
 export class RealtimeEngine {
   readonly coalescer = new TickCoalescer(RT_COALESCE_MS);
+  readonly depths = new DepthThrottle();
   readonly #options: RealtimeEngineOptions;
   readonly #now: () => number;
   readonly #sockets = new Map<string, SocketState>();
   readonly #activeInstruments = new Map<InstrumentKey, number>();
   /** Keys any local socket holds, with how many. */
   readonly #localKeys = new Map<InstrumentKey, number>();
+  /** Keys any local socket streams depth for, with how many. */
+  readonly #localDepth = new Map<InstrumentKey, number>();
   #namespace: RtNamespace | undefined;
   #timers: NodeJS.Timeout[] = [];
-  #state: RtFeedState = "down";
+  #status: RtStatus = INITIAL_STATUS;
   #lastTickAt = 0;
 
   constructor(options: RealtimeEngineOptions) {
@@ -122,7 +145,11 @@ export class RealtimeEngine {
   }
 
   get feedState(): RtFeedState {
-    return this.#state;
+    return this.#status.feed;
+  }
+
+  get status(): RtStatus {
+    return this.#status;
   }
 
   /** Binds the namespace (the gateway's `afterInit`). Nothing runs until {@link start}. */
@@ -154,25 +181,36 @@ export class RealtimeEngine {
     this.coalescer.push(update);
   }
 
-  /** A socket that passed the handshake (with its plan's limit): tells it the feed state. */
+  /** A `d:<key>` message. */
+  onDepth(depth: RtDepth): void {
+    if (this.#localDepth.has(depth.k)) this.depths.push(depth);
+  }
+
+  /** A socket that passed the handshake (with its plan's limit): tells it the feed status. */
   register(socket: RtSocket, identity: AuthIdentity, maxSubscriptions: number): void {
     const state: SocketState = {
       socket,
       identity,
       maxSubscriptions,
       keys: new Set(),
+      depthKeys: new Set(),
       windowStart: this.#now(),
       messages: 0,
       queue: Promise.resolve(),
       closed: false,
     };
     this.#sockets.set(socket.id, state);
-    socket.emit(RT_EVENTS.status, { feed: this.#state });
+    socket.emit(RT_EVENTS.status, this.#status);
   }
 
   /** Keys a socket holds (tests, diagnostics). */
   keysOf(socketId: string): InstrumentKey[] {
     return [...(this.#sockets.get(socketId)?.keys ?? [])];
+  }
+
+  /** Keys a socket streams depth for (tests, diagnostics). */
+  depthKeysOf(socketId: string): InstrumentKey[] {
+    return [...(this.#sockets.get(socketId)?.depthKeys ?? [])];
   }
 
   subscribe(socketId: string, payload: unknown): Promise<RtSubscribeAck> {
@@ -188,6 +226,26 @@ export class RealtimeEngine {
     return this.#serialise(state, () => this.#unsubscribe(state, payload));
   }
 
+  depthSubscribe(socketId: string, payload: unknown): Promise<RtDepthAck> {
+    const state = this.#sockets.get(socketId);
+    if (state === undefined) return Promise.resolve({ ok: false, reason: "invalid_key" });
+    if (!this.#admitMessage(state)) return Promise.resolve({ ok: false, reason: "rate_limited" });
+    return this.#serialise(state, () => this.#depthSubscribe(state, payload));
+  }
+
+  depthUnsubscribe(socketId: string, payload: unknown): Promise<RtDepthAck> {
+    const state = this.#sockets.get(socketId);
+    if (state === undefined || !this.#admitMessage(state)) return Promise.resolve({ ok: false });
+    return this.#serialise(state, async () => {
+      const parsed = RtDepthSubscribeSchema.safeParse(payload);
+      if (!parsed.success || !isInstrumentKey(parsed.data.key) || !state.depthKeys.has(parsed.data.key)) {
+        return { ok: false };
+      }
+      await this.#dropDepth(state, [parsed.data.key]);
+      return { ok: true };
+    });
+  }
+
   /** A disconnected socket: releases everything it held. */
   async unregister(socketId: string): Promise<void> {
     const state = this.#sockets.get(socketId);
@@ -199,10 +257,38 @@ export class RealtimeEngine {
     });
   }
 
-  /** Sends what is due: one `q` per socket with every due key it holds. */
+  /** Sends what is due: one `q` per socket with every due key it holds, and the due books. */
   flush(now: number): void {
     const namespace = this.#namespace;
-    if (namespace === undefined || this.coalescer.size === 0) return;
+    if (namespace === undefined) return;
+    if (this.coalescer.size > 0) this.#flushQuotes(namespace, now);
+    if (this.depths.size > 0) this.#flushDepths(namespace, now);
+  }
+
+  /** Reads the feed status and broadcasts a change. */
+  async refreshStatus(): Promise<void> {
+    let next: RtStatus;
+    try {
+      const snapshot = await this.#options.repository.feedSnapshot();
+      next = statusOf(snapshot, this.#now(), this.#localKeys.size > 0, this.#lastTickAt);
+    } catch {
+      next = { ...this.#status, feed: "down" };
+    }
+    const current = this.#status;
+    if (next.feed === current.feed && next.source === current.source && next.live === current.live) return;
+    this.#status = next;
+    this.#namespace?.broadcastLocal(RT_EVENTS.status, next);
+  }
+
+  /** Shutdown: stops the timers and releases every socket's keys (before the server closes the sockets). */
+  async close(): Promise<void> {
+    for (const timer of this.#timers) clearInterval(timer);
+    this.#timers = [];
+    await Promise.all([...this.#sockets.keys()].map((id) => this.unregister(id)));
+    await this.#options.quotes.close();
+  }
+
+  #flushQuotes(namespace: RtNamespace, now: number): void {
     const batches = new Map<string, unknown[]>();
     for (const [key, update] of this.coalescer.drain(now)) {
       const members = namespace.roomMembers(key);
@@ -221,26 +307,14 @@ export class RealtimeEngine {
     }
   }
 
-  /** Reads the feed status and broadcasts a change. */
-  async refreshStatus(): Promise<void> {
-    let reported: ReportedFeedStatus | undefined;
-    try {
-      reported = await this.#options.repository.feedStatus(this.#options.broker);
-    } catch {
-      reported = undefined;
+  #flushDepths(namespace: RtNamespace, now: number): void {
+    for (const [key, depth] of this.depths.drain(now)) {
+      for (const id of namespace.roomMembers(depthRoom(key)) ?? []) {
+        const socket = namespace.socket(id);
+        if (socket === undefined || namespace.backedUp(id, MAX_WRITE_BUFFER)) continue;
+        socket.emit(RT_EVENTS.depth, depth);
+      }
     }
-    const next = feedState(reported, this.#now(), this.#localKeys.size > 0, this.#lastTickAt);
-    if (next === this.#state) return;
-    this.#state = next;
-    this.#namespace?.broadcastLocal(RT_EVENTS.status, { feed: next });
-  }
-
-  /** Shutdown: stops the timers and releases every socket's keys (before the server closes the sockets). */
-  async close(): Promise<void> {
-    for (const timer of this.#timers) clearInterval(timer);
-    this.#timers = [];
-    await Promise.all([...this.#sockets.keys()].map((id) => this.unregister(id)));
-    await this.#options.quotes.close();
   }
 
   #admitMessage(state: SocketState): boolean {
@@ -288,7 +362,7 @@ export class RealtimeEngine {
     if (fresh.length === 0) return { ok, rejected };
 
     try {
-      await this.#options.repository.acquire(this.#options.broker, fresh);
+      await this.#options.repository.acquire(fresh);
     } catch (error: unknown) {
       this.#options.logger.warn({ err: error }, "could not record subscriptions");
       for (const key of fresh) rejected.push({ key, reason: "unavailable" });
@@ -322,9 +396,37 @@ export class RealtimeEngine {
     return { ok: held };
   }
 
+  async #depthSubscribe(state: SocketState, payload: unknown): Promise<RtDepthAck> {
+    const parsed = RtDepthSubscribeSchema.safeParse(payload);
+    if (!parsed.success || state.closed || !isInstrumentKey(parsed.data.key))
+      return { ok: false, reason: "invalid_key" };
+    const key = parsed.data.key;
+    if (state.depthKeys.has(key)) return { ok: true };
+    // Depth rides on a quote subscription: the key must be in the socket's `sub` set.
+    if (!state.keys.has(key)) return { ok: false, reason: "invalid_key" };
+    if (state.depthKeys.size >= RT_MAX_DEPTH_KEYS) return { ok: false, reason: "limit" };
+    try {
+      await this.#options.quotes.addDepth([key]);
+    } catch (error: unknown) {
+      this.#options.logger.warn({ err: error }, "could not subscribe to a depth channel");
+      return { ok: false, reason: "unavailable" };
+    }
+    state.depthKeys.add(key);
+    state.socket.join(depthRoom(key));
+    this.#localDepth.set(key, (this.#localDepth.get(key) ?? 0) + 1);
+    setImmediate(() => {
+      void this.#sendDepthSnapshot(state, key);
+    });
+    return { ok: true };
+  }
+
   /** Forgets `keys` for a socket: rooms, local and Redis ref-counts. Failures are logged; the keys are gone locally. */
   async #drop(state: SocketState, keys: readonly InstrumentKey[]): Promise<void> {
     if (keys.length === 0) return;
+    await this.#dropDepth(
+      state,
+      keys.filter((key) => state.depthKeys.has(key)),
+    );
     for (const key of keys) {
       state.keys.delete(key);
       if (!state.closed) state.socket.leave(key);
@@ -338,6 +440,26 @@ export class RealtimeEngine {
       if (result.status === "rejected") {
         this.#options.logger.warn({ err: result.reason }, "could not release subscriptions");
       }
+    }
+  }
+
+  async #dropDepth(state: SocketState, keys: readonly InstrumentKey[]): Promise<void> {
+    if (keys.length === 0) return;
+    for (const key of keys) {
+      state.depthKeys.delete(key);
+      if (!state.closed) state.socket.leave(depthRoom(key));
+      const count = (this.#localDepth.get(key) ?? 0) - 1;
+      if (count > 0) {
+        this.#localDepth.set(key, count);
+      } else {
+        this.#localDepth.delete(key);
+        this.depths.forget(key);
+      }
+    }
+    try {
+      await this.#options.quotes.removeDepth(keys);
+    } catch (error: unknown) {
+      this.#options.logger.warn({ err: error }, "could not release depth channels");
     }
   }
 
@@ -382,6 +504,17 @@ export class RealtimeEngine {
       if (rows.length > 0 && !state.closed) state.socket.emit(RT_EVENTS.quotes, { t: this.#now(), d: rows });
     } catch (error: unknown) {
       this.#options.logger.debug({ err: error }, "quote snapshot failed");
+    }
+  }
+
+  async #sendDepthSnapshot(state: SocketState, key: InstrumentKey): Promise<void> {
+    try {
+      const depth = await this.#options.repository.depthSnapshot(key);
+      if (depth !== undefined && state.depthKeys.has(key) && !state.closed) {
+        state.socket.emit(RT_EVENTS.depth, depth);
+      }
+    } catch (error: unknown) {
+      this.#options.logger.debug({ err: error }, "depth snapshot failed");
     }
   }
 }

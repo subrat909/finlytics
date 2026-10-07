@@ -12,13 +12,20 @@
  * | `idem:<userId>:<key>`                   | string (JSON)   | 30 s in flight, 24 h stored  | idempotency (0.5)       |
  * | `quote:<instrumentKey>`                 | hash            | none (overwritten)           | market feed (1.4)       |
  * | `q:<instrumentKey>`                     | pub/sub channel | —                            | tick fan-out (1.4)      |
+ * | `depth:<instrumentKey>`                 | string (JSON)   | 1 day                        | market feed (1b)        |
+ * | `d:<instrumentKey>`                     | pub/sub channel | —                            | depth fan-out (1b)      |
  * | `ticks:<broker>`                        | stream          | `MAXLEN ~`                   | feed (1.4)              |
  * | `subs:<instrumentKey>`                  | counter         | 30 s grace at zero           | subscriptions (1.4)     |
- * | `subs:wanted:<broker>`                  | set             | none                         | subscriptions (1.4)     |
- * | `lock:feed:<broker>`                    | string          | 15 s, renewed every 5 s      | feed leader (1.4)       |
+ * | `subs:wanted`                           | set             | none                         | subscriptions (1b)      |
+ * | `lock:feed:<name>`                      | string          | 15 s, renewed every 5 s      | feed leader (1.4)       |
+ * | `feed:source`                           | hash            | none (rewritten on a switch) | feed leader (1b)        |
  * | `feed:status:<broker>`                  | string (JSON)   | 15 s, renewed by the leader  | feed leader (1.4)       |
  * | `candles:cov:<timeframe>:<instrumentKey>` | sorted set    | none                         | candle backfill (1.4)   |
+ * | `candles:origin`                        | string          | none                         | candle purge (1b)       |
+ * | `lock:candles:purge`                    | string          | 2 min, deleted when done     | candle purge (1b)       |
+ * | `instruments:synced:<broker>`           | string (epoch ms) | 7 days                     | instrument master (1b)  |
  * | `oauth:state:<nonce>`                   | string (JSON)   | 10 min, deleted on use       | broker OAuth (1.2)      |
+ * | `portfolio:<userId>:<accountId>:<kind>` | string (JSON)   | 5 s                          | portfolio (1b)          |
  * | `bull:<queue>:*`                        | BullMQ          | BullMQ                       | jobs (1.2; BullMQ owns them) |
  *
  * No `KEYS` and no unbounded `SCAN` on the request path.
@@ -64,15 +71,37 @@ export const redisKeys = Object.freeze({
   ticks: (broker: string): string => `ticks:${segment("broker", broker)}`,
   /** The subscriber count of an instrument: `subs:<instrumentKey>`. */
   subscriptions: (instrumentKey: string): string => `subs:${instrumentKeySegment(instrumentKey)}`,
-  /** The instruments a broker's market feed must carry (set, reconciled by the feed leader): `subs:wanted:<broker>`. */
-  subscriptionsWanted: (broker: string): string => `subs:wanted:${segment("broker", broker)}`,
-  /** The market-feed leader lock of a broker: `lock:feed:<broker>`. */
-  feedLock: (broker: string): string => `lock:feed:${segment("broker", broker)}`,
-  /** The feed leader's last reported state (JSON `{status, ts}`): `feed:status:<broker>`. */
+  /** The instruments the market feed must carry, whatever its broker (set, reconciled by the feed leader). */
+  subscriptionsWanted: (): string => "subs:wanted",
+  /** A market-feed leader lock: `lock:feed:<name>` (`market`: the one platform feed). */
+  feedLock: (name: string): string => `lock:feed:${segment("name", name)}`,
+  /** Which source drives the platform feed (hash `{broker, live, accountId, since, reason}`): `feed:source`. */
+  feedSource: (): string => "feed:source",
+  /** The feed leader's last reported state (JSON `{status, ts, lastTickAt}`): `feed:status:<broker>`. */
   feedStatus: (broker: string): string => `feed:status:${segment("broker", broker)}`,
+  /** The latest market depth of an instrument (JSON `RtDepth`, 1 day): `depth:<instrumentKey>`. */
+  depth: (instrumentKey: string): string => `depth:${instrumentKeySegment(instrumentKey)}`,
+  /** The depth fan-out channel of an instrument: `d:<instrumentKey>`. */
+  depthChannel: (instrumentKey: string): string => `d:${instrumentKeySegment(instrumentKey)}`,
   /** Time ranges already backfilled from a broker (sorted set): `candles:cov:<timeframe>:<instrumentKey>`. */
   candleCoverage: (timeframe: string, instrumentKey: string): string =>
     `candles:cov:${segment("timeframe", timeframe)}:${instrumentKeySegment(instrumentKey)}`,
+  /** `BROKER` once synthetic (paper) candles were purged from `Candle`: `candles:origin`. */
+  candleOrigin: (): string => "candles:origin",
+  /** Held (SET NX PX) by the one process purging synthetic candles: `lock:candles:purge`. */
+  candlePurgeLock: (): string => "lock:candles:purge",
+  /** When `broker`'s instrument master last synced (epoch ms): `instruments:synced:<broker>`. */
+  instrumentsSynced: (broker: string): string => `instruments:synced:${segment("broker", broker)}`,
   /** A pending broker OAuth login (JSON, 10 min, single use: GETDEL): `oauth:state:<nonce>`. */
   oauthState: (nonce: string): string => `oauth:state:${segment("nonce", nonce)}`,
+  /** A broker account's funds, positions or holdings view (JSON, 5 s): `portfolio:<userId>:<accountId>:<kind>`. */
+  portfolio: (userId: string, accountId: string, kind: string): string =>
+    `portfolio:${segment("userId", userId)}:${segment("accountId", accountId)}:${segment("kind", kind)}`,
+});
+
+/** SCAN patterns for the feed's one-off clean-ups (never on the request path). */
+export const redisKeyPatterns = Object.freeze({
+  quotes: "quote:*",
+  depths: "depth:*",
+  candleCoverage: "candles:cov:*",
 });

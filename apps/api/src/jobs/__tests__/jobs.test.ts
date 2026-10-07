@@ -5,11 +5,12 @@ import { describe, expect, it, vi } from "vitest";
 import type { Clock } from "../../common/clock";
 import type { PrismaService, TenantTransaction } from "../../infra/prisma/prisma.service";
 import type { AuditService } from "../../modules/audit/audit.service";
+import type { BrokerEvents } from "../../modules/brokers/broker-events";
 import type { InstrumentMasterService } from "../../modules/instruments/instrument-master.service";
 import type { BrokerTokenExpiryRepository, ExpiryCandidate } from "../broker-token-expiry.repository";
 import { EXPIRY_SCAN_LIMIT } from "../broker-token-expiry.repository";
 import { BrokerTokenExpiryProcessor } from "../broker-token-expiry.processor";
-import { BrokerTokenExpiryService, istDate } from "../broker-token-expiry.service";
+import { BrokerTokenExpiryService } from "../broker-token-expiry.service";
 import { InstrumentMasterSyncProcessor } from "../instrument-master-sync.processor";
 import { JobSchedulerService } from "../job-scheduler.service";
 
@@ -20,32 +21,41 @@ function candidate(id: string, broker: "UPSTOX" | "DHAN", tokenExpiresAt: Date):
   return { id, userId: `user-${id}`, broker, label: `Label ${id}`, tokenExpiresAt };
 }
 
-function setupExpiry(expired: ExpiryCandidate[], due: ExpiryCandidate[], unchanged: ReadonlySet<string> = new Set()) {
-  const page =
-    (items: ExpiryCandidate[]) =>
-    (...args: (Date | string)[]) => {
-      const last = args.at(-1);
-      const afterId = typeof last === "string" ? last : "";
-      return Promise.resolve(items.filter((item) => item.id > afterId).slice(0, 2));
-    };
+function setupExpiry(expired: ExpiryCandidate[], unchanged: ReadonlySet<string> = new Set()) {
+  const page = (now: Date, afterId = "") =>
+    Promise.resolve(
+      expired.filter((item) => item.id > afterId && item.tokenExpiresAt.getTime() <= now.getTime()).slice(0, 2),
+    );
   const repository = {
-    expired: vi.fn(page(expired)),
-    dueForReminder: vi.fn(page(due)),
+    expired: vi.fn(page),
     markExpired: vi.fn((_tx: unknown, item: ExpiryCandidate) => Promise.resolve(!unchanged.has(item.id))),
-    markReminded: vi.fn((_tx: unknown, item: ExpiryCandidate) => Promise.resolve(!unchanged.has(item.id))),
     notify: vi.fn().mockResolvedValue(undefined),
   };
+  const timeline: string[] = [];
   const audit = { record: vi.fn<AuditService["record"]>().mockResolvedValue(1n) };
-  const prisma = { db: { $transaction: (work: (tx: TenantTransaction) => unknown) => work({} as TenantTransaction) } };
+  const prisma = {
+    db: {
+      $transaction: async (work: (tx: TenantTransaction) => Promise<unknown>) => {
+        const result = await work({} as TenantTransaction);
+        timeline.push("commit");
+        return result;
+      },
+    },
+  };
+  const events = {
+    activated: vi.fn(),
+    deactivated: vi.fn((event: { accountId: string }) => timeline.push(`deactivated:${event.accountId}`)),
+  };
   const clock: Clock = { now: () => NOW };
   const service = new BrokerTokenExpiryService(
     prisma as unknown as PrismaService,
     repository as unknown as BrokerTokenExpiryRepository,
     audit as unknown as AuditService,
+    events as unknown as BrokerEvents,
     clock,
     logger(),
   );
-  return { service, repository, audit };
+  return { service, repository, audit, events, timeline };
 }
 
 describe("BrokerTokenExpiryService", () => {
@@ -55,9 +65,9 @@ describe("BrokerTokenExpiryService", () => {
       candidate("b", "DHAN", new Date("2026-10-01T00:00:00.000Z")),
       candidate("c", "UPSTOX", new Date("2026-10-05T22:00:00.000Z")),
     ];
-    const { service, repository, audit } = setupExpiry(expired, [], new Set(["c"]));
+    const { service, repository, audit, events, timeline } = setupExpiry(expired, new Set(["c"]));
 
-    expect(await service.run()).toEqual({ expired: 2, reminded: 0 });
+    expect(await service.run()).toEqual({ expired: 2 });
     expect(repository.expired).toHaveBeenCalledTimes(3); // pages of 2, then an empty page
     expect(repository.notify.mock.calls[0]?.[2]).toMatchObject({
       title: "Log in to Upstox again",
@@ -75,28 +85,21 @@ describe("BrokerTokenExpiryService", () => {
       }) as unknown,
       expect.objectContaining({ action: "broker.expire", subjectUserId: "user-b" }) as unknown,
     ]);
+    // One deactivated event per account that changed, each after its own commit; none for "c".
+    expect(events.deactivated.mock.calls.map(([event]) => event)).toEqual([
+      { userId: "user-a", accountId: "a", broker: "UPSTOX" },
+      { userId: "user-b", accountId: "b", broker: "DHAN" },
+    ]);
+    expect(timeline).toEqual(["commit", "deactivated:a", "commit", "deactivated:b", "commit"]);
   });
 
-  it("reminds Dhan accounts once, three days before expiry", async () => {
-    const due = [candidate("d", "DHAN", new Date("2026-10-08T00:00:00.000Z"))];
-    const { service, repository } = setupExpiry([], due);
-
-    expect(await service.run()).toEqual({ expired: 0, reminded: 1 });
-    expect(repository.dueForReminder.mock.calls[0]?.[1]).toEqual(new Date("2026-10-09T03:00:00.000Z"));
-    expect(repository.notify.mock.calls[0]?.[2]).toMatchObject({
-      title: "Dhan access token expires soon",
-      body: expect.stringContaining("08 Oct 2026") as unknown,
-    });
-  });
-
-  it("formats IST dates and scans in bounded pages", () => {
-    expect(istDate(new Date("2026-10-07T20:00:00.000Z"))).toBe("08 Oct 2026");
+  it("scans in bounded pages", () => {
     expect(EXPIRY_SCAN_LIMIT).toBeGreaterThan(0);
   });
 
   it("runs from its processor", async () => {
-    const { service } = setupExpiry([], []);
-    expect(await new BrokerTokenExpiryProcessor(service).process()).toEqual({ expired: 0, reminded: 0 });
+    const { service } = setupExpiry([]);
+    expect(await new BrokerTokenExpiryProcessor(service).process()).toEqual({ expired: 0 });
   });
 });
 
@@ -140,10 +143,16 @@ describe("InstrumentMasterSyncProcessor", () => {
 });
 
 describe("JobSchedulerService", () => {
-  it("registers both daily schedules in IST, idempotently by id", async () => {
+  it("registers the daily schedules and the 30-minute renewal in IST, idempotently by id", async () => {
     const sync = { upsertJobScheduler: vi.fn().mockResolvedValue({}) };
     const expiry = { upsertJobScheduler: vi.fn().mockResolvedValue({}) };
-    const scheduler = new JobSchedulerService(sync as unknown as Queue, expiry as unknown as Queue, logger());
+    const renew = { upsertJobScheduler: vi.fn().mockResolvedValue({}) };
+    const scheduler = new JobSchedulerService(
+      sync as unknown as Queue,
+      expiry as unknown as Queue,
+      renew as unknown as Queue,
+      logger(),
+    );
 
     await scheduler.schedule();
 
@@ -157,13 +166,23 @@ describe("JobSchedulerService", () => {
       { pattern: "30 8 * * *", tz: "Asia/Kolkata" },
       { name: "check", data: {} },
     );
+    expect(renew.upsertJobScheduler).toHaveBeenCalledWith(
+      "broker-token-renew:30m",
+      { pattern: "*/30 * * * *", tz: "Asia/Kolkata" },
+      { name: "renew", data: {} },
+    );
   });
 
   it("logs instead of crashing the boot when Redis is unreachable", async () => {
     const failing = { upsertJobScheduler: vi.fn().mockRejectedValue(new Error("ECONNREFUSED")) };
     const error = vi.fn();
     const log = { setContext: vi.fn(), error } as unknown as PinoLogger;
-    const scheduler = new JobSchedulerService(failing as unknown as Queue, failing as unknown as Queue, log);
+    const scheduler = new JobSchedulerService(
+      failing as unknown as Queue,
+      failing as unknown as Queue,
+      failing as unknown as Queue,
+      log,
+    );
 
     scheduler.onApplicationBootstrap();
     await vi.waitFor(() => {

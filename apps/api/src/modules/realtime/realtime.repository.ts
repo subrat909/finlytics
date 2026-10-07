@@ -1,19 +1,21 @@
 /**
- * Storage for the realtime gateway: subscription ref-counts in Redis (phase 1 plan "Redis keys"), the quote snapshot a
- * new subscriber gets, the feed's reported status, and two reads from PostgreSQL (the user's plan limit, which keys
- * name active instruments).
+ * Storage for the realtime gateway: subscription ref-counts in Redis (phase 1 plan "Redis keys"), the quote and depth
+ * snapshots a new subscriber gets, the feed's source and status, and two reads from PostgreSQL (the user's plan limit,
+ * which keys name active instruments).
  *
  * - `subs:<key>` counts subscriptions across every gateway pod. Acquire increments it and adds the key to
- *   `subs:wanted:<BROKER>` in one script; release decrements it, never below 0. At 0 the feed leader waits
- *   RT_UNSUB_GRACE_MS, then drops the key from the set atomically and unsubscribes (feed/feed.service.ts).
+ *   `subs:wanted` (whatever broker drives the feed) in one script; release decrements it, never below 0. At 0 the feed
+ *   leader waits RT_UNSUB_GRACE_MS, then drops the key from the set atomically and unsubscribes (feed/feed.service.ts).
  * - Instrument and Plan are reference data (unowned models): no user scoping applies to them. The plan limit is read
  *   through the signed-in user's own row (`where: { id: userId }`).
  */
 import { isInstrumentKey } from "@finlytics/shared";
-import type { InstrumentKey } from "@finlytics/shared";
+import type { InstrumentKey, RtDepth } from "@finlytics/shared";
 import { Injectable } from "@nestjs/common";
 
-import { quoteFromHash } from "../../feed/quote-update";
+import { FeedSourceReader } from "../../feed/feed-source";
+import type { FeedSnapshot } from "../../feed/feed-source";
+import { decodeDepth, quoteFromHash } from "../../feed/quote-update";
 import type { QuoteUpdate } from "../../feed/quote-update";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { redisKeys } from "../../infra/redis/keys";
@@ -44,12 +46,6 @@ end
 return 0
 `;
 
-/** The feed leader's last report (`feed:status:<BROKER>`). */
-export interface ReportedFeedStatus {
-  readonly status: string;
-  readonly ts: number;
-}
-
 @Injectable()
 export class RealtimeRepository {
   readonly #acquire: RedisScript;
@@ -58,14 +54,15 @@ export class RealtimeRepository {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly feed: FeedSourceReader,
   ) {
     this.#acquire = redis.defineScript({ name: "rtSubsAcquire", numberOfKeys: 2, lua: ACQUIRE_LUA });
     this.#release = redis.defineScript({ name: "rtSubsRelease", numberOfKeys: 1, lua: RELEASE_LUA });
   }
 
-  /** +1 on each key's ref-count, and marks it wanted by `broker`'s feed. */
-  async acquire(broker: string, keys: readonly InstrumentKey[]): Promise<void> {
-    const wanted = redisKeys.subscriptionsWanted(broker);
+  /** +1 on each key's ref-count, and marks it wanted by the feed. */
+  async acquire(keys: readonly InstrumentKey[]): Promise<void> {
+    const wanted = redisKeys.subscriptionsWanted();
     await Promise.all(keys.map((key) => this.#acquire([redisKeys.subscriptions(key), wanted], [key])));
   }
 
@@ -90,18 +87,15 @@ export class RealtimeRepository {
     return updates;
   }
 
-  /** What the feed leader last reported, or undefined (missing, expired or malformed). */
-  async feedStatus(broker: string): Promise<ReportedFeedStatus | undefined> {
-    const raw = await this.redis.client.get(redisKeys.feedStatus(broker));
-    if (raw === null) return undefined;
-    try {
-      const parsed: unknown = JSON.parse(raw);
-      if (typeof parsed !== "object" || parsed === null) return undefined;
-      const { status, ts } = parsed as Record<string, unknown>;
-      return typeof status === "string" && typeof ts === "number" ? { status, ts } : undefined;
-    } catch {
-      return undefined;
-    }
+  /** The stored book of `key`, or undefined (none, expired or malformed). */
+  async depthSnapshot(key: InstrumentKey): Promise<RtDepth | undefined> {
+    const depth = decodeDepth(await this.redis.client.get(redisKeys.depth(key)));
+    return depth?.k === key ? depth : undefined;
+  }
+
+  /** The feed's source and its leader's last report (cached for a second). */
+  feedSnapshot(): Promise<FeedSnapshot> {
+    return this.feed.current();
   }
 
   /** The user's `Plan.maxRtSubscriptions`, or the default without a plan. */

@@ -9,6 +9,8 @@ import {
   RateLimitedError as BrokerRateLimitedError,
   Secret,
 } from "@finlytics/broker-sdk";
+import { EventEmitter2 } from "@nestjs/event-emitter";
+import type { PinoLogger } from "nestjs-pino";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -22,13 +24,14 @@ import type { PrismaService, TenantTransaction } from "../../../infra/prisma/pri
 import type { RedisService } from "../../../infra/redis/redis.service";
 import type { AuditService } from "../../audit/audit.service";
 import { BrokerAccessService } from "../broker-access.service";
+import { BROKER_ACCOUNT_EVENTS, BrokerEvents } from "../broker-events";
 import { BrokerDomainError, brokerProblem, lastErrorFor } from "../broker-errors";
 import { adapterOptions } from "../broker-gateways";
 import { OAuthStateService } from "../oauth-state.service";
 import { dhanExpiry, jwtExpiry, nextUpstoxExpiry } from "../token-expiry";
 
 import { MemoryAccounts } from "./memory-accounts";
-import { gateways as buildGateways, vault as buildVault } from "./support";
+import { events as buildEvents, gateways as buildGateways, logger, vault as buildVault } from "./support";
 
 describe("brokerProblem", () => {
   it("maps each broker error code to a curated problem", () => {
@@ -81,7 +84,8 @@ describe("token expiry", () => {
     expect(jwtExpiry("opaque")).toBeUndefined();
     const now = new Date("2026-10-06T00:00:00.000Z");
     expect(dhanExpiry(new Date(5), "opaque", now)).toEqual(new Date(5));
-    expect(dhanExpiry(undefined, "opaque", now)).toEqual(new Date("2026-11-05T00:00:00.000Z"));
+    // DhanHQ tokens last 24 hours (v2.4).
+    expect(dhanExpiry(undefined, "opaque", now)).toEqual(new Date("2026-10-07T00:00:00.000Z"));
   });
 });
 
@@ -206,14 +210,16 @@ describe("BrokerAccessService", () => {
         credentialsIv: sealed.iv,
       },
     );
+    const { events, emitted } = buildEvents();
     const service = new BrokerAccessService(
       prisma as unknown as PrismaService,
       accounts.asRepository(),
       vault,
       gateways,
       audit as unknown as AuditService,
+      events,
     );
-    return { service, accounts, audit, gateways };
+    return { service, accounts, audit, gateways, emitted };
   }
 
   it("decrypts an ACTIVE account into a ref with the broker's shared gateway", async () => {
@@ -238,13 +244,67 @@ describe("BrokerAccessService", () => {
     await expect(service.accountRef("alice", "acct1")).rejects.toMatchObject({ code: "NEEDS_RELOGIN" });
   });
 
-  it("flags a refused token once, audited as the system", async () => {
-    const { service, accounts, audit } = await setup();
+  it("flags a refused token once, audited as the system, with one deactivated event", async () => {
+    const { service, accounts, audit, emitted } = await setup();
 
     expect(await service.markNeedsRelogin("alice", "acct1")).toBe(true);
     expect(await service.markNeedsRelogin("alice", "acct1")).toBe(false);
+    expect(await service.markNeedsRelogin("bob", "acct1")).toBe(false);
     expect(accounts.get("acct1")?.status).toBe("NEEDS_RELOGIN");
     expect(audit.record).toHaveBeenCalledTimes(1);
-    expect(audit.record.mock.calls[0]?.[1]).toMatchObject({ action: "broker.expire", actor: { type: "system" } });
+    expect(audit.record.mock.calls[0]?.[1]).toMatchObject({
+      action: "broker.expire",
+      actor: { type: "system" },
+      data: { broker: "DHAN", reason: "refused" },
+    });
+    expect(emitted).toEqual([{ name: "deactivated", event: { userId: "alice", accountId: "acct1", broker: "DHAN" } }]);
+  });
+
+  it("doesn't flag an account that changed between the read and the write", async () => {
+    const { service, accounts, emitted } = await setup();
+    const repository = accounts.repository;
+    const update = repository.update;
+    repository.update = () => Promise.resolve(false);
+
+    expect(await service.markNeedsRelogin("alice", "acct1")).toBe(false);
+    repository.update = update;
+    expect(emitted).toEqual([]);
+  });
+});
+
+describe("BrokerEvents", () => {
+  it("emits the broker.account events with exactly userId, accountId and broker", () => {
+    const emitter = new EventEmitter2();
+    const seen: { name: string; payload: unknown }[] = [];
+    for (const name of Object.values(BROKER_ACCOUNT_EVENTS)) {
+      emitter.on(name, (payload: unknown) => seen.push({ name, payload }));
+    }
+    const events = new BrokerEvents(emitter, logger());
+    const extra = { userId: "u1", accountId: "a1", broker: "DHAN" as const, token: "never" };
+
+    events.activated(extra);
+    events.deactivated({ userId: "u1", accountId: "a1", broker: "DHAN" });
+
+    expect(seen).toEqual([
+      { name: "broker.account.activated", payload: { userId: "u1", accountId: "a1", broker: "DHAN" } },
+      { name: "broker.account.deactivated", payload: { userId: "u1", accountId: "a1", broker: "DHAN" } },
+    ]);
+  });
+
+  it("logs a listener's failure instead of failing the change that already happened", () => {
+    const emitter = new EventEmitter2();
+    emitter.on(BROKER_ACCOUNT_EVENTS.deactivated, () => {
+      throw new Error("listener bug");
+    });
+    const error = vi.fn();
+    const events = new BrokerEvents(emitter, { setContext: vi.fn(), error } as unknown as PinoLogger);
+
+    expect(() => {
+      events.deactivated({ userId: "u1", accountId: "a1", broker: "UPSTOX" });
+    }).not.toThrow();
+    expect(error).toHaveBeenCalledWith(
+      expect.objectContaining({ event: "broker.account.deactivated", brokerAccountId: "a1" }),
+      "broker event listener failed",
+    );
   });
 });

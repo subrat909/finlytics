@@ -3,12 +3,19 @@
  * port, the paper feed as leader, and socket.io-client connecting with a real session cookie over msgpack.
  *
  * sub → ref-count and wanted set in Redis → the feed subscribes → ticks to `quote:*` and `q:*` → coalesced `q` events
- * (at most one per 100 ms) → unsub → after the (shortened) grace the feed drops the key. Handshakes without a valid
- * session or from a foreign Origin are refused.
+ * (at most one per 100 ms, 12-tuple rows) → unsub → after the (shortened) grace the feed drops the key. `dsub` streams
+ * the simulator's book as `depth` events (also served by `GET /v1/quotes/depth`). Handshakes without a valid session or
+ * from a foreign Origin are refused.
  */
 import type { PrismaClient } from "@finlytics/database";
-import { RtQuoteBatchSchema, RtStatusSchema, RtSubscribeAckSchema } from "@finlytics/shared";
-import type { RtQuoteBatch } from "@finlytics/shared";
+import {
+  RtDepthAckSchema,
+  RtDepthSchema,
+  RtQuoteBatchSchema,
+  RtStatusSchema,
+  RtSubscribeAckSchema,
+} from "@finlytics/shared";
+import type { RtDepth, RtQuoteBatch } from "@finlytics/shared";
 import { Redis } from "ioredis";
 import { io } from "socket.io-client";
 import type { Socket } from "socket.io-client";
@@ -74,7 +81,7 @@ describe("realtime gateway with the paper feed", () => {
   beforeAll(async () => {
     fixtures = fixturesClient();
     redis = new Redis(inject("redisUrl"));
-    for (let index = 0; index < 2; index += 1) {
+    for (let index = 0; index < 3; index += 1) {
       const key = `NSE_EQ|RT${uniqueSuffix().toUpperCase()}`;
       await fixtures.instrument.create({
         data: {
@@ -136,10 +143,11 @@ describe("realtime gateway with the paper feed", () => {
     );
     expect(ack).toEqual({ ok: [key], rejected: [{ key: "not a key", reason: "invalid_key" }] });
     expect(await redis.get(`subs:${key}`)).toBe("1");
-    expect(await redis.sismember("subs:wanted:PAPER", key)).toBe(1);
+    expect(await redis.sismember("subs:wanted", key)).toBe(1);
 
     await eventually(() => batches.length >= 8);
-    expect(RtStatusSchema.safeParse(statuses[0]).success).toBe(true);
+    expect(RtStatusSchema.parse(statuses[0])).toMatchObject({ source: "PAPER", live: false });
+    expect(await redis.hget("feed:source", "broker")).toBe("PAPER");
     expect(testApp.app.get(FeedService).engine.subscribedKeys().map(String)).toContain(key);
     for (const { batch } of batches) {
       const rows = batch.d.filter(([rowKey]) => rowKey === key);
@@ -155,9 +163,45 @@ describe("realtime gateway with the paper feed", () => {
     const unsub = (await socket.timeout(5_000).emitWithAck("unsub", { keys: [key] })) as { ok: string[] };
     expect(unsub).toEqual({ ok: [key] });
     expect(await redis.get(`subs:${key}`)).toBe("0");
-    await eventually(async () => (await redis.sismember("subs:wanted:PAPER", key)) === 0);
+    await eventually(async () => (await redis.sismember("subs:wanted", key)) === 0);
     await eventually(() => !testApp.app.get(FeedService).engine.subscribedKeys().map(String).includes(key));
     expect(await redis.exists(`subs:${key}`)).toBe(0);
+    socket.disconnect();
+  });
+
+  it("streams the book of a subscribed key on dsub, at most 4 a second, and serves it over REST", async () => {
+    const key = keys[2] ?? "";
+    const socket = connect({ cookie, origin: ORIGIN });
+    const books: { at: number; depth: RtDepth }[] = [];
+    socket.on("depth", (depth: unknown) => {
+      books.push({ at: Date.now(), depth: RtDepthSchema.parse(depth) });
+    });
+    await connected(socket);
+
+    // Depth rides on a quote subscription.
+    expect(RtDepthAckSchema.parse(await socket.timeout(5_000).emitWithAck("dsub", { key }))).toEqual({
+      ok: false,
+      reason: "invalid_key",
+    });
+    await socket.timeout(5_000).emitWithAck("sub", { keys: [key] });
+    expect(RtDepthAckSchema.parse(await socket.timeout(5_000).emitWithAck("dsub", { key }))).toEqual({ ok: true });
+
+    await eventually(() => books.length >= 6);
+    expect(books.every(({ depth }) => depth.k === key && depth.bids.length === 5 && depth.asks.length === 5)).toBe(
+      true,
+    );
+    // Ticks every 20 ms; books at most every ~250 ms after the snapshot.
+    const gaps = books.slice(2).map((entry, index) => entry.at - (books[index + 1]?.at ?? 0));
+    expect(Math.min(...gaps)).toBeGreaterThanOrEqual(150);
+
+    const rest = await fetch(`${baseUrl}/v1/quotes/depth?key=${encodeURIComponent(key)}`, { headers: { cookie } });
+    expect(rest.status).toBe(200);
+    expect(RtDepthSchema.parse(await rest.json()).k).toBe(key);
+
+    expect(await socket.timeout(5_000).emitWithAck("dunsub", { key })).toEqual({ ok: true });
+    const count = books.length;
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(books.length).toBeLessThanOrEqual(count + 1);
     socket.disconnect();
   });
 

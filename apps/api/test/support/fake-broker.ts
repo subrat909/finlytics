@@ -1,7 +1,8 @@
 /**
- * A scriptable BrokerAdapter for api tests (no network): Upstox-like OAuth, Dhan-like pasted tokens, or none. Every
- * operation the api doesn't use in 1.2 throws. Registered through a real BrokerRegistry, so the api's code path
- * (registry → BrokerGateway → adapter) is the production one.
+ * A scriptable BrokerAdapter for api tests (no network): Upstox-like OAuth, Dhan-like pasted tokens, or none; scripted
+ * funds, positions and holdings (the portfolio) and token renewal. Every operation the api doesn't use yet throws.
+ * Registered through a real BrokerRegistry, so the api's code path (registry → BrokerGateway → adapter) is the
+ * production one.
  */
 import { BrokerRegistry, NeedsReloginError, Secret } from "@finlytics/broker-sdk";
 import type {
@@ -9,8 +10,11 @@ import type {
   BrokerAdapter,
   BrokerCapabilities,
   BrokerCredentials,
+  BrokerHolding,
+  BrokerPosition,
   DefaultBrokerFactoryOptions,
   ExchangeTokenInput,
+  Funds,
   InstrumentRow,
   Profile,
 } from "@finlytics/broker-sdk";
@@ -31,11 +35,19 @@ export interface FakeBrokerScript {
   readonly master?: readonly InstrumentRow[];
   /** Thrown by every network call when set (simulates an outage). */
   readonly failWith?: Error;
+  /** `getFunds` (default: zero), `getPositions` and `getHoldings` (default: none). */
+  readonly funds?: Funds;
+  readonly positions?: readonly BrokerPosition[];
+  readonly holdings?: readonly BrokerHolding[];
+  /** Thrown by `getFunds`, `getPositions` and `getHoldings` only (a refused token, an outage). */
+  readonly portfolioError?: Error;
+  /** `refreshToken`: the renewed token (and its expiry), or the error to throw. Makes the broker refreshable. */
+  readonly renew?: { readonly token: string; readonly expiresAt?: Date } | Error;
 }
 
-const CAPABILITIES = (mode: AuthStart["mode"]): BrokerCapabilities => ({
+const CAPABILITIES = (mode: AuthStart["mode"], refreshable: boolean): BrokerCapabilities => ({
   authMode: mode,
-  refreshable: false,
+  refreshable,
   maxFeedInstruments: 1_000,
   orderFeedScope: "account",
 });
@@ -49,6 +61,8 @@ export interface FakeBrokerLog {
   readonly appCredentials: (Readonly<Record<string, Secret>> | undefined)[];
   readonly exchanges: ExchangeTokenInput[];
   readonly authUrls: { state: string; redirectUri: string }[];
+  /** Portfolio and renewal calls, by method name, with the access token they were made with. */
+  readonly calls: { method: string; token: string }[];
 }
 
 export class FakeBrokerAdapter implements BrokerAdapter {
@@ -60,7 +74,7 @@ export class FakeBrokerAdapter implements BrokerAdapter {
     private readonly log: FakeBrokerLog,
     private readonly appCredentials?: Readonly<Record<string, Secret>>,
   ) {
-    this.capabilities = CAPABILITIES(script.authMode);
+    this.capabilities = CAPABILITIES(script.authMode, script.renew !== undefined);
   }
 
   getAuthUrl(input: { readonly state: string; readonly redirectUri: string }): AuthStart {
@@ -111,14 +125,44 @@ export class FakeBrokerAdapter implements BrokerAdapter {
     }
   }
 
-  refreshToken = notUsed;
-  getFunds = notUsed;
+  refreshToken(ctx: { readonly creds: BrokerCredentials }): Promise<BrokerCredentials> {
+    this.log.calls.push({ method: "refreshToken", token: ctx.creds.accessToken.reveal() });
+    const renew = this.script.renew;
+    if (renew === undefined) return Promise.reject(new NeedsReloginError("Not renewable"));
+    if (renew instanceof Error) return Promise.reject(renew);
+    return Promise.resolve({
+      accessToken: Secret.of(renew.token),
+      ...(ctx.creds.clientId === undefined ? {} : { clientId: ctx.creds.clientId }),
+      ...(renew.expiresAt === undefined ? {} : { expiresAt: renew.expiresAt }),
+    });
+  }
+
+  getFunds(ctx: { readonly creds: BrokerCredentials }): Promise<Funds> {
+    return this.portfolio(
+      "getFunds",
+      ctx,
+      this.script.funds ?? { availableMargin: "0", usedMargin: "0", collateral: "0" },
+    );
+  }
+
+  getPositions(ctx: { readonly creds: BrokerCredentials }): Promise<BrokerPosition[]> {
+    return this.portfolio("getPositions", ctx, [...(this.script.positions ?? [])]);
+  }
+
+  getHoldings(ctx: { readonly creds: BrokerCredentials }): Promise<BrokerHolding[]> {
+    return this.portfolio("getHoldings", ctx, [...(this.script.holdings ?? [])]);
+  }
+
+  private portfolio<T>(method: string, ctx: { readonly creds: BrokerCredentials }, answer: T): Promise<T> {
+    this.log.calls.push({ method, token: ctx.creds.accessToken.reveal() });
+    const error = this.script.portfolioError ?? this.script.failWith;
+    return error === undefined ? Promise.resolve(answer) : Promise.reject(error);
+  }
+
   placeOrder = notUsed;
   modifyOrder = notUsed;
   cancelOrder = notUsed;
   getOrderBook = notUsed;
-  getPositions = notUsed;
-  getHoldings = notUsed;
   getHistoricalCandles = notUsed;
   connectMarketFeed = notUsed;
   connectOrderFeed = notUsed;
@@ -129,7 +173,7 @@ export function fakeRegistry(scripts: Partial<Record<BrokerCode, FakeBrokerScrip
   registry: BrokerRegistry;
   log: FakeBrokerLog;
 } {
-  const log: FakeBrokerLog = { appCredentials: [], exchanges: [], authUrls: [] };
+  const log: FakeBrokerLog = { appCredentials: [], exchanges: [], authUrls: [], calls: [] };
   const registry = new BrokerRegistry();
   for (const [code, script] of Object.entries(scripts) as [BrokerCode, FakeBrokerScript][]) {
     registry.register(code, (options: unknown) => {

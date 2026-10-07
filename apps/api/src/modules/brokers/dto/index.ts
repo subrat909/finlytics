@@ -4,6 +4,7 @@ import {
   BrokerAccountListSchema,
   BrokerAccountViewSchema,
   BrokerAuthRedirectSchema,
+  BrokerLimitsSchema,
   ConnectDhanSchema,
   ConnectPaperSchema,
   ConnectUpstoxSchema,
@@ -15,6 +16,7 @@ import { z } from "zod";
 export class BrokerAccountViewDto extends createZodDto(BrokerAccountViewSchema) {}
 export class BrokerAccountListDto extends createZodDto(BrokerAccountListSchema) {}
 export class BrokerAuthRedirectDto extends createZodDto(BrokerAuthRedirectSchema) {}
+export class BrokerLimitsDto extends createZodDto(BrokerLimitsSchema) {}
 export class ConnectUpstoxDto extends createZodDto(ConnectUpstoxSchema) {}
 export class ConnectDhanDto extends createZodDto(ConnectDhanSchema) {}
 export class ConnectPaperDto extends createZodDto(ConnectPaperSchema) {}

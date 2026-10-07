@@ -152,6 +152,36 @@ describe("PaperSimulatorFeed", () => {
     await alwaysOn.close();
   });
 
+  it("simulates the top of book, ATP and a five-level book for tradables, whatever the mode; none for indices", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TUESDAY_10_IST);
+    const feed = new PaperSimulatorFeed({ seed: 1, tickMs: 100, alwaysOn: true });
+    const ticks = new Map<string, Tick>();
+    feed.on("tick", (tick) => ticks.set(tick.instrumentKey, tick));
+    await feed.subscribe([RELIANCE, NIFTY], "full");
+    await feed.subscribe([OPTION], "quote");
+    await vi.advanceTimersByTimeAsync(100);
+
+    const stock = ticks.get(RELIANCE);
+    expect(TickSchema.safeParse(stock).success).toBe(true);
+    expect(stock?.depth?.bids).toHaveLength(5);
+    expect(stock?.depth?.asks).toHaveLength(5);
+    expect(Number(stock?.depth?.asks[0]?.price)).toBeGreaterThan(Number(stock?.depth?.bids[0]?.price));
+    expect(stock?.tbq).toBe(stock?.depth?.bids.reduce((sum, level) => sum + level.qty, 0));
+    expect(stock?.bid).toBe(stock?.depth?.bids[0]?.price);
+    expect(stock?.atp).toBeDefined();
+    expect(stock?.ltq).toBeGreaterThan(0);
+    expect(ticks.get(OPTION)?.depth?.bids.length).toBeGreaterThan(0);
+    expect(ticks.get(OPTION)?.bid).toBeDefined();
+    expect(ticks.get(OPTION)?.tsq).toBeGreaterThan(0);
+    const index = ticks.get(NIFTY);
+    expect(index?.depth).toBeUndefined();
+    expect(index?.bid).toBeUndefined();
+    expect(index?.atp).toBeUndefined();
+    await feed.unsubscribe([RELIANCE]);
+    await feed.close();
+  });
+
   it("reports closed and refuses new subscriptions once closed", async () => {
     const feed = new PaperSimulatorFeed({ seed: 1, tickMs: 1_000, alwaysOn: true });
     const statuses: string[] = [];

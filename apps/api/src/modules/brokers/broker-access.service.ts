@@ -6,7 +6,9 @@
  * - `accountRef(userId, id)`: one of the user's accounts (404 if not theirs; NEEDS_RELOGIN unless ACTIVE).
  * - `defaultAccountRef(userId)`: the user's default ACTIVE account, else their latest ACTIVE one, else null.
  * - `systemAccountRef(id)`: an account known only by id (MARKET_FEED_ACCOUNT_ID, plan P2), else null.
- * - `markNeedsRelogin(userId, id)`: after the broker refused the token (NeedsReloginError), audited as the system.
+ * Each awaits the broker's instrument map (BrokerGateways.prepare) before handing the account out.
+ * - `markNeedsRelogin(userId, id)`: after the broker refused the token (NeedsReloginError), audited as the system;
+ *   emits `broker.account.deactivated` after the commit.
  */
 import type { BrokerAccountRef, BrokerGateway } from "@finlytics/broker-sdk";
 import type { BrokerCode } from "@finlytics/shared";
@@ -18,6 +20,7 @@ import { VaultService } from "../../infra/vault/vault.service";
 import { AuditService } from "../audit/audit.service";
 
 import { BrokerDomainError } from "./broker-errors";
+import { BrokerEvents } from "./broker-events";
 import { BrokerGateways } from "./broker-gateways";
 import { BrokersRepository } from "./brokers.repository";
 import type { BrokerAccountSecretRow } from "./brokers.repository";
@@ -39,13 +42,14 @@ export class BrokerAccessService {
     private readonly vault: VaultService,
     private readonly gateways: BrokerGateways,
     private readonly audit: AuditService,
+    private readonly events: BrokerEvents,
   ) {}
 
   /** @throws {NotFoundError} when the account isn't the user's; NEEDS_RELOGIN (409) when it isn't ACTIVE. */
   async accountRef(userId: string, id: string): Promise<ConnectedAccount> {
     const row = await this.accounts.findSecrets(userId, id);
     if (row === null) throw new NotFoundError("Broker account not found.");
-    const connected = this.connected(userId, row);
+    const connected = await this.connected(userId, row);
     if (connected === null) throw new BrokerDomainError("NEEDS_RELOGIN", "Log in to your broker again to continue.");
     return connected;
   }
@@ -64,7 +68,9 @@ export class BrokerAccessService {
 
   /** Flags an ACTIVE account whose token the broker refused; true when this call changed it. */
   async markNeedsRelogin(userId: string, id: string): Promise<boolean> {
-    return this.prisma.db.$transaction(async (tx) => {
+    const broker = await this.prisma.db.$transaction(async (tx) => {
+      const row = await this.accounts.findView(userId, id, tx);
+      if (row?.status !== "ACTIVE") return null;
       const changed = await this.accounts.update(
         tx,
         userId,
@@ -72,25 +78,29 @@ export class BrokerAccessService {
         { status: "NEEDS_RELOGIN", lastError: "The broker session has ended. Log in again." },
         { status: "ACTIVE" },
       );
-      if (changed) {
-        await this.audit.record(tx, {
-          action: "broker.expire",
-          actor: { type: "system" },
-          subjectUserId: userId,
-          entity: { type: "BrokerAccount", id },
-          data: { reason: "refused" },
-        });
-      }
-      return changed;
+      if (!changed) return null;
+      await this.audit.record(tx, {
+        action: "broker.expire",
+        actor: { type: "system" },
+        subjectUserId: userId,
+        entity: { type: "BrokerAccount", id },
+        data: { broker: row.broker, reason: "refused" },
+      });
+      return row.broker;
     });
+    if (broker === null) return false;
+    this.events.deactivated({ userId, accountId: id, broker });
+    return true;
   }
 
-  private connected(userId: string, row: BrokerAccountSecretRow): ConnectedAccount | null {
+  /** The account ready for gateway calls (its broker's instrument map loaded), or null unless ACTIVE. */
+  private async connected(userId: string, row: BrokerAccountSecretRow): Promise<ConnectedAccount | null> {
     if (row.status !== "ACTIVE" || row.encryptedCredentials === null || row.credentialsIv === null) return null;
     const creds = this.vault.openCredentials({ userId, brokerAccountId: row.id }, dataKeyOf(row), {
       ciphertext: row.encryptedCredentials,
       iv: row.credentialsIv,
     });
+    await this.gateways.prepare(row.broker);
     return {
       userId,
       broker: row.broker,

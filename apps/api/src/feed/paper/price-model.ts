@@ -108,8 +108,12 @@ export class PriceWalk {
   high: string;
   low: string;
   volume = 0;
+  /** The last step's traded quantity. */
+  ltq = 0;
   readonly #random: () => number;
   readonly #stepFraction: number;
+  /** Σ price × quantity, for the average traded price (a float inside the model only). */
+  #turnover = 0;
 
   /**
    * @param seed the run's seed (MARKET_FEED_PAPER_SEED); combined with the key, so each instrument has its own walk
@@ -134,9 +138,48 @@ export class PriceWalk {
     this.ltp = next.lt(PAPER_TICK_SIZE) ? PAPER_TICK_SIZE : toDecimalString(next);
     if (toDecimal(this.ltp).gt(this.high)) this.high = this.ltp;
     if (toDecimal(this.ltp).lt(this.low)) this.low = this.ltp;
-    this.volume += 1 + Math.floor(this.#random() * 500);
+    this.ltq = 1 + Math.floor(this.#random() * 500);
+    this.volume += this.ltq;
+    this.#turnover += Number(this.ltp) * this.ltq;
     return this.ltp;
   }
+
+  /** The average traded price so far (on the paper tick), or undefined before the first trade. */
+  get atp(): string | undefined {
+    return this.volume === 0 ? undefined : toPaperPrice(this.#turnover / this.volume);
+  }
+}
+
+/** One simulated book level: price, quantity and orders. */
+export interface PaperBookLevel {
+  readonly price: string;
+  readonly qty: number;
+  readonly orders: number;
+}
+
+/**
+ * A plausible five-level book around `ltp`: bids one tick apart below it, asks above, with quantities drawn from
+ * `random` (a separate stream from the walk's, so the price path doesn't depend on whether depth is asked for).
+ */
+export function paperBook(
+  ltp: string,
+  random: () => number,
+  levels = 5,
+): { bids: PaperBookLevel[]; asks: PaperBookLevel[] } {
+  const tick = toDecimal(PAPER_TICK_SIZE);
+  const price = toDecimal(ltp);
+  const level = (offset: number): PaperBookLevel => ({
+    price: toDecimalString(price.plus(tick.times(offset))),
+    qty: 1 + Math.floor(random() * 2_000),
+    orders: 1 + Math.floor(random() * 25),
+  });
+  const bids: PaperBookLevel[] = [];
+  const asks: PaperBookLevel[] = [];
+  for (let index = 1; index <= levels; index += 1) {
+    if (price.minus(tick.times(index)).gt(0)) bids.push(level(-index));
+    asks.push(level(index));
+  }
+  return { bids, asks };
 }
 
 const DAY_MS = 86_400_000;

@@ -22,7 +22,11 @@ import { DEFAULT_JOB_OPTIONS, QUEUE_NAMES } from "./queue-names";
         defaultJobOptions: DEFAULT_JOB_OPTIONS,
       }),
     }),
-    BullModule.registerQueue({ name: QUEUE_NAMES.instrumentMasterSync }, { name: QUEUE_NAMES.brokerTokenExpiry }),
+    BullModule.registerQueue(
+      { name: QUEUE_NAMES.instrumentMasterSync },
+      { name: QUEUE_NAMES.brokerTokenExpiry },
+      { name: QUEUE_NAMES.brokerTokenRenew },
+    ),
   ],
   exports: [BullModule],
 })

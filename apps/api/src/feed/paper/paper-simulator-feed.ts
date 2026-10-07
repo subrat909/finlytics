@@ -2,6 +2,10 @@
  * The paper market feed (phase 1 plan P2): a {@link MarketFeed} that simulates ticks for its subscribed instruments,
  * so the platform runs end to end with no broker. Each subscribed key gets a snapshot tick on subscribe, then one tick
  * every `tickMs` while its exchange is open (or always, with `alwaysOn`, the development default).
+ *
+ * Ticks carry the day's open/high/low, volume, the last traded quantity and, for tradable instruments (not indices),
+ * the average traded price, the top of book and a simulated five-level book with its totals (whatever the mode), so
+ * depth panels work without a broker.
  */
 import { FeedSubscriptions, TypedEmitter } from "@finlytics/broker-sdk";
 import type { FeedMode, FeedStatus, MarketFeed, MarketFeedEvents, Tick, Unsubscribe } from "@finlytics/broker-sdk";
@@ -9,7 +13,7 @@ import type { InstrumentKey } from "@finlytics/shared";
 
 import { isMarketOpen } from "../market-hours";
 
-import { exchangeOf, PriceWalk } from "./price-model";
+import { exchangeOf, hashString, mulberry32, paperBook, PriceWalk } from "./price-model";
 
 export interface PaperSimulatorOptions {
   readonly seed: number;
@@ -25,6 +29,7 @@ export class PaperSimulatorFeed implements MarketFeed {
   readonly #events = new TypedEmitter<MarketFeedEvents>();
   readonly #subscriptions: FeedSubscriptions;
   readonly #walks = new Map<InstrumentKey, PriceWalk>();
+  readonly #books = new Map<InstrumentKey, () => number>();
   readonly #timer: NodeJS.Timeout;
   readonly #now: () => number;
   #status: FeedStatus = "up";
@@ -57,7 +62,10 @@ export class PaperSimulatorFeed implements MarketFeed {
   }
 
   unsubscribe(keys: readonly InstrumentKey[]): Promise<void> {
-    for (const key of this.#subscriptions.remove(keys)) this.#walks.delete(key);
+    for (const key of this.#subscriptions.remove(keys)) {
+      this.#walks.delete(key);
+      this.#books.delete(key);
+    }
     return Promise.resolve();
   }
 
@@ -75,6 +83,7 @@ export class PaperSimulatorFeed implements MarketFeed {
       this.#status = "closed";
       this.#subscriptions.clear();
       this.#walks.clear();
+      this.#books.clear();
       this.#events.emit("status", "closed");
       this.#events.removeAllListeners();
     }
@@ -100,7 +109,29 @@ export class PaperSimulatorFeed implements MarketFeed {
       high: walk.high,
       low: walk.low,
       volume: walk.volume,
+      ...(walk.ltq > 0 ? { ltq: walk.ltq } : {}),
+      ...this.#book(key, walk),
     };
     this.#events.emit("tick", tick);
+  }
+
+  /** ATP, the top of book and a five-level book with its totals, for tradable instruments. */
+  #book(key: InstrumentKey, walk: PriceWalk): Partial<Tick> {
+    if (key.split("|")[0]?.endsWith("_INDEX") === true) return {};
+    let random = this.#books.get(key);
+    if (random === undefined) {
+      random = mulberry32(hashString(`${String(this.options.seed)}:${key}:book`));
+      this.#books.set(key, random);
+    }
+    const book = paperBook(walk.ltp, random);
+    const [bid, ask] = [book.bids[0], book.asks[0]];
+    return {
+      ...(walk.atp === undefined ? {} : { atp: walk.atp }),
+      ...(bid === undefined ? {} : { bid: bid.price, bidQty: bid.qty }),
+      ...(ask === undefined ? {} : { ask: ask.price, askQty: ask.qty }),
+      depth: { bids: book.bids, asks: book.asks },
+      tbq: book.bids.reduce((sum, level) => sum + level.qty, 0),
+      tsq: book.asks.reduce((sum, level) => sum + level.qty, 0),
+    };
   }
 }

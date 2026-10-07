@@ -293,40 +293,55 @@ describe("loadEnv", () => {
     ]);
   });
 
-  it("defaults the market feed to an always-on paper simulator outside production", () => {
+  it("defaults the market feed to auto with an always-on simulator outside production", () => {
     const env = loadEnv(REQUIRED);
     expect(env).toMatchObject({
-      MARKET_FEED_SOURCE: "paper",
+      MARKET_FEED_SOURCE: "auto",
       MARKET_FEED_ALWAYS_ON: true,
       MARKET_FEED_PAPER_SEED: 1,
       MARKET_FEED_PAPER_TICK_MS: 250,
       RT_UNSUB_GRACE_MS: 30_000,
     });
     expect(env.MARKET_FEED_ACCOUNT_ID).toBeUndefined();
+    expect(loadEnv({ ...REQUIRED, MARKET_FEED_SOURCE: "paper" }).MARKET_FEED_SOURCE).toBe("paper");
   });
 
-  it("keeps one role per process and an explicit feed source in production", () => {
-    expect(issuesOf({ ...PRODUCTION, APP_ROLE: "http,gateway", MARKET_FEED_SOURCE: "paper" })).toEqual([
+  it("keeps one role per process and an explicit broker feed source in production", () => {
+    expect(issuesOf({ ...PRODUCTION, APP_ROLE: "http,gateway", MARKET_FEED_SOURCE: "upstox" })).toEqual([
       "APP_ROLE: must name one role per process in production",
     ]);
     expect(issuesOf({ ...PRODUCTION, APP_ROLE: "gateway" })).toEqual([
       "MARKET_FEED_SOURCE: must be set in production when APP_ROLE is feed or gateway",
     ]);
-    const env = loadEnv({ ...PRODUCTION, APP_ROLE: "feed", MARKET_FEED_SOURCE: "paper" });
+    for (const source of ["auto", "paper"]) {
+      expect(issuesOf({ ...PRODUCTION, APP_ROLE: "gateway", MARKET_FEED_SOURCE: source })).toEqual([
+        "MARKET_FEED_SOURCE: must be upstox or dhan in production: never simulated or picked from user accounts",
+      ]);
+    }
+    const env = loadEnv({
+      ...PRODUCTION,
+      APP_ROLE: "feed",
+      MARKET_FEED_SOURCE: "dhan",
+      MARKET_FEED_ACCOUNT_ID: "cmabc",
+    });
     expect(env.MARKET_FEED_ALWAYS_ON).toBe(false);
     expect(loadEnv(PRODUCTION).APP_ROLE).toEqual(["http"]);
   });
 
-  it("requires the feed account for an upstox feed", () => {
+  it("requires the feed account for a broker feed", () => {
     expect(issuesOf({ ...REQUIRED, APP_ROLE: "feed", MARKET_FEED_SOURCE: "upstox" })).toEqual([
       "MARKET_FEED_ACCOUNT_ID: is required when MARKET_FEED_SOURCE is upstox and APP_ROLE includes feed",
+    ]);
+    expect(issuesOf({ ...REQUIRED, APP_ROLE: "feed", MARKET_FEED_SOURCE: "dhan" })).toEqual([
+      "MARKET_FEED_ACCOUNT_ID: is required when MARKET_FEED_SOURCE is dhan and APP_ROLE includes feed",
     ]);
     expect(
       loadEnv({ ...REQUIRED, APP_ROLE: "feed", MARKET_FEED_SOURCE: "upstox", MARKET_FEED_ACCOUNT_ID: "cmabc123" })
         .MARKET_FEED_ACCOUNT_ID,
     ).toBe("cmabc123");
-    expect(issuesOf({ ...REQUIRED, MARKET_FEED_SOURCE: "dhan" })).toEqual([
-      "MARKET_FEED_SOURCE: must be paper or upstox",
+    expect(loadEnv({ ...REQUIRED, APP_ROLE: "feed", MARKET_FEED_SOURCE: "auto" }).MARKET_FEED_SOURCE).toBe("auto");
+    expect(issuesOf({ ...REQUIRED, MARKET_FEED_SOURCE: "zerodha" })).toEqual([
+      "MARKET_FEED_SOURCE: must be auto, paper, upstox or dhan",
     ]);
   });
 
