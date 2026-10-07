@@ -12,6 +12,8 @@ const twMerge = extendTailwindMerge({
   extend: {
     theme: {
       animate: ["shimmer"],
+      // theme.css `--text-2xs`: a font size, not a colour, so it never cancels `text-fg-muted`.
+      text: ["2xs"],
     },
   },
 });

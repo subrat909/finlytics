@@ -17,35 +17,36 @@
 [data-theme="light"] {
   color-scheme: light;
 
-  /* Brand and semantic accents: text on bg, surface-1 and surface-2. */
+  /* Brand and semantic accents: text on bg, surface-1 and surface-2, and on their own 10% tint (Badge). */
   --primary: #4f46e5;
-  --highlight: #0e7490; /* cyan: links, chips, watchlist icons (renamed from --accent, which shadcn uses for hover) */
-  --profit: #047857;
+  --highlight: #0b6b85; /* cyan: links, chips, watchlist icons (renamed from --accent, which shadcn uses for hover) */
+  --profit: #047052;
   --loss: #be123c;
-  --warning: #b45309;
+  --warning: #a24a06;
   --info: #0369a1;
-  --violet: #7c3aed;
-  --orange: #c2410c;
+  --violet: #7334e0;
+  --orange: #b13c0a;
 
   /* Text on the filled primary, Buy (profit) and Sell (loss) buttons, and on their /90 hover. */
   --primary-fg: #ffffff;
   --profit-fg: #ffffff;
   --loss-fg: #ffffff;
 
-  /* Surfaces: page, cards, controls and hover. */
-  --bg: #f8fafc;
+  /* Surfaces: page, panels (cards, navbar, sidebar, status bar), controls and hover. A trading terminal: a cool grey
+     page, white panels with crisp edges. */
+  --bg: #f5f7fa;
   --surface-1: #ffffff;
-  --surface-2: #f1f5f9;
-  --surface-3: #e2e8f0;
+  --surface-2: #f1f4f8;
+  --surface-3: #e4e9f0;
 
   /* Edges, 1px. --border: cards, menus, sheets, dividers (decorative). --border-strong: input boundaries, 3:1 against
      bg, surface-1 and surface-2 (WCAG 1.4.11). Never on buttons. */
-  --border: #e2e8f0;
-  --border-strong: #7d8a9e;
+  --border: #d9dfe8;
+  --border-strong: #7a8699;
 
   /* Text. */
   --fg: #0f172a;
-  --fg-muted: #56657a;
+  --fg-muted: #536175;
 }
 
 /* Dark. */
@@ -65,16 +66,17 @@
   --profit-fg: #0b0f19;
   --loss-fg: #0b0f19;
 
-  --bg: #0b0f19;
-  --surface-1: #111827;
-  --surface-2: #1f2937;
-  --surface-3: #374151;
+  /* Near-black, slightly blue panels (a terminal at night): each step up is a little lighter. */
+  --bg: #090c12;
+  --surface-1: #0f141c;
+  --surface-2: #171e29;
+  --surface-3: #232c3a;
 
-  --border: #283446;
-  --border-strong: #6a778c;
+  --border: #283242;
+  --border-strong: #687589;
 
-  --fg: #f1f5f9;
-  --fg-muted: #aab3c0;
+  --fg: #eef2f6;
+  --fg-muted: #a7b1bf;
 }
 
 /*

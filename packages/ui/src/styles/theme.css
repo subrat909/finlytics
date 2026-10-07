@@ -11,6 +11,11 @@
   /* Tokens only: Tailwind's default palette is removed, so bg-red-500, text-white and bg-black/50 generate nothing. */
   --color-*: initial;
 
+  /* An 11px step below text-xs, for terminal chrome: badges, the status bar, keyboard hints, index ticker labels.
+     Never for body text. Registered with tailwind-merge in lib/utils.ts. */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+
   /* Skeleton shimmer; components apply it under motion-safe only. */
   --animate-shimmer: shimmer 1.6s ease-in-out infinite;
 

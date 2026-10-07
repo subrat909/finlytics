@@ -13,6 +13,11 @@ describe("cn", () => {
     expect(cn("text-sm", "text-profit")).toBe("text-sm text-profit");
   });
 
+  it("treats the theme's text-2xs as a size, so it keeps the colour and replaces another size", () => {
+    expect(cn("text-2xs", "text-fg-muted")).toBe("text-2xs text-fg-muted");
+    expect(cn("text-sm text-fg", "text-2xs")).toBe("text-fg text-2xs");
+  });
+
   it("treats animate-shimmer and animate-pulse as one group", () => {
     expect(cn("animate-pulse", "animate-shimmer")).toBe("animate-shimmer");
     expect(cn("animate-shimmer", "motion-safe:animate-spin", "animate-pulse")).toBe(

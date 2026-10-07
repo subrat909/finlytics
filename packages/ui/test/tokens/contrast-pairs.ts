@@ -48,6 +48,16 @@ export const TEXT_PAIRS: readonly ContrastPair[] = [
     background: { token: "loss", alpha: 0.1, over: "surface-1" },
     min: 4.5,
   })),
+  // Badge: an accent's text on its own 10% tint (`bg-profit/10 text-profit`), on the page, a card or a surface-2 row.
+  ...ACCENTS.flatMap((accent) =>
+    ACCENT_SURFACES.map((over): ContrastPair => ({
+      foreground: accent,
+      background: { token: accent, alpha: 0.1, over },
+      min: 4.5,
+    })),
+  ),
+  // The neutral badge and the keyboard hint (Kbd): muted text on surface-2 and surface-3.
+  { foreground: "fg-muted", background: "surface-2", min: 4.5 },
 ];
 
 export const NON_TEXT_PAIRS: readonly ContrastPair[] = [

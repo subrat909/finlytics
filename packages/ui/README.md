@@ -23,20 +23,28 @@ Each component is its own module, `@finlytics/ui/components/<name>`; there is no
 loads only what it imports. The exports map in `package.json` is the public surface, and `test/package/exports.test.ts`
 pins it.
 
-| Module                         | Exports                                                                                                                                                                                         | Client? |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| `components/button`            | `Button` (variants primary, secondary, ghost, profit, loss; sizes sm, md, lg, icon, icon-sm; `loading`; `asChild`), `buttonVariants`                                                            | no¹     |
-| `components/input`             | `Input` (`invalid`, `numeric`)                                                                                                                                                                  | no      |
-| `components/card`              | `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardAction`, `CardContent`, `CardFooter`                                                                                                 | no      |
-| `components/skeleton`          | `Skeleton` (`shape`: line, block, circle)                                                                                                                                                       | no      |
-| `components/empty-state`       | `EmptyState` (`icon`, `title`, `description`, `action`, `headingLevel`, `size`)                                                                                                                 | no      |
-| `components/error-state`       | `ErrorState` (`onRetry` with a pending state, `reference`, `retryLabel`, `headingLevel`, `size`)                                                                                                | yes     |
-| `components/page-loader`       | `PageLoader` (`variant`: dashboard, chart, table, form, chain; `label`)                                                                                                                         | no      |
-| `components/segmented-control` | `SegmentedControl` (`options`, `value`, `onValueChange`, `size`: sm, md, `label`, `disabled`)                                                                                                   | yes     |
-| `components/theme-provider`    | `ThemeProvider` (`defaultTheme`, `nonce`, `density`), `useThemePreference`, `useDensityPreference`; re-exports the `lib/theme` names                                                            | yes     |
-| `components/theme-toggle`      | `ThemeToggle` (`onThemeChange`, `size`: sm, md, `label`), built on SegmentedControl                                                                                                             | yes     |
-| `lib/theme`                    | `THEME_PREFERENCES`, `THEME_STORAGE_KEY`, `isThemePreference`, `DENSITY_PREFERENCES`, `DENSITY_ATTRIBUTE`, `isDensityPreference`, types `ThemePreference`, `ResolvedTheme`, `DensityPreference` | no      |
-| `lib/utils`                    | `cn` (clsx + tailwind-merge, with the theme's custom scales registered)                                                                                                                         | no      |
+| Module                         | Exports                                                                                                                                                                                          | Client? |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
+| `components/badge`             | `Badge` (`tone`: neutral, primary, profit, loss, warning, info; `size`: sm, md; `dot`; `asChild`), `badgeVariants`, type `BadgeTone`                                                             | no      |
+| `components/button`            | `Button` (variants primary, secondary, ghost, profit, loss; sizes sm, md, lg, icon, icon-sm; `loading`; `asChild`), `buttonVariants`                                                             | no¹     |
+| `components/input`             | `Input` (`invalid`, `numeric`)                                                                                                                                                                   | no      |
+| `components/card`              | `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardAction`, `CardContent`, `CardFooter`                                                                                                  | no      |
+| `components/separator`         | `Separator` (`orientation`, `decorative`), `separatorVariants`                                                                                                                                   | no      |
+| `components/skeleton`          | `Skeleton` (`shape`: line, block, circle)                                                                                                                                                        | no      |
+| `components/dropdown-menu`     | `DropdownMenu`, `…Trigger`, `…Content`, `…Group`, `…Item` (`variant`: default, destructive; `inset`), `…CheckboxItem`, `…RadioGroup`, `…RadioItem`, `…Label`, `…Separator`, `…Shortcut`, `…Sub*` | yes     |
+| `components/empty-state`       | `EmptyState` (`icon`, `title`, `description`, `action`, `headingLevel`, `size`)                                                                                                                  | no      |
+| `components/error-state`       | `ErrorState` (`onRetry` with a pending state, `reference`, `retryLabel`, `headingLevel`, `size`)                                                                                                 | yes     |
+| `components/kbd`               | `Kbd` (`size`: sm, md), `KbdGroup`, `kbdVariants`                                                                                                                                                | no      |
+| `components/page-loader`       | `PageLoader` (`variant`: dashboard, chart, table, form, chain; `label`)                                                                                                                          | no      |
+| `components/popover`           | `Popover`, `PopoverTrigger`, `PopoverAnchor`, `PopoverContent`, `PopoverClose`                                                                                                                   | yes     |
+| `components/segmented-control` | `SegmentedControl` (`options`, `value`, `onValueChange`, `size`: sm, md, `label`, `disabled`)                                                                                                    | yes     |
+| `components/table`             | `Table` (`containerClassName`, `scrollAreaLabel`), `TableHeader`, `TableBody`, `TableFooter`, `TableRow`, `TableHead` (`numeric`), `TableCell` (`numeric`), `TableCaption`, `tableCellVariants`  | no      |
+| `components/tabs`              | `Tabs`, `TabsList` (`variant`: line, segmented), `TabsTrigger`, `TabsContent`, `tabsListVariants`, `tabsTriggerVariants`                                                                         | yes     |
+| `components/theme-provider`    | `ThemeProvider` (`defaultTheme`, `nonce`, `density`), `useThemePreference`, `useDensityPreference`; re-exports the `lib/theme` names                                                             | yes     |
+| `components/theme-toggle`      | `ThemeToggle` (`onThemeChange`, `size`: sm, md, `label`), built on SegmentedControl                                                                                                              | yes     |
+| `components/tooltip`           | `Tooltip` (`content`, `enabled`, `side`, `align`), `TooltipProvider`, `TooltipRoot`, `TooltipTrigger`, `TooltipContent`: hover and keyboard focus only, never stale when `enabled` flips         | yes     |
+| `lib/theme`                    | `THEME_PREFERENCES`, `THEME_STORAGE_KEY`, `isThemePreference`, `DENSITY_PREFERENCES`, `DENSITY_ATTRIBUTE`, `isDensityPreference`, types `ThemePreference`, `ResolvedTheme`, `DensityPreference`  | no      |
+| `lib/utils`                    | `cn` (clsx + tailwind-merge, with the theme's custom scales registered)                                                                                                                          | no      |
 
 Components without `"use client"` render in Server Components and send no JavaScript. The package has no network code
 and never calls the API: apps get callbacks (`onThemeChange`, `onRetry`) instead.
@@ -73,6 +81,8 @@ with `variable: "--font-inter"` and `"--font-jetbrains-mono"`; never Google Font
 
 - `src/styles/tokens.css`: the only place colours are defined. Light on `:root` and `[data-theme="light"]`, dark on
   `[data-theme="dark"]`, set on `<html>` by ThemeProvider.
+- Type: `text-2xs` (11px, theme.css) for terminal chrome (badges, the status bar, keycaps); tables use 13px
+  (`text-[0.8125rem]`) through the Table primitive.
 - `src/styles/theme.css`: maps tokens to utilities (`bg-surface-2`, `text-profit`, `text-fg-muted`, …), bridges
   shadcn's names (`bg-background`, `bg-accent` = the hover surface, …), and removes Tailwind's default palette, so
   `bg-red-500` or `text-white` generate nothing. Also `tabular` (tabular numerals in the mono face) and `shimmer` (a
