@@ -1,8 +1,10 @@
 /**
  * The seed itself (plan D11), separate from the CLI entry point (prisma/seed.ts) so tests can run it in-process.
  *
- * - Plan and GlobalControl are create-only: rows that exist are never updated, so a re-seed can't overwrite an edited
- *   price or switch off an engaged kill switch.
+ * - Plan follows prisma/seed/plans.ts: missing plans are created and existing ones brought up to date (phase 1b), so a
+ *   changed limit reaches every database with `pnpm db:seed`. Plans the file doesn't list are never touched.
+ * - GlobalControl is create-only: a row that exists is never updated, so a re-seed can't switch off an engaged kill
+ *   switch.
  * - MarketHoliday follows the data files: each file is the source of truth for the calendar-years it covers.
  */
 import type { PrismaClient } from "../../src/index";
@@ -27,7 +29,7 @@ export interface SeedOptions {
 
 export interface SeedSummary {
   readonly plans: {
-    /** Plans this run created (the rest already existed and were left as they are). */
+    /** Plans this run created (the rest already existed and were brought up to date with the seed). */
     readonly created: number;
     /** Plan rows in the table after the run. */
     readonly total: number;
@@ -67,7 +69,7 @@ export async function runSeed(prisma: PrismaClient, options: SeedOptions = {}): 
 export function formatSeedSummary({ plans, globalControl, holidays }: SeedSummary): string[] {
   const perCalendar = HOLIDAY_CALENDARS.map((calendar) => `${calendar} ${String(holidays.byCalendar[calendar])}`);
   return [
-    `Plan: ${String(plans.total)} rows, ${String(plans.created)} created (existing plans are never updated)`,
+    `Plan: ${String(plans.total)} rows, ${String(plans.created)} created (existing plans updated to the seed)`,
     `GlobalControl: ${globalControl.created ? "created" : "already present, left unchanged"}, ` +
       `kill switch ${globalControl.killSwitch ? "ENGAGED" : "off"}`,
     `MarketHoliday: ${String(holidays.upserted)} rows upserted for ${holidays.years.join(", ")} ` +
@@ -101,8 +103,9 @@ async function seedPlans(prisma: PrismaClient): Promise<SeedSummary["plans"]> {
   return prisma.$transaction(async (tx) => {
     const existing = await tx.plan.count({ where: { code: { in: PLANS.map((plan) => plan.code) } } });
     for (const plan of PLANS) {
-      // Create-only: `update: {}` leaves an existing plan exactly as it is, edited price and limits included.
-      await tx.plan.upsert({ where: { code: plan.code }, create: plan, update: {} });
+      // The seed owns the plans it lists: an existing row gets every column back to the seed's value.
+      const { code, ...columns } = plan;
+      await tx.plan.upsert({ where: { code }, create: plan, update: columns });
     }
     return { created: PLANS.length - existing, total: await tx.plan.count() };
   }, TRANSACTION_OPTIONS);

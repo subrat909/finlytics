@@ -150,19 +150,27 @@ describe("seed", () => {
     });
   });
 
-  it("does not overwrite edited plan prices", async () => {
+  it("brings existing plans up to the seed's values, and leaves plans it doesn't list alone", async () => {
     const database = await createMigratedDatabase("seed");
 
     await withClient(database.url, async (prisma) => {
       await runSeed(prisma);
-      await prisma.plan.update({ where: { code: "pro" }, data: { priceInrMonthly: "1299.00", maxAlerts: 150 } });
-      const edited = await storedPlans(prisma);
+      // An older seed's limits (the free plan allowed 1 broker account), and a plan only the database knows.
+      await prisma.plan.update({ where: { code: "free" }, data: { maxBrokerAccounts: 1, maxAlerts: 150 } });
+      const custom = await prisma.plan.create({
+        data: { code: "partner", name: "Partner", priceInrMonthly: "1.00", maxBrokerAccounts: 9 },
+        omit: { id: true },
+      });
 
       const summary = await runSeed(prisma);
 
-      expect(await storedPlans(prisma)).toEqual(edited);
-      expect(edited.find((plan) => plan.code === "pro")).toMatchObject({ priceInrMonthly: "1299.00", maxAlerts: 150 });
-      expect(summary.plans).toEqual({ created: 0, total: 3 });
+      const stored = await storedPlans(prisma);
+      expect(stored.filter((plan) => plan.code !== "partner")).toEqual(
+        [...PLANS].sort((a, b) => a.code.localeCompare(b.code)),
+      );
+      expect(stored.find((plan) => plan.code === "free")).toMatchObject({ maxBrokerAccounts: 2, maxAlerts: 10 });
+      expect(stored.find((plan) => plan.code === "partner")).toEqual({ ...custom, priceInrMonthly: "1.00" });
+      expect(summary.plans).toEqual({ created: 0, total: 4 });
     });
   });
 

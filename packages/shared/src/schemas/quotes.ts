@@ -24,13 +24,37 @@ export const QuoteSchema = z.strictObject({
   oi: QuoteNumberSchema.optional(),
   bid: QuoteNumberSchema.optional(),
   ask: QuoteNumberSchema.optional(),
+  /** The day's open, high and low, and the average traded price (plan phase-1b "Quotes"). */
+  open: QuoteNumberSchema.optional(),
+  high: QuoteNumberSchema.optional(),
+  low: QuoteNumberSchema.optional(),
+  atp: QuoteNumberSchema.optional(),
+  /** Best bid/ask quantities and the last traded quantity. */
+  bidQty: QuoteNumberSchema.optional(),
+  askQty: QuoteNumberSchema.optional(),
+  ltq: QuoteNumberSchema.optional(),
   /** Exchange time of the last trade, epoch milliseconds. */
   ts: z.int().min(0),
 });
 export type Quote = z.infer<typeof QuoteSchema>;
 
 /** The optional hash fields, in output order. */
-const OPTIONAL_FIELDS = ["close", "chg", "chgPct", "vol", "oi", "bid", "ask"] as const;
+const OPTIONAL_FIELDS = [
+  "close",
+  "chg",
+  "chgPct",
+  "vol",
+  "oi",
+  "bid",
+  "ask",
+  "open",
+  "high",
+  "low",
+  "atp",
+  "bidQty",
+  "askQty",
+  "ltq",
+] as const;
 
 /**
  * A `quote:<key>` hash (all values strings) as a {@link Quote}, or undefined without a valid `ltp` and `ts`. Invalid or
@@ -71,3 +95,11 @@ export type QuotesQuery = z.infer<typeof QuotesQuerySchema>;
 /** `GET /v1/quotes`: one entry per requested key that has a quote; keys without one are left out. */
 export const QuotesResultSchema = z.record(z.string(), QuoteSchema);
 export type QuotesResult = z.infer<typeof QuotesResultSchema>;
+
+/**
+ * `GET /v1/quotes/depth?key=`: one canonical key. The answer is the latest `RtDepth` snapshot; for a known, active
+ * instrument without one yet (an index, or before its first full tick) an empty book `{k, t: 0, bids: [], asks: [],
+ * tbq: null, tsq: null}`; 404 only for a key that names no active instrument.
+ */
+export const QuoteDepthQuerySchema = z.strictObject({ key: InstrumentKeySchema });
+export type QuoteDepthQuery = z.infer<typeof QuoteDepthQuerySchema>;

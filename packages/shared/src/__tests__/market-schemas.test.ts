@@ -6,7 +6,15 @@ import {
   InstrumentSyncRequestSchema,
   InstrumentSyncResultSchema,
 } from "../schemas/instruments";
-import { quoteFromHash, QuoteSchema, QuotesQuerySchema, QuotesResultSchema } from "../schemas/quotes";
+import { isInstrumentKey } from "../instrument-key";
+import { MARKET_INDEX_KEYS, MarketOverviewSchema, NIFTY_50_KEYS } from "../schemas/market";
+import {
+  QuoteDepthQuerySchema,
+  quoteFromHash,
+  QuoteSchema,
+  QuotesQuerySchema,
+  QuotesResultSchema,
+} from "../schemas/quotes";
 import {
   AddWatchlistItemSchema,
   CreateWatchlistSchema,
@@ -142,5 +150,50 @@ describe("quote schemas", () => {
       "NSE_EQ|INFY": { ltp: "1500", ts: 1 },
     });
     expect(QuoteSchema.safeParse({ ltp: "1", ts: 1, extra: "x" }).success).toBe(false);
+  });
+});
+
+describe("market overview contract", () => {
+  it("pins 50 distinct canonical NIFTY 50 equity keys and canonical index keys", () => {
+    expect(NIFTY_50_KEYS).toHaveLength(50);
+    expect(new Set(NIFTY_50_KEYS).size).toBe(50);
+    for (const key of NIFTY_50_KEYS) {
+      expect(isInstrumentKey(key)).toBe(true);
+      expect(key.startsWith("NSE_EQ|")).toBe(true);
+    }
+    for (const key of Object.values(MARKET_INDEX_KEYS)) expect(isInstrumentKey(key)).toBe(true);
+  });
+
+  it("validates the depth query and an overview", () => {
+    expect(QuoteDepthQuerySchema.parse({ key: "NSE_EQ|INFY" })).toEqual({ key: "NSE_EQ|INFY" });
+    expect(QuoteDepthQuerySchema.safeParse({ key: "nope" }).success).toBe(false);
+    const quote = {
+      key: "NSE_INDEX|NIFTY 50",
+      symbol: "NIFTY 50",
+      name: "Nifty 50",
+      ltp: null,
+      chg: null,
+      chgPct: null,
+      open: null,
+      high: null,
+      low: null,
+      close: null,
+      vol: null,
+      ts: null,
+    };
+    expect(
+      MarketOverviewSchema.safeParse({
+        asOf: "2026-10-06T04:00:00.000Z",
+        exchanges: [
+          { exchange: "NSE", phase: "open", holiday: null, opensAt: null, closesAt: "2026-10-06T10:00:00.000Z" },
+        ],
+        feed: { state: "up", source: "PAPER", live: false, lastTickAt: null, reason: null },
+        indices: [quote],
+        gainers: [],
+        losers: [],
+        active: [],
+        breadth: { advances: 0, declines: 0, unchanged: 0 },
+      }).success,
+    ).toBe(true);
   });
 });

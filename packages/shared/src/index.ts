@@ -152,10 +152,15 @@ export {
   RT_CONNECT_ERRORS,
   RT_EVENTS,
   RT_FEED_STATES,
+  RT_MAX_DEPTH_KEYS,
   RT_MAX_KEYS_PER_MESSAGE,
   RT_NAMESPACE,
   RT_PATH,
   RT_REJECT_REASONS,
+  RtDepthAckSchema,
+  RtDepthLevelSchema,
+  RtDepthSchema,
+  RtDepthSubscribeSchema,
   RtFeedStateSchema,
   RtQuoteBatchSchema,
   RtQuoteRowSchema,
@@ -167,6 +172,10 @@ export {
   RtUnsubscribeSchema,
 } from "./schemas/realtime";
 export type {
+  RtDepth,
+  RtDepthAck,
+  RtDepthLevel,
+  RtDepthSubscribe,
   RtFeedState,
   RtQuoteBatch,
   RtQuoteRow,
@@ -221,6 +230,7 @@ export {
   BrokerAccountViewSchema,
   BrokerAuthRedirectSchema,
   BrokerCallbackErrorSchema,
+  BrokerLimitsSchema,
   ConnectDhanSchema,
   ConnectPaperSchema,
   ConnectUpstoxSchema,
@@ -232,6 +242,7 @@ export type {
   BrokerAccountView,
   BrokerAuthRedirect,
   BrokerCallbackError,
+  BrokerLimits,
   ConnectDhan,
   ConnectPaper,
   ConnectUpstox,
@@ -275,5 +286,54 @@ export type {
   WatchlistItem,
 } from "./schemas/watchlists";
 
-export { MAX_QUOTE_KEYS, QuoteSchema, quoteFromHash, QuotesQuerySchema, QuotesResultSchema } from "./schemas/quotes";
-export type { Quote, QuotesQuery, QuotesResult } from "./schemas/quotes";
+export {
+  MAX_QUOTE_KEYS,
+  QuoteDepthQuerySchema,
+  QuoteSchema,
+  quoteFromHash,
+  QuotesQuerySchema,
+  QuotesResultSchema,
+} from "./schemas/quotes";
+export type { Quote, QuoteDepthQuery, QuotesQuery, QuotesResult } from "./schemas/quotes";
+
+export {
+  ExchangeStatusSchema,
+  FeedInfoSchema,
+  MARKET_EXCHANGES,
+  MARKET_INDEX_KEYS,
+  MARKET_PHASES,
+  MarketBreadthSchema,
+  MarketExchangeSchema,
+  MarketOverviewSchema,
+  MarketPhaseSchema,
+  MarketQuoteSchema,
+  NIFTY_50_KEYS,
+  TICKER_INDEX_IDS,
+} from "./schemas/market";
+export type {
+  ExchangeStatus,
+  FeedInfo,
+  MarketBreadth,
+  MarketExchange,
+  MarketIndexId,
+  MarketOverview,
+  MarketPhase,
+  MarketQuote,
+} from "./schemas/market";
+
+export {
+  FundsViewSchema,
+  HoldingsViewSchema,
+  HoldingViewSchema,
+  PortfolioQuerySchema,
+  PositionsViewSchema,
+  PositionViewSchema,
+} from "./schemas/portfolio";
+export type {
+  FundsView,
+  HoldingsView,
+  HoldingView,
+  PortfolioQuery,
+  PositionsView,
+  PositionView,
+} from "./schemas/portfolio";

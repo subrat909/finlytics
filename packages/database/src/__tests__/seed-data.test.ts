@@ -230,6 +230,14 @@ describe("plans", () => {
 
     expect(new Set(codes).size).toBe(codes.length);
   });
+
+  it("allows 2 broker accounts on free (Upstox and Dhan side by side), 3 on pro and 5 on elite", () => {
+    expect(Object.fromEntries(PLANS.map((plan) => [plan.code, plan.maxBrokerAccounts]))).toEqual({
+      free: 2,
+      pro: 3,
+      elite: 5,
+    });
+  });
 });
 
 describe("seed summary", () => {
@@ -241,7 +249,7 @@ describe("seed summary", () => {
     });
 
     expect(lines).toEqual([
-      "Plan: 3 rows, 0 created (existing plans are never updated)",
+      "Plan: 3 rows, 0 created (existing plans updated to the seed)",
       "GlobalControl: already present, left unchanged, kill switch ENGAGED",
       "MarketHoliday: 130 rows upserted for 2025, 2026 (NSE 30, BSE 30, MCX 32, CDS 38), 1 deleted",
     ]);

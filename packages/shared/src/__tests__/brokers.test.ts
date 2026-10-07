@@ -7,6 +7,7 @@ import {
   BrokerAccountViewSchema,
   BrokerAuthRedirectSchema,
   BrokerCallbackErrorSchema,
+  BrokerLimitsSchema,
   ConnectDhanSchema,
   ConnectPaperSchema,
   ConnectUpstoxSchema,
@@ -75,6 +76,13 @@ describe("broker schemas", () => {
       false,
     );
     expect(ConnectDhanSchema.safeParse({ label: "D", clientId: "110", accessToken: "short" }).success).toBe(false);
+    // The client id may be left out or empty, and a token is accepted as pasted (the adapter cleans it).
+    expect(ConnectDhanSchema.parse({ label: "D", accessToken: ` "Bearer eyJhbGciOi.abc.def-ghi_jkl"\n` })).toEqual({
+      label: "D",
+      accessToken: `"Bearer eyJhbGciOi.abc.def-ghi_jkl"`,
+    });
+    expect(ConnectDhanSchema.safeParse({ label: "D", clientId: "", accessToken: "x".repeat(20) }).success).toBe(true);
+    expect(ConnectDhanSchema.safeParse({ label: "D", accessToken: `${"x".repeat(20)}<script>` }).success).toBe(false);
     expect(ConnectPaperSchema.parse({ label: "Paper" })).toEqual({ label: "Paper" });
   });
 
@@ -94,5 +102,15 @@ describe("broker schemas", () => {
   it("lists the callback error codes", () => {
     expect(BrokerCallbackErrorSchema.safeParse("state_invalid").success).toBe(true);
     expect(BrokerCallbackErrorSchema.safeParse("other").success).toBe(false);
+  });
+});
+
+describe("broker limits", () => {
+  it("accepts the plan's limits and usage, and nothing else", () => {
+    const limits = { maxBrokerAccounts: 2, brokerAccounts: 1, maxPaperAccounts: 3, paperAccounts: 0 };
+    expect(BrokerLimitsSchema.parse(limits)).toEqual(limits);
+    expect(BrokerLimitsSchema.safeParse({ ...limits, brokerAccounts: -1 }).success).toBe(false);
+    expect(BrokerLimitsSchema.safeParse({ ...limits, maxBrokerAccounts: 1.5 }).success).toBe(false);
+    expect(BrokerLimitsSchema.safeParse({ ...limits, planCode: "free" }).success).toBe(false);
   });
 });

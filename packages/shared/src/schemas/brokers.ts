@@ -78,21 +78,24 @@ export const BrokerAuthRedirectSchema = z.strictObject({
 export type BrokerAuthRedirect = z.infer<typeof BrokerAuthRedirectSchema>;
 
 /**
- * `POST /v1/brokers/dhan`: the client id and the access token generated on Dhan's web dashboard. Validated with the
- * broker before anything is stored; the same label again replaces that account's token (Dhan's re-login).
+ * `POST /v1/brokers/dhan`: the access token generated on Dhan's web dashboard (valid 24 hours, renewed automatically)
+ * and, optionally, the client id (empty or absent: read from the token and the profile). The token is accepted as
+ * pasted (surrounding quotes, a `Bearer ` prefix, line breaks): the adapter cleans it. Validated with the broker before
+ * anything is stored; the same label again replaces that account's token (Dhan's re-login).
  */
 export const ConnectDhanSchema = z.strictObject({
   label: BrokerAccountLabelSchema,
   clientId: z
     .string()
     .trim()
-    .regex(/^[A-Za-z0-9]{1,32}$/, "Expected 1–32 letters or digits"),
+    .regex(/^[A-Za-z0-9]{0,32}$/, "Expected up to 32 letters or digits")
+    .optional(),
   accessToken: z
     .string()
     .trim()
     .min(16)
-    .max(4096)
-    .regex(/^[A-Za-z0-9._-]+$/, "Expected a token of letters, digits, '.', '-' or '_'"),
+    .max(4200)
+    .regex(/^[A-Za-z0-9._\-\s"'`:=]+$/, "Expected the access token as copied from web.dhan.co"),
 });
 export type ConnectDhan = z.infer<typeof ConnectDhanSchema>;
 
@@ -129,3 +132,12 @@ export const BROKER_CALLBACK_ERRORS = Object.freeze([
 ] as const);
 export const BrokerCallbackErrorSchema = z.enum(BROKER_CALLBACK_ERRORS);
 export type BrokerCallbackError = z.infer<typeof BrokerCallbackErrorSchema>;
+
+/** `GET /v1/brokers/limits`: the plan's account limits and current usage (the connect wizard disables at the limit). */
+export const BrokerLimitsSchema = z.strictObject({
+  maxBrokerAccounts: z.int().min(0),
+  brokerAccounts: z.int().min(0),
+  maxPaperAccounts: z.int().min(0),
+  paperAccounts: z.int().min(0),
+});
+export type BrokerLimits = z.infer<typeof BrokerLimitsSchema>;
