@@ -58,6 +58,42 @@ describe("dhanError", () => {
     expect(error.brokerError).toEqual({ code: `HTTP_${String(status)}` });
   });
 
+  it("reads every error shape: snake case, inside remarks, data or error, and lower-case codes", () => {
+    const legacy = {
+      status: "failure",
+      remarks: { error_code: "dh-901", error_type: "Invalid_Authentication", error_message: " expired " },
+      data: "",
+    };
+    expect(dhanError(200, legacy, "getProfile")).toMatchObject({
+      code: "NEEDS_RELOGIN",
+      brokerError: { code: "DH-901", message: "expired" },
+    });
+    expect(dhanError(400, { data: { errorCode: 805 } }, "getFunds").code).toBe("RATE_LIMITED");
+    expect(dhanError(400, { error: { errorCode: "DH-907", message: "none" } }, "getFunds")).toMatchObject({
+      code: "NOT_FOUND",
+      brokerError: { code: "DH-907", message: "none" },
+    });
+  });
+
+  it.each([
+    ["Invalid_Authentication", "NEEDS_RELOGIN"],
+    ["Rate Limit", "RATE_LIMITED"],
+    ["Data_Error", "NOT_FOUND"],
+    ["Internal Server Error", "BROKER_UNAVAILABLE"],
+    ["Input_Exception", "BROKER_REJECTED"],
+    ["Something_New", "BROKER_REJECTED"],
+  ])("maps the error type %s to %s when there is no code", (type, expected) => {
+    expect(dhanError(400, { errorType: type }, "getFunds").code).toBe(expected);
+  });
+
+  it("treats a failure status without a code as the HTTP status says", () => {
+    expect(dhanError(200, { status: "FAILED", remarks: "Invalid session" }, "getFunds")).toMatchObject({
+      code: "BROKER_REJECTED",
+      brokerError: { code: "HTTP_200", message: "Invalid session" },
+    });
+    expect(dhanError(401, { status: "error", message: "Unauthorized" }, "getFunds").code).toBe("NEEDS_RELOGIN");
+  });
+
   it("reads Retry-After for rate limits and defaults to a second", () => {
     expect(dhanError(429, undefined, "getFunds", "3").retryAfterMs).toBe(3_000);
     expect(dhanError(429, undefined, "getFunds", "soon").retryAfterMs).toBe(1_000);
@@ -198,6 +234,36 @@ describe("dhanRequest", () => {
       }),
     );
     expect(garbage).toMatchObject({ code: "BROKER_UNAVAILABLE", outcomeUnknown: true });
+  });
+
+  it("throws on a 200 in the legacy failure shape, and returns text only when asked to", async () => {
+    const legacy = await failure(
+      dhanRequest(answer('{"status":"failure","remarks":{"error_code":"DH-901"},"data":""}'), BASE, {
+        method: "GET",
+        url: "/RenewToken",
+        operation: "refreshToken",
+        signal: signal(),
+      }),
+    );
+    expect(legacy.code).toBe("NEEDS_RELOGIN");
+    expect(
+      await dhanRequest(answer("  eyJ.a.b \n"), BASE, {
+        method: "GET",
+        url: "/RenewToken",
+        operation: "refreshToken",
+        signal: signal(),
+        allowText: true,
+      }),
+    ).toBe("eyJ.a.b");
+    expect(
+      await dhanRequest(answer('{"status":"success","data":{"accessToken":"x"}}'), BASE, {
+        method: "GET",
+        url: "/RenewToken",
+        operation: "refreshToken",
+        signal: signal(),
+        allowText: true,
+      }),
+    ).toEqual({ status: "success", data: { accessToken: "x" } });
   });
 
   it("passes arrays and bodies with an empty error code through", async () => {

@@ -17,6 +17,8 @@ import { DhanInstrumentMap } from "../instruments";
 import { DHAN_SCRIP_MASTER_URL } from "../types";
 
 export const CLIENT_ID = "1000000001";
+/** The tests' clock: 09:30 IST on Monday 6 October 2025, before {@link EXPIRES_AT}. */
+export const NOW = new Date("2025-10-06T04:00:00.000Z");
 export const EXPIRES_AT = new Date("2025-10-07T16:00:00.000Z");
 export const RENEWED_EXPIRES_AT = new Date("2025-10-08T16:00:00.000Z");
 

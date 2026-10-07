@@ -15,6 +15,7 @@
  */
 import type { InstrumentKey } from "@finlytics/shared";
 
+import type { FeedLimits } from "../../adapter";
 import { BrokerInputError, BrokerRejectedError, BrokerUnavailableError, isBrokerError } from "../../errors";
 import { backoffDelayMs } from "../../feed/backoff";
 import type { BackoffOptions } from "../../feed/backoff";
@@ -26,7 +27,7 @@ import type { FeedMode } from "../../models";
 import { abortReason } from "../../timeout";
 
 import type { UpstoxInstrumentResolver } from "./instruments";
-import { segmentOf, toBrokerOrder, toTick, toUpstoxFeedMode } from "./mappers";
+import { fallbackEquityKey, segmentOf, toBrokerOrder, toTick, toUpstoxFeedMode } from "./mappers";
 import { decodeUpstoxFeedResponse } from "./proto";
 import { UPSTOX_FEED_LIMITS, UpstoxOrderUpdateSchema } from "./types";
 import type { UpstoxFeedMethod, UpstoxFeedMode, UpstoxFeedRequest, UpstoxFeedResponse } from "./types";
@@ -280,6 +281,24 @@ class UpstoxConnection {
 
 /** The most keys one Upstox market feed connection carries (`ltpc` alone; fewer in other or mixed modes). */
 export const UPSTOX_MAX_FEED_INSTRUMENTS = UPSTOX_FEED_LIMITS.individual.ltpc;
+
+/**
+ * {@link UPSTOX_FEED_LIMITS} in the sdk's feed modes (`ltp` is `ltpc`; `full` is `full`; `quote` is `full` or, for
+ * options, `option_greeks`, so it gets the stricter of the two). E.g. `full` for at most 2000 keys alone, or 1500 next
+ * to at most 2000 `ltp` keys.
+ */
+export const UPSTOX_SDK_FEED_LIMITS: FeedLimits = Object.freeze({
+  single: Object.freeze({
+    ltp: UPSTOX_FEED_LIMITS.individual.ltpc,
+    quote: Math.min(UPSTOX_FEED_LIMITS.individual.full, UPSTOX_FEED_LIMITS.individual.option_greeks),
+    full: UPSTOX_FEED_LIMITS.individual.full,
+  }),
+  mixed: Object.freeze({
+    ltp: UPSTOX_FEED_LIMITS.combined.ltpc,
+    quote: Math.min(UPSTOX_FEED_LIMITS.combined.full, UPSTOX_FEED_LIMITS.combined.option_greeks),
+    full: UPSTOX_FEED_LIMITS.combined.full,
+  }),
+});
 
 /** Segment states in which ticks are expected. */
 const OPEN_STATUSES: ReadonlySet<string> = new Set(["PRE_OPEN_START", "PRE_OPEN_END", "NORMAL_OPEN", "CLOSING_START"]);
@@ -594,7 +613,9 @@ export class UpstoxOrderFeed implements OrderFeed {
     if (!parsed.success) throw unavailable("An Upstox order update had an unexpected shape", "DECODE");
     const update = parsed.data;
     const token = update.instrument_key ?? update.instrument_token;
-    const key = (await this.#options.resolver.byTokens([token])).get(token);
+    const key =
+      (await this.#options.resolver.byTokens([token])).get(token) ??
+      fallbackEquityKey(token, update.trading_symbol ?? update.tradingsymbol);
     const order = key === undefined ? undefined : toBrokerOrder(update, key, this.#options.now());
     if (order === undefined || this.status === "closed") return;
     const brokerClientId = update.user_id ?? update.userId ?? undefined;

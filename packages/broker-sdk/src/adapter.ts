@@ -22,6 +22,7 @@ import type {
   Candle,
   CandleQuery,
   ExchangeTokenInput,
+  FeedMode,
   Funds,
   InstrumentRow,
   ModifyOrderInput,
@@ -41,6 +42,17 @@ export interface AccountCallContext extends CallContext {
   readonly creds: BrokerCredentials;
 }
 
+/**
+ * How many instruments one market-feed connection carries per feed mode. `single`: every key uses that one mode;
+ * `mixed`: the cap for each mode while several modes share the connection (Upstox: `full` 2000 alone, 1500 next to
+ * `ltp`). The total is also capped by {@link BrokerCapabilities.maxFeedInstruments}. A feed refuses a subscription
+ * beyond them with BROKER_REJECTED (`FEED_CAPACITY`), so plan the modes with these numbers first.
+ */
+export interface FeedLimits {
+  readonly single: Readonly<Record<FeedMode, number>>;
+  readonly mixed: Readonly<Record<FeedMode, number>>;
+}
+
 /** Fixed facts about a broker integration. */
 export interface BrokerCapabilities {
   /** How users connect (Upstox: oauth; Dhan: token; Paper: none). */
@@ -49,6 +61,8 @@ export interface BrokerCapabilities {
   readonly refreshable: boolean;
   /** The most instruments one market-feed connection carries (Dhan: 5000). */
   readonly maxFeedInstruments: number;
+  /** Per-mode limits within {@link maxFeedInstruments}; absent: every mode may use all of it. */
+  readonly feedLimits?: FeedLimits | undefined;
   /** `app`: one order-feed connection for every account; `account`: one per account (docs/01). */
   readonly orderFeedScope: "app" | "account";
 }

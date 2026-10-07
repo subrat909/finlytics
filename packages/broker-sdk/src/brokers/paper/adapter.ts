@@ -68,10 +68,13 @@ export interface PaperAdapterOptions {
   readonly newId?: ((kind: "order" | "trade") => string) | undefined;
 }
 
+const PAPER_FEED_LIMITS = Object.freeze({ ltp: 5_000, quote: 5_000, full: 5_000 });
+
 export const PAPER_CAPABILITIES: BrokerCapabilities = Object.freeze({
   authMode: "none",
   refreshable: true,
   maxFeedInstruments: 5_000,
+  feedLimits: Object.freeze({ single: PAPER_FEED_LIMITS, mixed: PAPER_FEED_LIMITS }),
   orderFeedScope: "app",
 });
 

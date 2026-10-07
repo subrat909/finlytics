@@ -53,6 +53,26 @@ describe("Upstox market feed", () => {
     await feed.close();
   });
 
+  it("reads the deprecated camel-case authorize field when it is the only one, and refuses a non-wss URL", async () => {
+    const setup = upstoxSetup(FEED_OPTIONS);
+    const camel = "wss://fake.upstox.test/market?code=camel-1";
+    setup.fake.respond(
+      new URL(UPSTOX_URLS.marketFeedAuthorize).pathname,
+      json({ status: "success", data: { authorizedRedirectUri: camel } }),
+    );
+    const feed = await setup.adapter.connectMarketFeed(setup.ctx());
+    expect(setup.fake.market().url).toBe(camel);
+    await feed.close();
+
+    setup.fake.respond(
+      new URL(UPSTOX_URLS.marketFeedAuthorize).pathname,
+      json({ status: "success", data: { authorized_redirect_uri: "https://not-a-socket" } }),
+    );
+    expect(errorCode(await rejection(setup.adapter.connectMarketFeed(setup.ctx())))).toBe("BROKER_UNAVAILABLE");
+    setup.fake.respond(new URL(UPSTOX_URLS.marketFeedAuthorize).pathname, json({ status: "success", data: {} }));
+    expect(errorCode(await rejection(setup.adapter.connectMarketFeed(setup.ctx())))).toBe("BROKER_UNAVAILABLE");
+  });
+
   it("subscribes in Upstox's modes with JSON requests in binary frames", async () => {
     const { feed, fake } = await marketSetup();
     const socket = fake.market();
@@ -133,7 +153,14 @@ describe("Upstox market feed", () => {
     socket.push(encodeFeed({ type: "live_feed", feeds: { "NSE_FO|0": { ltpc: { ltp: 1 } } } }));
     socket.push(encodeFeed({ feeds: { [NIFTY_CE_TOKEN]: { requestMode: "ltpc" } } }));
     expect(ticks.map((tick) => tick.instrumentKey)).toEqual([NIFTY_CE, NIFTY_INDEX, NIFTY_CE, NIFTY_INDEX]);
-    expect(ticks[0]).toMatchObject({ ltp: "219.3", bid: "219.25", greeks: { delta: 0.4521 } });
+    expect(ticks[0]).toMatchObject({
+      ltp: "219.3",
+      bid: "219.25",
+      tbq: 512300,
+      tsq: 498775,
+      greeks: { delta: 0.4521 },
+    });
+    expect(ticks[1]).toMatchObject({ close: "22604.85", open: "22508.75", high: "22613.25", low: "22432.5" });
     expect(ticks[1]).not.toHaveProperty("greeks");
     expect(errors).toEqual([]);
 
@@ -192,6 +219,8 @@ describe("Upstox market feed: connecting", () => {
         return { send: () => undefined, close: () => undefined };
       },
     });
+    expect(errorCode(await rejection(setup.adapter.connectMarketFeed(setup.ctx())))).toBe("BROKER_UNAVAILABLE");
+    setup.fake.respond(new URL(UPSTOX_URLS.marketFeedAuthorize).pathname, json({ status: "success", data: {} }));
     expect(errorCode(await rejection(setup.adapter.connectMarketFeed(setup.ctx())))).toBe("BROKER_UNAVAILABLE");
   });
 
@@ -458,7 +487,7 @@ describe("Upstox order feed", () => {
     const update = fixture("order-update.json") as Record<string, unknown>;
     socket().push(JSON.stringify({ update_type: "position", instrument_token: "NSE_EQ|INE848E01016" }));
     socket().push(JSON.stringify([1, 2]));
-    socket().push(JSON.stringify({ ...update, instrument_key: "NSE_EQ|INE000000000" }));
+    socket().push(JSON.stringify({ ...update, instrument_key: "NSE_FO|99999" }));
     socket().push(JSON.stringify({ ...update, product: "XX" }));
     socket().push("not json");
     socket().push(JSON.stringify({ update_type: "order", order_id: 7 }));
@@ -475,6 +504,17 @@ describe("Upstox order feed", () => {
     first.handlers.onMessage(JSON.stringify(update));
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(updates).toHaveLength(2);
+  });
+
+  it("maps an equity the resolver doesn't know through its trading symbol, without the series", async () => {
+    const { feed, updates, socket } = await orderSetup();
+    const update = fixture("order-update.json") as Record<string, unknown>;
+    socket().push(JSON.stringify({ ...update, instrument_key: "NSE_EQ|INE000000000" }));
+    await vi.waitFor(() => {
+      expect(updates).toHaveLength(1);
+    });
+    expect(updates[0]?.order.instrumentKey).toBe("NSE_EQ|NHPC");
+    await feed.close();
   });
 
   it("reconnects after a drop", async () => {

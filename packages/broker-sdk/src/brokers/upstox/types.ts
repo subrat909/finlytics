@@ -106,6 +106,17 @@ export type UpstoxSegment = (typeof UPSTOX_SEGMENTS)[number];
 export const UPSTOX_CANDLE_UNITS = Object.freeze(["minutes", "hours", "days", "weeks", "months"] as const);
 export type UpstoxCandleUnit = (typeof UPSTOX_CANDLE_UNITS)[number];
 
+/**
+ * Historical candle V3 limits per request ("Max Retrieval": minutes 1–15 one month, other minutes and hours one
+ * quarter, days one decade) and the first date with data (minutes and hours from January 2022, days from January
+ * 2000). A request beyond them is refused as invalid.
+ */
+export const UPSTOX_CANDLE_HISTORY = Object.freeze({
+  minutes: { since: "2022-01-01" },
+  hours: { since: "2022-01-01" },
+  days: { since: "2000-01-01" },
+} as const);
+
 /** Market feed V3 modes. `full_d30` needs Upstox Plus. */
 export const UPSTOX_FEED_MODES = Object.freeze(["ltpc", "option_greeks", "full", "full_d30"] as const);
 export type UpstoxFeedMode = (typeof UPSTOX_FEED_MODES)[number];
@@ -114,8 +125,9 @@ export const UPSTOX_FEED_METHODS = Object.freeze(["sub", "unsub", "change_mode"]
 export type UpstoxFeedMethod = (typeof UPSTOX_FEED_METHODS)[number];
 
 /**
- * Market feed V3 subscription limits per user: `individual` when every key uses one mode, `combined` per mode when
- * several modes are in use.
+ * Market feed V3 subscription limits per user (so per connection: the platform holds one): `individual` when every
+ * key uses one mode, `combined` per mode when several modes are in use ("if the same user subscribes to both 'LTPC'
+ * and 'Option Greeks', the limit for each category is set to 2000"). Connections: 2 per user (5 with Upstox Plus).
  */
 export const UPSTOX_FEED_LIMITS = Object.freeze({
   individual: Object.freeze({ ltpc: 5000, option_greeks: 3000, full: 2000, full_d30: 50 }),
@@ -332,6 +344,7 @@ export const UpstoxPositionSchema = z.looseObject({
   realised: z.number().nullish(),
   sell_value: z.number().nullish(),
   trading_symbol: z.string().nullish(),
+  tradingsymbol: z.string().nullish(),
   close_price: z.number().nullish(),
   buy_price: z.number().nullish(),
   sell_price: z.number().nullish(),
@@ -409,11 +422,14 @@ export type UpstoxInstrument = z.infer<typeof UpstoxInstrumentSchema>;
 // ---------------------------------------------------------------------------------------------------------------------
 // Feeds
 
-/** `data` of both feed authorize endpoints. `authorizedRedirectUri` is the deprecated duplicate. */
-export const UpstoxFeedAuthorizeSchema = z.looseObject({
-  authorized_redirect_uri: z.string().regex(/^wss:\/\//, "Expected a wss:// URL"),
-  authorizedRedirectUri: z.string().nullish(),
-});
+/**
+ * `data` of both feed authorize endpoints, as the single-use `wss://` URL it carries. V3 documents only
+ * `authorized_redirect_uri`; V2 also sent the camel-case duplicate `authorizedRedirectUri`, read when it is the only one.
+ */
+export const UpstoxFeedAuthorizeSchema = z
+  .looseObject({ authorized_redirect_uri: z.string().nullish(), authorizedRedirectUri: z.string().nullish() })
+  .transform((data) => data.authorized_redirect_uri ?? data.authorizedRedirectUri ?? "")
+  .pipe(z.string().regex(/^wss:\/\//, "Expected a wss:// URL"));
 
 /** Market feed V3 request; sent as a BINARY frame (UTF-8 JSON), never as text. */
 export interface UpstoxFeedRequest {

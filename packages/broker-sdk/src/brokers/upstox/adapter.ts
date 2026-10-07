@@ -9,9 +9,9 @@
  * - Everything else (profile, funds, order book, positions, holdings, candles, feed authorize): 50/s, 500/min,
  *   2000/30 min. broker.md caps us at 25/s. The per-minute and per-30-minute windows are not enforced locally: Upstox
  *   answers 429 / `UDAPI10005`, which becomes RateLimitedError. Exceeding them "might result in temporary suspension".
- * - Market feed: 2 WebSocket connections per user (5 with Upstox Plus); per-mode key limits (ltpc 5000, option_greeks
- *   3000, full 2000; mixed modes 2000/2000/1500). We use ONE market connection per platform and one portfolio stream
- *   per account, so a user's second connection stays free.
+ * - Market feed: 2 WebSocket connections per user (5 with Upstox Plus); per-mode key limits per user (ltpc 5000,
+ *   option_greeks 3000, full 2000; when modes are mixed 2000/2000/1500), exposed as `capabilities.feedLimits`. We use
+ *   ONE market connection per platform and one portfolio stream per account, so a user's second connection stays free.
  *
  * Quirks:
  * - Auth: OAuth2 code flow, no refresh token. Every token dies at 03:30 IST (the next day, or the same day for logins
@@ -32,7 +32,13 @@
  * - Instruments: Upstox keys (`NSE_FO|52618`, `NSE_EQ|<ISIN>`) ↔ canonical keys through an injected
  *   {@link UpstoxInstrumentResolver} (the api's `InstrumentBrokerToken` table). The master asset needs no auth.
  * - Candles: V3 historical (whole days before today, in windows of ≤ 28 days up to 15-minute bars, ≤ 89 days up to
- *   hourly, ≤ 10 years daily) + V3 intraday for today; newest first on the wire, ascending here.
+ *   hourly, ≤ 10 years daily; minutes and hours exist from January 2022, days from January 2000, so earlier days are
+ *   never asked for) + V3 intraday for today; newest first on the wire, ascending here.
+ * - Positions and holdings carry `last_price` and `close_price` (previous close). An equity row whose `instrument_token`
+ *   (`NSE_EQ|<ISIN>`) the resolver doesn't know yet maps through its trading symbol (`NHPC-EQ` → `NSE_EQ|NHPC`), so
+ *   holdings show before the instrument master is synced; derivatives need the master.
+ * - Feed ticks: `cp` is the previous close, `marketOHLC` interval `1d` the day's OHLC (indices too, in `indexFF`),
+ *   `vtt` the day's volume, `tbq`/`tsq` the book totals; proto3 zeros ("none yet") are left out of the tick.
  * - Feeds: the authorize endpoints return single-use `wss://` URLs, so every reconnect authorizes again (one standard
  *   request). Feed requests are JSON in BINARY frames; responses are protobuf `FeedResponse` (./proto.ts).
  */
@@ -64,7 +70,13 @@ import type {
   Profile,
 } from "../../models";
 
-import { nativeUpstoxSocket, UPSTOX_MAX_FEED_INSTRUMENTS, UpstoxMarketFeed, UpstoxOrderFeed } from "./feed";
+import {
+  nativeUpstoxSocket,
+  UPSTOX_MAX_FEED_INSTRUMENTS,
+  UPSTOX_SDK_FEED_LIMITS,
+  UpstoxMarketFeed,
+  UpstoxOrderFeed,
+} from "./feed";
 import type { UpstoxSocketFactory } from "./feed";
 import { upstoxCall, upstoxError, upstoxSend } from "./http";
 import type { UpstoxCallContext, UpstoxFetch } from "./http";
@@ -73,6 +85,7 @@ import type { UpstoxInstrumentRef, UpstoxInstrumentResolver } from "./instrument
 import {
   candleSpec,
   decimalString,
+  fallbackEquityKey,
   fromUpstoxOrderType,
   fromUpstoxValidity,
   istDate,
@@ -139,6 +152,8 @@ export const UPSTOX_CAPABILITIES: BrokerCapabilities = Object.freeze({
   authMode: "oauth",
   refreshable: false,
   maxFeedInstruments: UPSTOX_MAX_FEED_INSTRUMENTS,
+  // Per user, so per connection: full ≤ 2000 alone, 1500 next to ltp (≤ 2000).
+  feedLimits: UPSTOX_SDK_FEED_LIMITS,
   // The portfolio stream carries one access token's orders.
   orderFeedScope: "account",
 });
@@ -341,7 +356,7 @@ export class UpstoxAdapter implements BrokerAdapter {
 
   async getOrderBook(ctx: AccountCallContext): Promise<BrokerOrder[]> {
     const rows = validRows(await this.#get(ctx, "getOrderBook", UPSTOX_URLS.orderBook, RowsSchema), UpstoxOrderSchema);
-    const keys = await this.#instruments.byTokens(rows.map((row) => row.instrument_token));
+    const keys = await this.#keysOf(rows);
     const now = this.#now();
     return rows.flatMap((row) => {
       const key = keys.get(row.instrument_token);
@@ -357,7 +372,7 @@ export class UpstoxAdapter implements BrokerAdapter {
       await this.#get(ctx, "getPositions", UPSTOX_URLS.positions, RowsSchema),
       UpstoxPositionSchema,
     );
-    const keys = await this.#instruments.byTokens(rows.map((row) => row.instrument_token));
+    const keys = await this.#keysOf(rows);
     return rows.flatMap((row) => {
       const key = keys.get(row.instrument_token);
       const position = key === undefined ? undefined : toPosition(row, key);
@@ -367,7 +382,7 @@ export class UpstoxAdapter implements BrokerAdapter {
 
   async getHoldings(ctx: AccountCallContext): Promise<BrokerHolding[]> {
     const rows = validRows(await this.#get(ctx, "getHoldings", UPSTOX_URLS.holdings, RowsSchema), UpstoxHoldingSchema);
-    const keys = await this.#instruments.byTokens(rows.map((row) => row.instrument_token));
+    const keys = await this.#keysOf(rows);
     return rows.flatMap((row) => {
       const key = keys.get(row.instrument_token);
       return key === undefined ? [] : [toHolding(row, key)];
@@ -384,7 +399,8 @@ export class UpstoxAdapter implements BrokerAdapter {
     const toDate = istDate(to);
     const lastHistorical = toDate < today ? toDate : addDays(today, -1);
     const raw: UpstoxCandle[] = [];
-    for (let start = istDate(from); start <= lastHistorical;) {
+    const first = istDate(from) < spec.since ? spec.since : istDate(from);
+    for (let start = first; start <= lastHistorical;) {
       const window = addDays(start, spec.maxDays - 1);
       const end = window < lastHistorical ? window : lastHistorical;
       const url = `${UPSTOX_URLS.historicalCandles}/${path}/${end}/${start}`;
@@ -453,8 +469,25 @@ export class UpstoxAdapter implements BrokerAdapter {
     return upstoxCall(this.#call(ctx, operation), { method: "GET", url, token: ctx.creds.accessToken }, schema);
   }
 
-  async #authorizeFeed(ctx: AccountCallContext, operation: BrokerMethod, url: string): Promise<string> {
-    return (await this.#get(ctx, operation, url, UpstoxFeedAuthorizeSchema)).authorized_redirect_uri;
+  #authorizeFeed(ctx: AccountCallContext, operation: BrokerMethod, url: string): Promise<string> {
+    return this.#get(ctx, operation, url, UpstoxFeedAuthorizeSchema);
+  }
+
+  /** Canonical keys for rows' Upstox tokens: the resolver's, else an equity key from the row's trading symbol. */
+  async #keysOf(
+    rows: readonly {
+      readonly instrument_token: string;
+      readonly trading_symbol?: string | null | undefined;
+      readonly tradingsymbol?: string | null | undefined;
+    }[],
+  ): Promise<ReadonlyMap<string, InstrumentKey>> {
+    const keys = new Map(await this.#instruments.byTokens(rows.map((row) => row.instrument_token)));
+    for (const row of rows) {
+      if (keys.has(row.instrument_token)) continue;
+      const key = fallbackEquityKey(row.instrument_token, row.trading_symbol ?? row.tradingsymbol);
+      if (key !== undefined) keys.set(row.instrument_token, key);
+    }
+    return keys;
   }
 
   #invalid(operation: BrokerMethod, message: string, code: string): BrokerInputError {

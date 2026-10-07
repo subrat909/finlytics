@@ -1,0 +1,10 @@
+{
+  "dhanClientId": "1000000001",
+  "availableBalance": "98440.50",
+  "sodLimit": "113642",
+  "collateralAmount": "0.0",
+  "receiveableAmount": null,
+  "utilizedAmount": "15202.0",
+  "blockedPayoutAmount": "0",
+  "withdrawableBalance": null
+}

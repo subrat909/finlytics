@@ -49,7 +49,7 @@ export function isSecret(value: unknown): value is Secret {
 export interface BrokerCredentials {
   readonly accessToken: Secret;
   readonly refreshToken?: Secret | undefined;
-  /** When the access token stops working (Upstox: 03:30 IST next day; Dhan: 30 days). */
+  /** When the access token stops working (Upstox: 03:30 IST next day; Dhan: 24 hours, renewable). */
   readonly expiresAt?: Date | undefined;
   /** The broker's client/user id. PII: the api stores it encrypted (`BrokerAccount.brokerClientIdEnc`). */
   readonly clientId?: string | undefined;

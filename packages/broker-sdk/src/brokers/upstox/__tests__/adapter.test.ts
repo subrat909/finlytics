@@ -4,9 +4,10 @@ import { Secret } from "../../../credentials";
 import { isBrokerError } from "../../../errors";
 import type { BrokerError } from "../../../errors";
 import { UPSTOX_CAPABILITIES, UpstoxAdapter } from "../adapter";
+import { UpstoxInstrumentMap } from "../instruments";
 import { UPSTOX_URLS } from "../types";
 
-import { json, upstoxErrorBody, VALID_CODE } from "./fake-upstox";
+import { fixture, json, upstoxErrorBody, VALID_CODE } from "./fake-upstox";
 import {
   BANKNIFTY_PE,
   CRUDE_FUT,
@@ -33,6 +34,11 @@ function path(url: string): string {
   return new URL(url).pathname;
 }
 
+/** The first row of a `{ status, data: [...] }` fixture. */
+function firstData(name: string): Record<string, unknown> {
+  return (fixture(name) as { data: Record<string, unknown>[] }).data[0] ?? {};
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -46,6 +52,11 @@ describe("UpstoxAdapter: login", () => {
       authMode: "oauth",
       refreshable: false,
       maxFeedInstruments: 5000,
+      // V3 limits (per user, so per connection): `quote` is the stricter of full and option_greeks.
+      feedLimits: {
+        single: { ltp: 5000, quote: 2000, full: 2000 },
+        mixed: { ltp: 2000, quote: 1500, full: 1500 },
+      },
       orderFeedScope: "account",
     });
   });
@@ -276,10 +287,30 @@ describe("UpstoxAdapter: account reads", () => {
   it("maps the order book, skipping unknown instruments and unsupported rows", async () => {
     const { adapter, ctx, fake } = upstoxSetup();
     const base = fake.firstOrder();
-    fake.orders.push({ ...base, order_id: "X1", instrument_token: "NSE_EQ|INE000000000" });
+    fake.orders.push({ ...base, order_id: "X1", instrument_token: "NSE_FO|99999" });
     fake.orders.push({ ...base, order_id: "X2", product: "XX" });
     fake.orders.push({ order_id: "X3", instrument_token: "NSE_EQ|INE220J01025", status: "open" });
-    expect((await adapter.getOrderBook(ctx())).map((order) => order.brokerOrderId)).toEqual(["231019025057849"]);
+    // An equity the resolver doesn't know still maps, through its trading symbol.
+    fake.orders.push({ ...base, order_id: "X4", instrument_token: "NSE_EQ|INE000000000" });
+    const orders = await adapter.getOrderBook(ctx());
+    expect(orders.map((order) => [order.brokerOrderId, order.instrumentKey])).toEqual([
+      ["231019025057849", "BSE_EQ|FCONSUMER"],
+      ["X4", "NSE_EQ|FCONSUMER"],
+    ]);
+  });
+
+  it("maps equity holdings and positions before the instrument master is synced", async () => {
+    const { adapter, ctx, fake } = upstoxSetup({ instruments: new UpstoxInstrumentMap() });
+    const equity = { product: "D", instrument_token: "NSE_EQ|INE528G01035", quantity: 5, trading_symbol: "YESBANK" };
+    fake.respond(
+      path(UPSTOX_URLS.positions),
+      json({ status: "success", data: [{ ...firstData("positions.json") }, equity] }),
+    );
+    expect(await adapter.getHoldings(ctx())).toEqual([
+      { instrumentKey: YESBANK, qty: 36, t1Qty: 0, avgPrice: "18.75", ltp: "17.05", close: "17.05" },
+    ]);
+    // The option needs the master; the equity maps through its trading symbol.
+    expect((await adapter.getPositions(ctx())).map((position) => position.instrumentKey)).toEqual([YESBANK]);
   });
 });
 
@@ -451,6 +482,26 @@ describe("UpstoxAdapter: historical candles", () => {
       "/NSE_FO%7C45450/minutes/5/2025-07-28/2025-07-01",
       "/NSE_FO%7C45450/minutes/5/2025-08-25/2025-07-29",
       "/NSE_FO%7C45450/minutes/5/2025-08-30/2025-08-26",
+    ]);
+  });
+
+  it("never asks for days before Upstox has data (minutes from 2022, days from 2000)", async () => {
+    const { adapter, ctx, fake } = upstoxSetup();
+    await adapter.getHistoricalCandles(ctx(), {
+      instrumentKey: NIFTY_CE,
+      timeframe: "M15",
+      from: new Date("2021-12-20T03:45:00Z"),
+      to: new Date("2022-01-03T10:00:00Z"),
+    });
+    await adapter.getHistoricalCandles(ctx(), {
+      instrumentKey: NIFTY_CE,
+      timeframe: "D1",
+      from: new Date("1999-12-01T00:00:00Z"),
+      to: new Date("2000-01-02T10:00:00Z"),
+    });
+    expect(candleUrls(fake)).toEqual([
+      "/NSE_FO%7C45450/minutes/15/2022-01-03/2022-01-01",
+      "/NSE_FO%7C45450/days/1/2000-01-02/2000-01-01",
     ]);
   });
 

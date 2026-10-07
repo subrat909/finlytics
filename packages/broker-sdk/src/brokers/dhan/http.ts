@@ -16,8 +16,6 @@ import {
 import type { BrokerError, BrokerErrorOptions } from "../../errors";
 import { abortReason } from "../../timeout";
 
-import { DhanErrorBodySchema } from "./types";
-
 /** The subset of `fetch` the adapter uses (Node's global fetch satisfies it). */
 export type DhanFetch = (input: string, init: RequestInit) => Promise<Response>;
 
@@ -30,6 +28,8 @@ export interface DhanRequest {
   readonly token?: string | undefined;
   readonly headers?: Readonly<Record<string, string>> | undefined;
   readonly body?: unknown;
+  /** A successful answer that isn't JSON is returned as its trimmed text instead of failing (RenewToken). */
+  readonly allowText?: boolean | undefined;
 }
 
 const BROKER = "DHAN" as const;
@@ -71,6 +71,70 @@ const MESSAGES: ReadonlyMap<ErrorClass, string> = new Map<ErrorClass, string>([
   [BrokerRejectedError, "Dhan rejected the request"],
 ]);
 
+/** The annexure's error types (`Invalid_Authentication`, "Rate Limit", ...), normalised, for answers without a code. */
+const ERROR_TYPE_CLASSES: Readonly<Record<string, ErrorClass>> = Object.freeze({
+  INVALID_AUTHENTICATION: NeedsReloginError,
+  INVALID_ACCESS: BrokerRejectedError,
+  USER_ACCOUNT: BrokerRejectedError,
+  RATE_LIMIT: RateLimitedError,
+  INPUT_EXCEPTION: BrokerRejectedError,
+  ORDER_ERROR: BrokerRejectedError,
+  DATA_ERROR: BrokerNotFoundError,
+  INTERNAL_SERVER_ERROR: BrokerUnavailableError,
+  NETWORK_ERROR: BrokerUnavailableError,
+  OTHERS: BrokerRejectedError,
+});
+
+const FAILURE_STATUSES: ReadonlySet<string> = new Set(["FAILURE", "FAILED", "ERROR"]);
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function textOf(value: unknown): string | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
+}
+
+/** What Dhan said went wrong. */
+export interface DhanErrorFields {
+  readonly code?: string | undefined;
+  readonly type?: string | undefined;
+  readonly message?: string | undefined;
+}
+
+/**
+ * Dhan's error fields from any of its error shapes: v2's `{ errorType, errorCode, errorMessage }`, the snake-case
+ * `error_*` form, either inside `remarks`, `data` or `error`, or a bare `{ status: "failure", remarks }`. Undefined
+ * when the body is not an error (arrays never are).
+ */
+export function dhanErrorFields(body: unknown): DhanErrorFields | undefined {
+  if (!isRecord(body)) return undefined;
+  for (const source of [body, body.remarks, body.data, body.error]) {
+    if (!isRecord(source)) continue;
+    const code = textOf(source.errorCode ?? source.error_code);
+    const type = textOf(source.errorType ?? source.error_type);
+    if (code === undefined && type === undefined) continue;
+    const message = textOf(source.errorMessage ?? source.error_message ?? source.message);
+    return { code, type, message };
+  }
+  const status = textOf(body.status)?.toUpperCase();
+  if (status !== undefined && FAILURE_STATUSES.has(status)) {
+    return { message: textOf(body.remarks) ?? textOf(body.message) ?? textOf(body.errorMessage) };
+  }
+  return undefined;
+}
+
+function classForType(type: string | undefined): ErrorClass | undefined {
+  if (type === undefined) return undefined;
+  return ERROR_TYPE_CLASSES[
+    type
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "_")
+      .replace(/^_|_$/g, "")
+  ];
+}
+
 function classForStatus(status: number): ErrorClass {
   if (status === 401) return NeedsReloginError;
   if (status === 404) return BrokerNotFoundError;
@@ -85,8 +149,9 @@ function retryAfterMs(header: string | null): number {
 }
 
 /**
- * The typed error for a Dhan error answer. Dhan's code decides when there is one (`errorCode`), else the HTTP status.
- * A mutating call that fails as "unavailable" may still have happened: `outcomeUnknown`.
+ * The typed error for a Dhan error answer: Dhan's code decides when there is one (DH-901 → NEEDS_RELOGIN, 807–810 →
+ * NEEDS_RELOGIN, DH-904/805 → RATE_LIMITED, DH-907 → NOT_FOUND, ...), else its error type, else the HTTP status
+ * (401 → NEEDS_RELOGIN). A mutating call that fails as "unavailable" may still have happened: `outcomeUnknown`.
  */
 export function dhanError(
   status: number,
@@ -94,17 +159,17 @@ export function dhanError(
   operation: BrokerMethod,
   retryAfter: string | null = null,
 ): BrokerError {
-  const parsed = DhanErrorBodySchema.safeParse(body);
-  const rawCode = parsed.success ? parsed.data.errorCode : undefined;
-  const code = rawCode === undefined || rawCode === null || rawCode === "" ? undefined : String(rawCode);
-  const ErrorType = (code === undefined ? undefined : ERROR_CLASSES[code]) ?? classForStatus(status);
-  const message = parsed.success ? (parsed.data.errorMessage ?? undefined) : undefined;
+  const fields = dhanErrorFields(body);
+  const code = fields?.code?.toUpperCase();
+  const ErrorType =
+    (code === undefined ? undefined : ERROR_CLASSES[code]) ?? classForType(fields?.type) ?? classForStatus(status);
+  const message = fields?.message;
   const options: BrokerErrorOptions = {
     broker: BROKER,
     operation,
     brokerError: {
       code: (code ?? `HTTP_${String(status)}`).slice(0, 64),
-      ...(message === undefined || message === "" ? {} : { message: message.slice(0, 500) }),
+      ...(message === undefined ? {} : { message: message.slice(0, 500) }),
     },
     ...(ErrorType === RateLimitedError ? { retryAfterMs: retryAfterMs(retryAfter) } : {}),
     ...(ErrorType === BrokerUnavailableError && MUTATING_METHODS.has(operation) ? { outcomeUnknown: true } : {}),
@@ -157,21 +222,13 @@ export async function dhanRequest(fetchFn: DhanFetch, baseUrl: string, request: 
       body = JSON.parse(text);
     } catch {
       if (!response.ok) throw dhanError(response.status, undefined, operation, response.headers.get("retry-after"));
+      if (request.allowText === true) return text.trim();
       throw transportError(operation, "Dhan answered with something other than JSON");
     }
   }
   if (!response.ok) throw dhanError(response.status, body, operation, response.headers.get("retry-after"));
   // Some failures come back as 200 with an error body.
-  const errorBody = DhanErrorBodySchema.safeParse(body);
-  if (
-    errorBody.success &&
-    !Array.isArray(body) &&
-    errorBody.data.errorCode !== undefined &&
-    errorBody.data.errorCode !== null &&
-    errorBody.data.errorCode !== ""
-  ) {
-    throw dhanError(response.status, body, operation);
-  }
+  if (dhanErrorFields(body) !== undefined) throw dhanError(response.status, body, operation);
   return body;
 }
 

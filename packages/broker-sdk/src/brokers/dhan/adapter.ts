@@ -12,8 +12,18 @@
  *
  * Quirks:
  * - Auth is a pasted access token (`authMode: "token"`, fields `clientId` + `accessToken`); no OAuth. Since v2.4
- *   (Sep 2025) a dashboard token lasts 24 hours, not 30 days; `RenewToken` swaps a live token for a new 24-hour one,
- *   so `refreshToken` works until the token has expired (then NEEDS_RELOGIN). `expiresAt` comes from the JWT `exp`.
+ *   (Sep 2025) a dashboard token lasts 24 hours, not 30 days; `GET /RenewToken` (headers `access-token` +
+ *   `dhanClientId`) swaps a live token for a new 24-hour one, so `refreshToken` works until the token has expired (then
+ *   NEEDS_RELOGIN). Its answer is undocumented: `{ accessToken, expiryTime }`, snake case, a `data` envelope or the bare
+ *   token are all read. `expiresAt` comes from the JWT `exp`, else the answer, else 24 hours from now.
+ * - Connecting must not fail on cosmetics: the paste is cleaned (whitespace, quotes, `Bearer `), the client id may be
+ *   left empty (the JWT's `dhanClientId` claim or the profile supplies it), and `/profile` is read forgivingly (numbers
+ *   for strings, nulls, extra fields; `tokenValidity` `DD/MM/YYYY HH:mm` IST or other date forms). An expired JWT or
+ *   one for another client id is refused before Dhan is called.
+ * - Errors come as `{ errorType, errorCode, errorMessage }`, or in the older `{ status: "failure", remarks: {
+ *   error_code, ... } }` form, sometimes with HTTP 200: both are read (./http.ts). DH-901 / 807–810 → NEEDS_RELOGIN.
+ * - List reads (order book, positions, holdings) skip a row they can't read or whose instrument nobody can identify,
+ *   instead of failing the whole list. Positions carry no LTP; `close` is not reported either.
  * - Order, order-book and update payloads name instruments by `(exchangeSegment, securityId)`; the adapter maps them
  *   through a {@link DhanInstrumentMap} that `downloadInstrumentMaster` fills (or the api loads from its reverse map).
  *   Rows the map doesn't know fall back to their own symbol and derivative fields.
@@ -66,12 +76,16 @@ import type { DhanInstrumentRef } from "./instruments";
 import {
   aggregateCandles,
   candlePlan,
+  cleanToken,
   finaliseCandles,
   istDate,
   istToDate,
   istWallClock,
+  jwtClientId,
   jwtExpiry,
+  orderKeyOf,
   parsedKey,
+  renewedToken,
   toBrokerHolding,
   toBrokerOrder,
   toBrokerPosition,
@@ -96,7 +110,7 @@ import {
   DhanOrderSchema,
   DhanPositionSchema,
   DhanProfileSchema,
-  DhanTokenResponseSchema,
+  DHAN_TOKEN_VALIDITY_MS,
 } from "./types";
 import type {
   DhanCandles,
@@ -105,6 +119,7 @@ import type {
   DhanModifyOrderRequest,
   DhanOrder,
   DhanPlaceOrderRequest,
+  DhanProfile,
 } from "./types";
 
 export interface DhanAdapterOptions {
@@ -127,10 +142,18 @@ export interface DhanAdapterOptions {
   readonly now?: (() => Date) | undefined;
 }
 
+/** 5000 instruments per connection in any mix of ticker, quote and full (100 per subscribe message). */
+const DHAN_FEED_LIMITS = Object.freeze({
+  ltp: DHAN_FEED_MAX_INSTRUMENTS,
+  quote: DHAN_FEED_MAX_INSTRUMENTS,
+  full: DHAN_FEED_MAX_INSTRUMENTS,
+});
+
 export const DHAN_CAPABILITIES: BrokerCapabilities = Object.freeze({
   authMode: "token",
   refreshable: true,
   maxFeedInstruments: DHAN_FEED_MAX_INSTRUMENTS,
+  feedLimits: Object.freeze({ single: DHAN_FEED_LIMITS, mixed: DHAN_FEED_LIMITS }),
   orderFeedScope: "account",
 });
 
@@ -151,6 +174,21 @@ function parseOr<T>(schema: z.ZodType<T>, value: unknown, operation: DhanRequest
   const parsed = schema.safeParse(value);
   if (!parsed.success) throw unexpectedAnswer(operation);
   return parsed.data;
+}
+
+/**
+ * The rows of a list answer: an empty body is no rows; a row in a shape we can't read is skipped, not fatal (one odd
+ * row must not hide the rest). A `{ data: [...] }` envelope is opened; anything else that isn't a list is unexpected.
+ */
+function rowsOf<T>(body: unknown, schema: z.ZodType<T>, operation: DhanRequest["operation"]): T[] {
+  if (body === undefined || body === null) return [];
+  const data: unknown = typeof body === "object" ? (body as { data?: unknown }).data : undefined;
+  const list: unknown[] | undefined = Array.isArray(body) ? body : Array.isArray(data) ? data : undefined;
+  if (list === undefined) throw unexpectedAnswer(operation);
+  return list.flatMap((row) => {
+    const parsed = schema.safeParse(row);
+    return parsed.success ? [parsed.data] : [];
+  });
 }
 
 /** The account's Dhan client id (orders, RenewToken and both feeds need it). */
@@ -208,19 +246,31 @@ export class DhanAdapter implements BrokerAdapter {
   }
 
   /**
-   * Checks the pasted token against GET /profile and returns the credentials. A token Dhan refuses, or one issued to
-   * another client id, is BROKER_REJECTED (the user fixes the form; there is no session to re-login yet).
+   * Checks the pasted token against GET /profile and returns the credentials. Forgiving with what a paste brings
+   * (whitespace, quotes, a `Bearer ` prefix); the client id may be left empty, then it comes from the token or the
+   * profile. A token that has expired, that Dhan refuses, or that belongs to another client id is BROKER_REJECTED with
+   * our own message (the user fixes the form; there is no session to re-login yet).
    */
   async exchangeToken(ctx: CallContext, input: ExchangeTokenInput): Promise<BrokerCredentials> {
-    const clientId = input.fields?.clientId?.trim() ?? "";
-    const token = input.fields?.accessToken?.trim() ?? "";
-    if (!CLIENT_ID.test(clientId) || token.length < 16 || token.length > 4096) {
-      throw new BrokerInputError("Enter the Dhan client ID and access token", {
-        broker: BROKER,
-        operation: "exchangeToken",
-      });
+    const typedClientId = (input.fields?.clientId ?? "").trim();
+    const token = cleanToken(input.fields?.accessToken);
+    if (token.length < 16 || token.length > 4096 || (typedClientId !== "" && !CLIENT_ID.test(typedClientId))) {
+      throw new BrokerInputError(
+        typedClientId !== "" && !CLIENT_ID.test(typedClientId)
+          ? "The Dhan client ID has only letters and digits"
+          : "Paste the access token from web.dhan.co",
+        { broker: BROKER, operation: "exchangeToken" },
+      );
     }
-    let profile: z.infer<typeof DhanProfileSchema>;
+    const tokenExpiry = jwtExpiry(token);
+    if (tokenExpiry !== undefined && tokenExpiry.getTime() <= this.#now().getTime()) {
+      throw this.#rejected("The access token has expired; generate a new one on web.dhan.co", "TOKEN_EXPIRED");
+    }
+    const tokenClientId = jwtClientId(token);
+    if (typedClientId !== "" && tokenClientId !== undefined && tokenClientId !== typedClientId) {
+      throw this.#rejected("The access token belongs to another Dhan client ID", "CLIENT_MISMATCH");
+    }
+    let profile: DhanProfile;
     try {
       profile = parseOr(
         DhanProfileSchema,
@@ -242,21 +292,23 @@ export class DhanAdapter implements BrokerAdapter {
       }
       throw error;
     }
+    const clientId = typedClientId || tokenClientId || profile.dhanClientId;
     if (profile.dhanClientId !== clientId) {
-      throw new BrokerRejectedError("The access token belongs to another Dhan client ID", {
-        broker: BROKER,
-        operation: "exchangeToken",
-        brokerError: { code: "CLIENT_MISMATCH" },
-      });
+      throw this.#rejected("The access token belongs to another Dhan client ID", "CLIENT_MISMATCH");
     }
-    const expiresAt = jwtExpiry(token) ?? istToDate(profile.tokenValidity);
+    if (!CLIENT_ID.test(clientId)) throw unexpectedAnswer("exchangeToken");
+    const expiresAt = tokenExpiry ?? istToDate(profile.tokenValidity);
     return { accessToken: Secret.of(token), clientId, ...(expiresAt === undefined ? {} : { expiresAt }) };
   }
 
-  /** GET /RenewToken: the current token stops working and a new 24-hour one comes back. */
+  /**
+   * GET /RenewToken (headers `access-token`, `dhanClientId`): the current token stops working and a new 24-hour one
+   * comes back. Only a live token renews; an expired one is NEEDS_RELOGIN. `expiresAt` is the JWT's `exp`, else the
+   * answer's expiry, else 24 hours from now.
+   */
   async refreshToken(ctx: AccountCallContext): Promise<BrokerCredentials> {
     const clientId = clientIdOf(ctx.creds);
-    const answer = DhanTokenResponseSchema.safeParse(
+    const renewed = renewedToken(
       await this.#request({
         method: "GET",
         url: DHAN_PATHS.renewToken,
@@ -264,9 +316,10 @@ export class DhanAdapter implements BrokerAdapter {
         signal: ctx.signal,
         token: ctx.creds.accessToken.reveal(),
         headers: { dhanClientId: clientId },
+        allowText: true,
       }),
     );
-    if (!answer.success) {
+    if (renewed === undefined || renewed.token.length < 16) {
       // The old token may already be void: the user has to paste a new one.
       throw new NeedsReloginError("Dhan did not return a renewed token", {
         broker: BROKER,
@@ -274,9 +327,9 @@ export class DhanAdapter implements BrokerAdapter {
         brokerError: { code: "UNEXPECTED_RESPONSE" },
       });
     }
-    const token = answer.data.accessToken;
-    const expiresAt = jwtExpiry(token) ?? istToDate(answer.data.expiryTime);
-    return { accessToken: Secret.of(token), clientId, ...(expiresAt === undefined ? {} : { expiresAt }) };
+    const expiresAt =
+      jwtExpiry(renewed.token) ?? istToDate(renewed.expiry) ?? new Date(this.#now().getTime() + DHAN_TOKEN_VALIDITY_MS);
+    return { accessToken: Secret.of(renewed.token), clientId, expiresAt };
   }
 
   // 3–4. ---------------------------------------------------------------------------------------------------------------
@@ -391,11 +444,14 @@ export class DhanAdapter implements BrokerAdapter {
     await this.#send(ctx, "DELETE", path, "cancelOrder");
   }
 
+  /** Rows in a shape we can't read, or for instruments neither the map nor the row identifies, are left out. */
   getOrderBook(ctx: AccountCallContext): Promise<BrokerOrder[]> {
     return emptyWhenNotFound(
       this.#get(ctx, DHAN_PATHS.orders, "getOrderBook").then((body) =>
-        parseOr(z.array(DhanOrderSchema), body ?? [], "getOrderBook").map((order) =>
-          toBrokerOrder(this.#instruments, order, this.#now),
+        rowsOf(body, DhanOrderSchema, "getOrderBook").flatMap((order) =>
+          orderKeyOf(this.#instruments, order) === undefined
+            ? []
+            : [toBrokerOrder(this.#instruments, order, this.#now)],
         ),
       ),
     );
@@ -403,12 +459,14 @@ export class DhanAdapter implements BrokerAdapter {
 
   // 10–11. -------------------------------------------------------------------------------------------------------------
 
+  /** Like the order book: unreadable or unidentifiable rows are left out, never the whole answer. */
   getPositions(ctx: AccountCallContext): Promise<BrokerPosition[]> {
     return emptyWhenNotFound(
       this.#get(ctx, DHAN_PATHS.positions, "getPositions").then((body) =>
-        parseOr(z.array(DhanPositionSchema), body ?? [], "getPositions").map((position) =>
-          toBrokerPosition(this.#instruments, position),
-        ),
+        rowsOf(body, DhanPositionSchema, "getPositions").flatMap((position) => {
+          const mapped = toBrokerPosition(this.#instruments, position);
+          return mapped === undefined ? [] : [mapped];
+        }),
       ),
     );
   }
@@ -416,9 +474,10 @@ export class DhanAdapter implements BrokerAdapter {
   getHoldings(ctx: AccountCallContext): Promise<BrokerHolding[]> {
     return emptyWhenNotFound(
       this.#get(ctx, DHAN_PATHS.holdings, "getHoldings").then((body) =>
-        parseOr(z.array(DhanHoldingSchema), body ?? [], "getHoldings").map((holding) =>
-          toBrokerHolding(this.#instruments, holding),
-        ),
+        rowsOf(body, DhanHoldingSchema, "getHoldings").flatMap((holding) => {
+          const mapped = toBrokerHolding(this.#instruments, holding);
+          return mapped === undefined ? [] : [mapped];
+        }),
       ),
     );
   }
@@ -517,6 +576,10 @@ export class DhanAdapter implements BrokerAdapter {
   }
 
   // Helpers --------------------------------------------------------------------------------------------------------------
+
+  #rejected(message: string, code: string): BrokerRejectedError {
+    return new BrokerRejectedError(message, { broker: BROKER, operation: "exchangeToken", brokerError: { code } });
+  }
 
   #ref(key: InstrumentKey, operation: DhanRequest["operation"]): DhanInstrumentRef {
     const ref = this.#instruments.get(key);

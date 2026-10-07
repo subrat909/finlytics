@@ -276,6 +276,8 @@ export const BrokerPositionSchema = z.strictObject({
   sellAvg: PriceSchema,
   realisedPnl: MoneySchema,
   ltp: PriceSchema.optional(),
+  /** Previous session's close, when the broker reports it (Upstox `close_price`). */
+  close: PriceSchema.optional(),
   unrealisedPnl: MoneySchema.optional(),
 });
 export type BrokerPosition = z.infer<typeof BrokerPositionSchema>;
@@ -287,6 +289,8 @@ export const BrokerHoldingSchema = z.strictObject({
   t1Qty: NonNegativeIntSchema.optional(),
   avgPrice: PriceSchema,
   ltp: PriceSchema.optional(),
+  /** Previous session's close, when the broker reports it (Upstox `close_price`). */
+  close: PriceSchema.optional(),
 });
 export type BrokerHolding = z.infer<typeof BrokerHoldingSchema>;
 
@@ -338,6 +342,10 @@ export type DepthLevel = z.infer<typeof DepthLevelSchema>;
 /**
  * One normalised market tick. Prices are decimal strings (plan B1); the feed converts the broker's numbers once.
  * Greeks are model outputs, not prices, so they stay numbers. Not parsed per tick: {@link TickSchema} is for fixtures.
+ *
+ * A tick carries everything the feed knows about the instrument at that moment (a broker that splits one instrument
+ * across packets, like Dhan, has its feed merge them). A price the broker reports as 0 (no open yet, no trade yet) is
+ * left out rather than sent as "0"; `ltp` is the exception, and is "0" until the first trade.
  */
 export const TickSchema = z.strictObject({
   instrumentKey: InstrumentKeySchema,
@@ -357,6 +365,11 @@ export const TickSchema = z.strictObject({
   ask: PriceSchema.optional(),
   bidQty: NonNegativeIntSchema.optional(),
   askQty: NonNegativeIntSchema.optional(),
+  /** Total buy quantity across the book (Upstox `tbq`, Dhan "Total Buy Quantity"); RtDepth `tbq`. */
+  tbq: NonNegativeIntSchema.optional(),
+  /** Total sell quantity across the book (Upstox `tsq`, Dhan "Total Sell Quantity"); RtDepth `tsq`. */
+  tsq: NonNegativeIntSchema.optional(),
+  /** Best first (5 levels from Upstox `full` and Dhan `full`). */
   depth: z.strictObject({ bids: z.array(DepthLevelSchema), asks: z.array(DepthLevelSchema) }).optional(),
   greeks: z
     .strictObject({

@@ -1,0 +1,146 @@
+[
+  {
+    "segment": "NSE_INDEX",
+    "name": "Nifty 50",
+    "exchange": "NSE",
+    "instrument_type": "INDEX",
+    "instrument_key": "NSE_INDEX|Nifty 50",
+    "exchange_token": "26000",
+    "trading_symbol": "NIFTY"
+  },
+  {
+    "segment": "NSE_INDEX",
+    "name": "Nifty Bank",
+    "exchange": "NSE",
+    "instrument_type": "INDEX",
+    "instrument_key": "NSE_INDEX|Nifty Bank",
+    "exchange_token": "26009",
+    "trading_symbol": "BANKNIFTY"
+  },
+  {
+    "segment": "NSE_INDEX",
+    "name": "Nifty Fin Service",
+    "exchange": "NSE",
+    "instrument_type": "INDEX",
+    "instrument_key": "NSE_INDEX|Nifty Fin Service",
+    "exchange_token": "26037",
+    "trading_symbol": "FINNIFTY"
+  },
+  {
+    "segment": "NSE_INDEX",
+    "name": "NIFTY MID SELECT",
+    "exchange": "NSE",
+    "instrument_type": "INDEX",
+    "instrument_key": "NSE_INDEX|NIFTY MID SELECT",
+    "exchange_token": "26074",
+    "trading_symbol": "MIDCPNIFTY"
+  },
+  {
+    "segment": "NSE_INDEX",
+    "name": "Nifty Next 50",
+    "exchange": "NSE",
+    "instrument_type": "INDEX",
+    "instrument_key": "NSE_INDEX|Nifty Next 50",
+    "exchange_token": "26013",
+    "trading_symbol": "NIFTYNXT50"
+  },
+  {
+    "segment": "NSE_INDEX",
+    "name": "Nifty IT",
+    "exchange": "NSE",
+    "instrument_type": "INDEX",
+    "instrument_key": "NSE_INDEX|Nifty IT",
+    "exchange_token": "26008",
+    "trading_symbol": "NIFTYIT"
+  },
+  {
+    "segment": "NSE_INDEX",
+    "name": "India VIX",
+    "exchange": "NSE",
+    "instrument_type": "INDEX",
+    "instrument_key": "NSE_INDEX|India VIX",
+    "exchange_token": "26017",
+    "trading_symbol": "INDIA VIX"
+  },
+  {
+    "segment": "NSE_INDEX",
+    "name": "Nifty Auto",
+    "exchange": "NSE",
+    "instrument_type": "INDEX",
+    "instrument_key": "NSE_INDEX|Nifty Auto",
+    "exchange_token": "26029",
+    "trading_symbol": "NIFTYAUTO"
+  },
+  {
+    "segment": "BSE_INDEX",
+    "name": "SENSEX",
+    "exchange": "BSE",
+    "instrument_type": "INDEX",
+    "instrument_key": "BSE_INDEX|SENSEX",
+    "exchange_token": "1",
+    "trading_symbol": "SENSEX"
+  },
+  {
+    "segment": "BSE_INDEX",
+    "name": "BANKEX",
+    "exchange": "BSE",
+    "instrument_type": "INDEX",
+    "instrument_key": "BSE_INDEX|BANKEX",
+    "exchange_token": "12",
+    "trading_symbol": "BANKEX"
+  },
+  {
+    "segment": "BSE_INDEX",
+    "name": "SNSX50",
+    "exchange": "BSE",
+    "instrument_type": "INDEX",
+    "instrument_key": "BSE_INDEX|SNSX50",
+    "exchange_token": "98",
+    "trading_symbol": "SENSEX50"
+  },
+  {
+    "segment": "NSE_EQ",
+    "name": "RELIANCE INDUSTRIES LTD",
+    "exchange": "NSE",
+    "isin": "INE002A01018",
+    "instrument_type": "EQ",
+    "instrument_key": "NSE_EQ|INE002A01018",
+    "lot_size": 1,
+    "freeze_quantity": 100000.0,
+    "exchange_token": "2885",
+    "tick_size": 10.0,
+    "trading_symbol": "RELIANCE",
+    "short_name": "RELIANCE",
+    "security_type": "NORMAL"
+  },
+  {
+    "segment": "NSE_EQ",
+    "name": "MAHINDRA & MAHINDRA LTD",
+    "exchange": "NSE",
+    "isin": "INE101A01026",
+    "instrument_type": "EQ",
+    "instrument_key": "NSE_EQ|INE101A01026",
+    "lot_size": 1,
+    "freeze_quantity": 100000.0,
+    "exchange_token": "2031",
+    "tick_size": 10.0,
+    "trading_symbol": "M&M",
+    "short_name": "M&M",
+    "security_type": "NORMAL"
+  },
+  {
+    "segment": "NSE_EQ",
+    "name": "BAJAJ AUTO LIMITED",
+    "exchange": "NSE",
+    "isin": "INE917I01010",
+    "instrument_type": "EQ",
+    "instrument_key": "NSE_EQ|INE917I01010",
+    "lot_size": 1,
+    "freeze_quantity": 100000.0,
+    "exchange_token": "16669",
+    "tick_size": 50.0,
+    "trading_symbol": "BAJAJ-AUTO",
+    "short_name": "BAJAJ-AUTO",
+    "security_type": "NORMAL"
+  }
+]

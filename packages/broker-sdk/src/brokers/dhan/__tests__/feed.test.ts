@@ -5,7 +5,15 @@ import { isBrokerError } from "../../../errors";
 import type { FeedStatus } from "../../../feed/feed";
 import { TickSchema } from "../../../models";
 import type { BrokerOrder, Tick, TradeUpdate } from "../../../models";
-import { disconnectError, DhanMarketFeed, DhanOrderFeed, feedPrice, feedTime, parseDhanPackets } from "../feed";
+import {
+  disconnectError,
+  DhanMarketFeed,
+  DhanOrderFeed,
+  feedPrice,
+  feedTime,
+  isFatalDisconnect,
+  parseDhanPackets,
+} from "../feed";
 import type { DhanFeedOptions } from "../feed";
 import { DhanInstrumentMap } from "../instruments";
 
@@ -144,7 +152,9 @@ describe("feed helpers", () => {
       brokerError: { code: "807", message: "Access token is expired" },
     });
     expect(disconnectError(805)).toMatchObject({ code: "RATE_LIMITED" });
+    expect(disconnectError(806)).toMatchObject({ code: "BROKER_REJECTED", brokerError: { code: "806" } });
     expect(disconnectError(999)).toMatchObject({ code: "BROKER_UNAVAILABLE", brokerError: { code: "999" } });
+    expect([805, 806, 807, 810, 811].map(isFatalDisconnect)).toEqual([false, true, true, true, false]);
   });
 });
 
@@ -228,30 +238,89 @@ describe("DhanMarketFeed", () => {
     );
     socket.receive(oiFrame(2, 52175, 12_500));
     socket.receive(prevCloseFrame(2, 52175, 0, 0)); // a zero close is ignored
+    // The full packet's day fields stay on every later tick: OI and prev close packets carry nothing else.
+    const day = {
+      ltq: 75,
+      volume: 1_500,
+      open: "99",
+      high: "103",
+      low: "97.5",
+      atp: "100.25",
+      tbq: 0,
+      tsq: 0,
+      depth: { bids: [{ price: "101.65", qty: 75, orders: 1 }], asks: [{ price: "101.75", qty: 150, orders: 2 }] },
+      bid: "101.65",
+      bidQty: 75,
+      ask: "101.75",
+      askQty: 150,
+    };
     expect(ticks).toEqual([
       { instrumentKey: KEYS.niftyCe, ltp: "101.55", ts: LTT * 1000, close: "98.4", oi: 9_000 },
-      {
-        instrumentKey: KEYS.niftyCe,
-        ltp: "101.7",
-        ts: LTT * 1000,
-        close: "98.4",
-        oi: 12_400,
-        ltq: 75,
-        volume: 1_500,
-        open: "99",
-        high: "103",
-        low: "97.5",
-        atp: "100.25",
-        depth: { bids: [{ price: "101.65", qty: 75, orders: 1 }], asks: [{ price: "101.75", qty: 150, orders: 2 }] },
-        bid: "101.65",
-        bidQty: 75,
-        ask: "101.75",
-        askQty: 150,
-      },
-      { instrumentKey: KEYS.niftyCe, ltp: "101.7", ts: LTT * 1000, close: "98.4", oi: 12_500 },
-      { instrumentKey: KEYS.niftyCe, ltp: "101.7", ts: LTT * 1000, close: "98.4", oi: 12_500 },
+      { instrumentKey: KEYS.niftyCe, ltp: "101.7", ts: LTT * 1000, close: "98.4", oi: 12_400, ...day },
+      { instrumentKey: KEYS.niftyCe, ltp: "101.7", ts: LTT * 1000, close: "98.4", oi: 12_500, ...day },
+      { instrumentKey: KEYS.niftyCe, ltp: "101.7", ts: LTT * 1000, close: "98.4", oi: 12_500, ...day },
     ]);
     for (const tick of ticks) expect(TickSchema.safeParse(tick).success).toBe(true);
+    await feed.close();
+  });
+
+  it("gives an index its previous close and day OHLC, leaving out zeros and the post-close Day Close", async () => {
+    const { feed, sockets, ticks } = await started();
+    await feed.subscribe([KEYS.nifty], "quote");
+    const socket = sockets.last();
+    socket.receive(prevCloseFrame(0, 13, 24_850.6, 0));
+    socket.receive(
+      quoteFrame(0, 13, { ltp: 25_000.05, ltt: LTT, open: 24_900, high: 25_010, low: 24_880.25, close: 0, atp: 0 }),
+    );
+    expect(ticks).toEqual([
+      {
+        instrumentKey: KEYS.nifty,
+        ltp: "25000.05",
+        ts: LTT * 1000,
+        close: "24850.6",
+        ltq: 0,
+        volume: 0,
+        open: "24900",
+        high: "25010",
+        low: "24880.25",
+        tbq: 0,
+        tsq: 0,
+      },
+    ]);
+    // Pre-open: no open, high or low yet.
+    socket.receive(quoteFrame(0, 13, { ltp: 25_001, ltt: LTT, close: 25_100 }));
+    expect(ticks.at(-1)).toEqual({
+      instrumentKey: KEYS.nifty,
+      ltp: "25001",
+      ts: LTT * 1000,
+      close: "24850.6",
+      ltq: 0,
+      volume: 0,
+      tbq: 0,
+      tsq: 0,
+    });
+    await feed.close();
+  });
+
+  it("sends the book totals, and forgets what the old mode sent once the mode changes", async () => {
+    const { feed, sockets, ticks } = await started();
+    await feed.subscribe([KEYS.hdfcBank], "full");
+    const socket = sockets.last();
+    socket.receive(
+      fullFrame(1, 1333, {
+        ltp: 1_520.5,
+        ltt: LTT,
+        totalBuyQty: 20_000,
+        totalSellQty: 10_000,
+        oi: 0,
+        depth: [{ bidQty: 10, askQty: 20, bidOrders: 1, askOrders: 2, bid: 1_520.4, ask: 1_520.6 }],
+      }),
+    );
+    expect(ticks.at(-1)).toMatchObject({ tbq: 20_000, tsq: 10_000, bid: "1520.4", ask: "1520.6" });
+    expect(ticks.at(-1)).not.toHaveProperty("oi");
+    await feed.subscribe([KEYS.hdfcBank], "ltp");
+    socket.receive(tickerFrame(1, 1333, 1_521, LTT));
+    expect(ticks.at(-1)).toEqual({ instrumentKey: KEYS.hdfcBank, ltp: "1521", ts: LTT * 1000 });
     await feed.close();
   });
 
@@ -271,11 +340,37 @@ describe("DhanMarketFeed", () => {
     await feed.close();
   });
 
-  it("reports a disconnect packet as a typed error", async () => {
-    const { feed, sockets, errors } = await started();
+  it("reports a disconnect packet as a typed error, and stops reconnecting when the token is no good", async () => {
+    const { feed, sockets, errors, statuses } = await started();
+    await feed.subscribe([KEYS.nifty], "ltp");
     sockets.last().receive(disconnectFrame(808));
     expect(isBrokerError(errors[0]) && errors[0].code).toBe("NEEDS_RELOGIN");
+    expect(sockets.last().closed).toBe(true);
+    expect(feed.status).toBe("down");
+    await new Promise((resolve) => setTimeout(resolve, 60)); // well past the backoff
+    expect(sockets.sockets).toHaveLength(1);
+    expect(statuses).toEqual(["up", "down"]);
+    expect(feed.subscriptions().size).toBe(1); // kept for whoever reconnects with a new token
     await feed.close();
+    expect(feed.status).toBe("closed");
+  });
+
+  it("treats a missing Data API plan as final too, but reconnects after other disconnects", async () => {
+    const plan = await started();
+    plan.sockets.last().receive(disconnectFrame(806));
+    expect(plan.errors[0]).toMatchObject({ code: "BROKER_REJECTED", brokerError: { code: "806" } });
+    expect(plan.feed.status).toBe("down");
+    await plan.feed.close();
+
+    const busy = await started();
+    busy.sockets.last().receive(disconnectFrame(805));
+    expect(busy.errors[0]).toMatchObject({ code: "RATE_LIMITED" });
+    busy.sockets.last().drop();
+    await vi.waitFor(() => {
+      expect(busy.sockets.sockets).toHaveLength(2);
+      expect(busy.feed.status).toBe("up");
+    });
+    await busy.feed.close();
   });
 
   it("reconnects with backoff after a drop and re-subscribes every key by mode", async () => {

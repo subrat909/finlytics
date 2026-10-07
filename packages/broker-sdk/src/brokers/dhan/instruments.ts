@@ -6,8 +6,12 @@
  *   segment (`IDX_I:13` is NIFTY, `NSE_EQ:13` is a stock), so the segment is part of the token.
  * - The CSV is parsed as it streams (no full-file buffer): a small RFC 4180 state machine (quotes, `""`, CRLF, fields
  *   split across chunks), columns looked up by header name, so the detailed and compact files both work.
- * - Indices take the names the rest of the platform uses (`NSE_INDEX|NIFTY 50`), see {@link DHAN_INDEX_ALIASES}.
- *   F&O keys use the underlying symbol (`NSE_FO|NIFTY|2025-10-30|24000|CE`).
+ * - The pinned market indices take the platform's names (`NSE_INDEX|NIFTY 50`, ../../index-aliases.ts): by security
+ *   id for the ones Dhan fixes (`IDX_I` 13 NIFTY, 25 BANKNIFTY, 27 FINNIFTY, 442 MIDCPNIFTY, 21 INDIA VIX, 51 SENSEX,
+ *   69 BANKEX), else by symbol or display name; other indices keep Dhan's symbol. Equity keys use the exchange symbol
+ *   (`UNDERLYING_SYMBOL` / `SEM_TRADING_SYMBOL`, never the company name), and equity and index rows carry the canonical
+ *   symbol as their trading symbol, like the dev seed. F&O keys use the underlying symbol
+ *   (`NSE_FO|NIFTY|2025-10-30|24000|CE`).
  * - Quirks: `TICK_SIZE` is in paise in Dhan's file (5 = ₹0.05) unless `tickSizeUnit: "rupee"`; there is no freeze
  *   quantity column, so `freezeQuantities` (by underlying) supplies it; the first row for a key wins.
  */
@@ -20,6 +24,8 @@ import {
 } from "@finlytics/shared";
 import type { InstrumentKey, OptionType, ParsedInstrumentKey, SegmentToken } from "@finlytics/shared";
 
+import { marketIndexAlias, marketIndexByDhanSecurityId } from "../../index-aliases";
+import type { MarketIndexAlias } from "../../index-aliases";
 import type { InstrumentRow } from "../../models";
 
 import { DHAN_EXCHANGE_SEGMENT_CODES } from "./types";
@@ -33,14 +39,20 @@ export interface DhanInstrumentRef {
   readonly instrument: DhanInstrument;
 }
 
-/** Dhan index symbols → the platform's canonical index names. Others keep Dhan's symbol. */
-export const DHAN_INDEX_ALIASES: Readonly<Record<string, string>> = Object.freeze({
-  NIFTY: "NIFTY 50",
-  BANKNIFTY: "NIFTY BANK",
-  FINNIFTY: "NIFTY FIN SERVICE",
-  MIDCPNIFTY: "NIFTY MID SELECT",
-  NIFTYNXT50: "NIFTY NEXT 50",
-});
+/**
+ * The pinned market index a Dhan index row is: by its security id when Dhan fixes one, else by its symbols. A row
+ * whose symbol names a pinned index with a known id, but under another id, is not that index (it keeps its own name).
+ */
+export function dhanMarketIndex(
+  token: "NSE_INDEX" | "BSE_INDEX",
+  securityId: string,
+  spellings: readonly string[],
+): MarketIndexAlias | undefined {
+  const byId = marketIndexByDhanSecurityId(securityId);
+  if (byId !== undefined) return byId.token === token ? byId : undefined;
+  const bySymbol = marketIndexAlias(token, ...spellings);
+  return bySymbol?.dhanSecurityId === undefined ? bySymbol : undefined;
+}
 
 /** Index underlyings of F&O contracts (FUTIDX/OPTIDX rather than FUTSTK/OPTSTK) when the master didn't say. */
 const INDEX_UNDERLYINGS = new Set([
@@ -345,18 +357,30 @@ export function dhanMasterRow(
   const token = tokenFor(exchange, segmentLetter, kind);
   if (token === undefined) return undefined;
 
-  const tradingSymbol = pick(record, "SEM_TRADING_SYMBOL", "SYMBOL_NAME", "UNDERLYING_SYMBOL").slice(0, 64);
+  let tradingSymbol = pick(record, "SEM_TRADING_SYMBOL", "SYMBOL_NAME", "UNDERLYING_SYMBOL").slice(0, 64);
   let key: InstrumentKey;
   let expiry: string | undefined;
   let strike: string | undefined;
   let optionType: OptionType | undefined;
+  let index: MarketIndexAlias | undefined;
   try {
     if (kind === "INDEX" || kind === "EQ") {
+      // The exchange symbol; SYMBOL_NAME only when it is one word (on equity rows it is the company name).
+      const symbolName = pick(record, "SYMBOL_NAME", "SM_SYMBOL_NAME");
       const raw = (
-        pick(record, "UNDERLYING_SYMBOL", "SEM_TRADING_SYMBOL", "SYMBOL_NAME") || tradingSymbol
+        pick(record, "UNDERLYING_SYMBOL", "SEM_TRADING_SYMBOL") || (/\s/.test(symbolName) ? "" : symbolName)
       ).toUpperCase();
-      const symbol = kind === "INDEX" ? (DHAN_INDEX_ALIASES[raw] ?? raw) : raw;
+      index =
+        kind === "INDEX"
+          ? dhanMarketIndex(token as "NSE_INDEX" | "BSE_INDEX", securityId, [
+              raw,
+              symbolName,
+              pick(record, "DISPLAY_NAME", "SEM_CUSTOM_SYMBOL"),
+            ])
+          : undefined;
+      const symbol = index?.symbol ?? raw;
       key = formatInstrumentKey({ segment: kind, token, symbol });
+      tradingSymbol = symbol;
     } else {
       expiry = dhanDate(pick(record, "SM_EXPIRY_DATE", "SEM_EXPIRY_DATE"));
       if (expiry === undefined) return undefined;
@@ -380,7 +404,9 @@ export function dhanMasterRow(
   if (!parsed.ok) return undefined;
   const lot = positive(pick(record, "LOT_SIZE", "SEM_LOT_UNITS"));
   const isin = pick(record, "ISIN").toUpperCase();
-  const name = pick(record, "DISPLAY_NAME", "SEM_CUSTOM_SYMBOL", "SYMBOL_NAME", "SM_SYMBOL_NAME") || tradingSymbol;
+  const name =
+    index?.name ??
+    (pick(record, "DISPLAY_NAME", "SEM_CUSTOM_SYMBOL", "SYMBOL_NAME", "SM_SYMBOL_NAME") || tradingSymbol);
   const freeze = kind === "FUT" || kind === "OPT" ? options.freezeQuantities?.[parsed.value.symbol] : undefined;
   const exchangeSegment = dhanSegmentForToken(token);
   const row: InstrumentRow = {

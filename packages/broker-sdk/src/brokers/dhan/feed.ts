@@ -7,8 +7,13 @@
  * Market feed quirks (live-market-feed, annexure):
  * - Subscribe with JSON `{RequestCode, InstrumentCount, InstrumentList}`, ≤ 100 instruments per message, ≤ 5000 per
  *   connection. Ticker 15, quote 17, full 21; unsubscribe is the same code + 1. A mode change unsubscribes the old mode.
- * - One instrument's data arrives as several packets: ticker/quote/full carry the trade, OI (5) and prev close (6)
- *   arrive on their own. The feed keeps the last LTP, OI and prev close per key and merges them into every tick.
+ * - One instrument's data arrives as several packets: ticker/quote/full carry the trade, OI (5) and prev close (6,
+ *   "whenever any instrument is subscribed") arrive on their own. The feed keeps the last LTP, OI, prev close and day
+ *   fields (OHLC, ATP, volume, book totals, depth) per key and merges them into every tick, so each tick is complete.
+ *   The quote/full "Day Close" is today's close, sent only after the market closes: never the tick's `close`.
+ * - Indices (`IDX_I`, response code 1) use the ticker layout; their quote packets carry OHLC with zero volume.
+ * - A disconnect packet for the token (807–810) or a missing Data API plan (806) stops reconnecting: the feed goes
+ *   `down` and emits the error (NEEDS_RELOGIN / BROKER_REJECTED); the api reconnects with fresh credentials.
  * - Prices are float32: rounded to 2 decimals (4 for currency segments) before they become decimal strings.
  * - LTT is epoch seconds. A value more than a minute in the future is IST wall-clock time and is shifted by 5:30.
  * - The server pings every 10 s and the WebSocket answers by itself; the client-side heartbeat is a silence watchdog:
@@ -20,6 +25,7 @@ import { toDecimalString } from "@finlytics/shared";
 
 import {
   BrokerNotFoundError,
+  BrokerRejectedError,
   BrokerUnavailableError,
   isBrokerError,
   NeedsReloginError,
@@ -144,6 +150,13 @@ class ReconnectingSocket {
     if (!this.#open || this.#socket === undefined) return false;
     this.#socket.send(text);
     return true;
+  }
+
+  /** Drops the connection and stops reconnecting (the credentials are no good); the status stays `down`. */
+  halt(): void {
+    if (this.#closed) return;
+    this.close();
+    this.hooks.onStatus("down");
   }
 
   close(): void {
@@ -430,7 +443,7 @@ export function feedTime(ltt: number, nowMs: number): number {
   return ms > nowMs + 60_000 ? ms - IST_OFFSET_SEC * 1000 : ms;
 }
 
-/** The disconnect packet's code → a typed error (807–810: token; 805: too many connections). */
+/** The disconnect packet's code → a typed error (807–810: token; 806: no Data API plan; 805: too many connections). */
 export function disconnectError(code: number): Error {
   const text = (DHAN_DATA_ERRORS as Readonly<Record<number, string>>)[code];
   const options = {
@@ -439,8 +452,14 @@ export function disconnectError(code: number): Error {
   };
   if (code >= 807 && code <= 810)
     return new NeedsReloginError("Dhan closed the feed: the session is not valid", options);
+  if (code === 806) return new BrokerRejectedError("Dhan closed the feed: the Data API is not subscribed", options);
   if (code === 805) return new RateLimitedError("Dhan closed the feed: too many connections", options);
   return new BrokerUnavailableError("Dhan closed the feed", options);
+}
+
+/** Disconnect codes after which reconnecting with the same credentials can't work (806–810). */
+export function isFatalDisconnect(code: number): boolean {
+  return code >= 806 && code <= 810;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -451,6 +470,8 @@ interface QuoteState {
   ts?: number | undefined;
   close?: string | undefined;
   oi?: number | undefined;
+  /** The day fields of the last quote/full packet (cleared when the key's mode changes). */
+  day?: Partial<Tick> | undefined;
 }
 
 const SUBSCRIBE_CODES: Readonly<Record<FeedMode, number>> = Object.freeze({
@@ -526,6 +547,9 @@ export class DhanMarketFeed implements MarketFeed {
     for (const key of changed) {
       const old = before.get(key);
       if (old !== undefined) previous.set(old, [...(previous.get(old) ?? []), key]);
+      // The new mode may not send what the old one did (depth after full → quote).
+      const state = this.#state.get(key);
+      if (state !== undefined) state.day = undefined;
     }
     for (const [old, oldKeys] of previous) this.#send(SUBSCRIBE_CODES[old] + 1, oldKeys);
     this.#send(SUBSCRIBE_CODES[mode], changed);
@@ -617,6 +641,7 @@ export class DhanMarketFeed implements MarketFeed {
   #onPacket(packet: DhanPacket): void {
     if (packet.kind === "disconnect") {
       this.#events.emit("error", disconnectError(packet.code));
+      if (isFatalDisconnect(packet.code)) this.#socket.halt();
       return;
     }
     if (packet.kind === "status") return;
@@ -630,7 +655,6 @@ export class DhanMarketFeed implements MarketFeed {
     }
     const now = this.#now();
     const price = (value: number): string | undefined => feedPrice(value, packet.segment);
-    let extra: Partial<Tick> = {};
     switch (packet.kind) {
       case "oi":
         state.oi = packet.oi;
@@ -649,7 +673,7 @@ export class DhanMarketFeed implements MarketFeed {
         state.ltp = price(packet.ltp) ?? state.ltp;
         state.ts = feedTime(packet.ltt, now);
         if (packet.oi !== undefined) state.oi = packet.oi;
-        extra = this.#quoteFields(packet, price);
+        state.day = this.#quoteFields(packet, price);
         break;
       }
     }
@@ -660,7 +684,7 @@ export class DhanMarketFeed implements MarketFeed {
       ts: state.ts ?? now,
       ...(state.close === undefined ? {} : { close: state.close }),
       ...(state.oi === undefined || state.oi === 0 ? {} : { oi: state.oi }),
-      ...extra,
+      ...state.day,
     });
   }
 
@@ -668,13 +692,17 @@ export class DhanMarketFeed implements MarketFeed {
     packet: Extract<DhanPacket, { kind: "quote" | "full" }>,
     price: (value: number) => string | undefined,
   ): Partial<Tick> {
+    // A day price of 0 means "none yet" (pre-open, an index's ATP): left out.
+    const dayPrice = (value: number): string | undefined => (value > 0 ? price(value) : undefined);
     const fields: Record<string, unknown> = {
       ltq: packet.ltq,
       volume: packet.volume,
-      open: price(packet.open),
-      high: price(packet.high),
-      low: price(packet.low),
-      atp: price(packet.atp),
+      open: dayPrice(packet.open),
+      high: dayPrice(packet.high),
+      low: dayPrice(packet.low),
+      atp: dayPrice(packet.atp),
+      tbq: packet.totalBuyQty,
+      tsq: packet.totalSellQty,
     };
     const depth = packet.depth;
     if (depth !== undefined) {

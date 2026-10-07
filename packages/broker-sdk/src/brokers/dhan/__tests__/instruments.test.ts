@@ -1,7 +1,8 @@
-import { parseInstrumentKey } from "@finlytics/shared";
+import { MARKET_INDEX_KEYS, parseInstrumentKey } from "@finlytics/shared";
 import type { InstrumentKey, ParsedInstrumentKey } from "@finlytics/shared";
 import { describe, expect, it } from "vitest";
 
+import { MARKET_INDEX_ALIASES } from "../../../index-aliases";
 import { InstrumentRowSchema } from "../../../models";
 import {
   csvRecords,
@@ -10,6 +11,7 @@ import {
   dhanDate,
   dhanInstrumentFor,
   DhanInstrumentMap,
+  dhanMarketIndex,
   dhanMasterRow,
   dhanSegmentForToken,
   parseCsv,
@@ -180,6 +182,70 @@ describe("dhanMasterRow", () => {
     })?.row;
     expect(row).toMatchObject({ tradingSymbol: "XYZ", name: "XYZ", lotSize: 1, tickSize: "0.05" });
     expect(row?.isin).toBeUndefined();
+  });
+});
+
+describe("dhanMasterRow: market indices and NIFTY 50 stocks", () => {
+  const mapped = async (): Promise<NonNullable<ReturnType<typeof dhanMasterRow>>[]> =>
+    (await collect(csvRecords(chunks(fixtureText("scrip-master-indices.csv"))))).flatMap((record) => {
+      const row = dhanMasterRow(record);
+      return row === undefined ? [] : [row];
+    });
+
+  it("produces exactly the pinned market index keys, with the seed's trading symbol and name", async () => {
+    const rows = await mapped();
+    for (const { row } of rows) expect(InstrumentRowSchema.safeParse(row).success, row.instrumentKey).toBe(true);
+    const pinned = rows.filter(({ row }) => MARKET_INDEX_ALIASES.some((alias) => alias.key === row.instrumentKey));
+    expect(pinned.map(({ row }) => row.instrumentKey)).toEqual(Object.values(MARKET_INDEX_KEYS));
+    expect(pinned.map(({ row }) => [row.brokerToken, row.tradingSymbol, row.name])).toEqual([
+      ["IDX_I:13", "NIFTY 50", "Nifty 50"],
+      ["IDX_I:25", "NIFTY BANK", "Nifty Bank"],
+      ["IDX_I:27", "NIFTY FIN SERVICE", "Nifty Financial Services"],
+      ["IDX_I:442", "NIFTY MID SELECT", "Nifty Midcap Select"],
+      ["IDX_I:38", "NIFTY NEXT 50", "Nifty Next 50"],
+      ["IDX_I:29", "NIFTY IT", "Nifty IT"],
+      ["IDX_I:21", "INDIA VIX", "India VIX"],
+      ["IDX_I:51", "SENSEX", "BSE Sensex"],
+      ["IDX_I:69", "BANKEX", "BSE Bankex"],
+    ]);
+    expect(pinned.map(({ ref }) => ref.instrument)).toEqual(Array.from({ length: 9 }, () => "INDEX"));
+  });
+
+  it("keeps other indices under their own symbol, including one spelled like a pinned index under another id", async () => {
+    const keys = (await mapped()).map(({ row }) => row.instrumentKey);
+    expect(keys).toEqual(expect.arrayContaining(["NSE_INDEX|NIFTY50", "NSE_INDEX|NIFTYAUTO", "BSE_INDEX|SENSEX50"]));
+    expect(keys.filter((key) => key === "NSE_INDEX|NIFTY 50")).toHaveLength(1);
+  });
+
+  it("keys equities by the exchange symbol, never the company name, like the dev seed", async () => {
+    const equities = (await mapped()).filter(({ row }) => row.segment === "EQ").map(({ row }) => row);
+    expect(equities.map((row) => [row.instrumentKey, row.tradingSymbol, row.name])).toEqual([
+      ["NSE_EQ|RELIANCE", "RELIANCE", "Reliance Industries"],
+      ["NSE_EQ|M&M", "M&M", "Mahindra & Mahindra"],
+      ["NSE_EQ|BAJAJ-AUTO", "BAJAJ-AUTO", "Bajaj Auto"],
+    ]);
+    // The compact file: SEM_TRADING_SYMBOL, and SM_SYMBOL_NAME only when it is one word.
+    const compact = (symbol: string, name: string) =>
+      dhanMasterRow({
+        SEM_EXM_EXCH_ID: "NSE",
+        SEM_SEGMENT: "E",
+        SEM_SMST_SECURITY_ID: "2885",
+        SEM_INSTRUMENT_NAME: "EQUITY",
+        SEM_TRADING_SYMBOL: symbol,
+        SEM_CUSTOM_SYMBOL: "Reliance Industries",
+        SM_SYMBOL_NAME: name,
+      })?.row.instrumentKey;
+    expect(compact("RELIANCE", "RELIANCE INDUSTRIES LTD")).toBe("NSE_EQ|RELIANCE");
+    expect(compact("", "RELIANCE")).toBe("NSE_EQ|RELIANCE");
+    expect(compact("", "RELIANCE INDUSTRIES LTD")).toBeUndefined();
+  });
+
+  it("trusts Dhan's fixed security ids only on their own exchange", () => {
+    expect(dhanMarketIndex("NSE_INDEX", "13", [])?.key).toBe("NSE_INDEX|NIFTY 50");
+    expect(dhanMarketIndex("NSE_INDEX", "51", ["SENSEX"])).toBeUndefined();
+    expect(dhanMarketIndex("NSE_INDEX", "7", ["Nifty  next 50 "])?.key).toBe("NSE_INDEX|NIFTY NEXT 50");
+    expect(dhanMarketIndex("NSE_INDEX", "7", ["BANKNIFTY"])).toBeUndefined();
+    expect(dhanMarketIndex("NSE_INDEX", "7", ["NIFTY AUTO"])).toBeUndefined();
   });
 });
 

@@ -20,6 +20,8 @@ import type {
 } from "@finlytics/shared";
 import Decimal from "decimal.js";
 
+import { marketIndexAlias } from "../../index-aliases";
+import type { MarketIndexAlias } from "../../index-aliases";
 import type {
   BrokerHolding,
   BrokerOrder,
@@ -37,6 +39,7 @@ import type {
 } from "../../models";
 import { OrderTagSchema } from "../../models";
 
+import { UPSTOX_CANDLE_HISTORY } from "./types";
 import type {
   UpstoxCandle,
   UpstoxCandleUnit,
@@ -218,6 +221,12 @@ function optionalPrice(value: number | null | undefined): string | undefined {
   return value === undefined || value === null || !(value > 0) ? undefined : decimalString(value);
 }
 
+/** `{ [name]: price }` for a price above 0, else `{}` (Upstox sends 0 for "none yet"). */
+function priceField<K extends string>(name: K, value: number | null | undefined): Partial<Record<K, string>> {
+  const price = optionalPrice(value);
+  return price === undefined ? {} : ({ [name]: price } as Partial<Record<K, string>>);
+}
+
 /** An order book row (or order update) as a BrokerOrder; undefined for rows the sdk can't represent. */
 export function toBrokerOrder(row: UpstoxOrder, key: InstrumentKey, now: Date): BrokerOrder | undefined {
   const segment = segmentOf(key);
@@ -270,10 +279,31 @@ export function toPosition(row: UpstoxPosition, key: InstrumentKey): BrokerPosit
     sellAvg: decimalString(row.sell_price ?? 0),
     realisedPnl: decimalString(row.realised ?? 0),
     ...(row.last_price === undefined || row.last_price === null ? {} : { ltp: decimalString(row.last_price) }),
+    ...priceField("close", row.close_price),
     ...(row.unrealised === undefined || row.unrealised === null
       ? {}
       : { unrealisedPnl: decimalString(row.unrealised) }),
   };
+}
+
+/** NSE equity series a trading symbol may carry (`NHPC-EQ` in the portfolio stream's example). */
+const NSE_SERIES_SUFFIX = /-(?:EQ|BE|BZ|SM|ST)$/i;
+
+/**
+ * The canonical key of an equity row the resolver doesn't know (`NSE_EQ|INE002A01018` + trading symbol `RELIANCE` or
+ * `RELIANCE-EQ` → `NSE_EQ|RELIANCE`, as the master maps it), so holdings and equity positions show before the master
+ * is synced. Undefined for anything else: derivatives need the master.
+ */
+export function fallbackEquityKey(
+  instrumentToken: string,
+  tradingSymbol: string | null | undefined,
+): InstrumentKey | undefined {
+  const segment = instrumentToken.split("|")[0];
+  const raw = (tradingSymbol ?? "").trim();
+  const symbol = segment === "NSE_EQ" ? raw.replace(NSE_SERIES_SUFFIX, "") : raw;
+  if ((segment !== "NSE_EQ" && segment !== "BSE_EQ") || symbol === "") return undefined;
+  const normalized = normalizeInstrumentKey(`${segment}|${symbol}`);
+  return normalized.ok ? normalized.value : undefined;
 }
 
 export function toHolding(row: UpstoxHolding, key: InstrumentKey): BrokerHolding {
@@ -283,6 +313,7 @@ export function toHolding(row: UpstoxHolding, key: InstrumentKey): BrokerHolding
     ...(row.t1_quantity === undefined || row.t1_quantity === null ? {} : { t1Qty: count(row.t1_quantity) }),
     avgPrice: decimalString(row.average_price),
     ...(row.last_price === undefined || row.last_price === null ? {} : { ltp: decimalString(row.last_price) }),
+    ...priceField("close", row.close_price),
   };
 }
 
@@ -296,16 +327,19 @@ export interface CandleSpec {
   readonly ms: number;
   /** The longest date range one historical request may cover (Upstox: 1 month ≤ 15 min, 1 quarter above, decade). */
   readonly maxDays: number;
+  /** The first IST date Upstox has data for at this unit (`YYYY-MM-DD`); earlier days are not asked for. */
+  readonly since: string;
 }
 
+const MINUTES_SINCE = UPSTOX_CANDLE_HISTORY.minutes.since;
 const CANDLE_SPECS: Readonly<Record<Timeframe, CandleSpec>> = Object.freeze({
-  M1: { unit: "minutes", interval: 1, ms: 60_000, maxDays: 28 },
-  M3: { unit: "minutes", interval: 3, ms: 180_000, maxDays: 28 },
-  M5: { unit: "minutes", interval: 5, ms: 300_000, maxDays: 28 },
-  M15: { unit: "minutes", interval: 15, ms: 900_000, maxDays: 28 },
-  M30: { unit: "minutes", interval: 30, ms: 1_800_000, maxDays: 89 },
-  H1: { unit: "hours", interval: 1, ms: 3_600_000, maxDays: 89 },
-  D1: { unit: "days", interval: 1, ms: DAY_MS, maxDays: 3650 },
+  M1: { unit: "minutes", interval: 1, ms: 60_000, maxDays: 28, since: MINUTES_SINCE },
+  M3: { unit: "minutes", interval: 3, ms: 180_000, maxDays: 28, since: MINUTES_SINCE },
+  M5: { unit: "minutes", interval: 5, ms: 300_000, maxDays: 28, since: MINUTES_SINCE },
+  M15: { unit: "minutes", interval: 15, ms: 900_000, maxDays: 28, since: MINUTES_SINCE },
+  M30: { unit: "minutes", interval: 30, ms: 1_800_000, maxDays: 89, since: MINUTES_SINCE },
+  H1: { unit: "hours", interval: 1, ms: 3_600_000, maxDays: 89, since: UPSTOX_CANDLE_HISTORY.hours.since },
+  D1: { unit: "days", interval: 1, ms: DAY_MS, maxDays: 3650, since: UPSTOX_CANDLE_HISTORY.days.since },
 });
 
 export function candleSpec(timeframe: Timeframe): CandleSpec {
@@ -347,9 +381,17 @@ const ISIN = /^[A-Z]{2}[A-Z0-9]{9}\d$/;
 /** Indices carry no tick size; they aren't traded. */
 const INDEX_TICK = "0.05";
 
+/** A pinned market index row (`NSE_INDEX|Nifty 50`, trading symbol `NIFTY`): by its key's name, name or symbol. */
+function indexAliasOf(raw: UpstoxInstrument, token: SegmentToken): MarketIndexAlias | undefined {
+  if (!token.endsWith("_INDEX")) return undefined;
+  return marketIndexAlias(token, raw.instrument_key.split("|")[1], raw.name, raw.trading_symbol);
+}
+
 /** The canonical key text of a master row, before validation; undefined for kinds the platform doesn't model. */
 function canonicalKeyText(raw: UpstoxInstrument, token: SegmentToken): string | undefined {
-  if (token.endsWith("_INDEX")) return `${token}|${raw.instrument_key.split("|")[1] ?? ""}`;
+  if (token.endsWith("_INDEX")) {
+    return indexAliasOf(raw, token)?.key ?? `${token}|${raw.instrument_key.split("|")[1] ?? ""}`;
+  }
   if (token.endsWith("_EQ")) return `${token}|${raw.trading_symbol ?? ""}`;
   const type = raw.instrument_type;
   if (type !== "FUT" && type !== "CE" && type !== "PE") return undefined;
@@ -361,8 +403,9 @@ function canonicalKeyText(raw: UpstoxInstrument, token: SegmentToken): string | 
 
 /**
  * A master row → an InstrumentRow with a canonical key; undefined when the row has no canonical form (unsupported
- * segment or type, a symbol outside the key grammar). Canonical symbols: equity `trading_symbol`, index the name part
- * of `instrument_key` upper-cased (`NSE_INDEX|Nifty 50` → `NSE_INDEX|NIFTY 50`), derivatives `underlying_symbol` with
+ * segment or type, a symbol outside the key grammar). Canonical symbols: equity `trading_symbol`; the pinned market
+ * indices through {@link marketIndexAlias} (`NSE_INDEX|Nifty 50` → `NSE_INDEX|NIFTY 50`, with the seed's trading
+ * symbol and name); other indices the name part of `instrument_key` upper-cased; derivatives `underlying_symbol` with
  * the IST expiry date. `tick_size` is converted from paise to rupees.
  */
 export function toInstrumentRow(raw: UpstoxInstrument): InstrumentRow | undefined {
@@ -374,8 +417,9 @@ export function toInstrumentRow(raw: UpstoxInstrument): InstrumentRow | undefine
   const parsed = parseInstrumentKey(normalized.value);
   if (!parsed.ok) return undefined;
   const key = parsed.value;
-  const tradingSymbol = (raw.trading_symbol ?? "").trim().slice(0, 64) || key.symbol;
-  const name = (raw.name ?? "").trim().slice(0, 200) || tradingSymbol;
+  const index = indexAliasOf(raw, token);
+  const tradingSymbol = index?.symbol ?? ((raw.trading_symbol ?? "").trim().slice(0, 64) || key.symbol);
+  const name = index?.name ?? ((raw.name ?? "").trim().slice(0, 200) || tradingSymbol);
   const tick = raw.tick_size !== undefined && raw.tick_size !== null && raw.tick_size > 0 ? raw.tick_size : undefined;
   const lotSize = count(raw.lot_size);
   const freezeQty = Math.trunc(raw.freeze_quantity ?? 0);
@@ -445,9 +489,20 @@ function addGreeks(tick: MutableTick, greeks: UpstoxOptionGreeks | undefined, iv
   };
 }
 
+/** Sets a price field only for a price above 0 (proto3 leaves "none yet" at 0). */
+function setPrice(
+  tick: MutableTick,
+  field: "close" | "open" | "high" | "low" | "atp",
+  value: number | undefined,
+): void {
+  if (value !== undefined && value > 0) tick[field] = decimalString(value);
+}
+
 /**
  * One decoded feed entry as a Tick; undefined when it carries no LTPC. `ts` is the last trade time, else the message
- * time. Greeks only for options (Upstox sends zeros for other instruments in full mode).
+ * time. `close` is the previous close (`cp`); open, high and low are the day's (`marketOHLC` interval `1d`, also for
+ * indices in `indexFF`); `volume` is `vtt`; `tbq`/`tsq` are the book totals. Prices at 0 and OI at 0 are left out.
+ * Greeks only for options (Upstox sends zeros for other instruments in full mode).
  */
 export function toTick(key: InstrumentKey, feed: UpstoxFeed, currentTs: number, isOption: boolean): Tick | undefined {
   const market = feed.fullFeed?.marketFF;
@@ -461,25 +516,25 @@ export function toTick(key: InstrumentKey, feed: UpstoxFeed, currentTs: number, 
     ts: ltpc.ltt !== undefined && ltpc.ltt > 0 ? ltpc.ltt : currentTs,
   };
   if (ltpc.ltq !== undefined) tick.ltq = count(ltpc.ltq);
-  if (ltpc.cp !== undefined) tick.close = decimalString(ltpc.cp);
+  setPrice(tick, "close", ltpc.cp);
   const day = (market?.marketOHLC ?? index?.marketOHLC)?.ohlc?.find((candle) => candle.interval === "1d");
-  if (day !== undefined) {
-    tick.open = decimalString(day.open ?? 0);
-    tick.high = decimalString(day.high ?? 0);
-    tick.low = decimalString(day.low ?? 0);
-  }
+  setPrice(tick, "open", day?.open);
+  setPrice(tick, "high", day?.high);
+  setPrice(tick, "low", day?.low);
   if (market !== undefined) {
     const quotes = market.marketLevel?.bidAskQuote ?? [];
-    if (market.atp !== undefined) tick.atp = decimalString(market.atp);
+    setPrice(tick, "atp", market.atp);
     tick.volume = count(market.vtt);
-    tick.oi = count(market.oi);
+    if (count(market.oi) > 0) tick.oi = count(market.oi);
+    tick.tbq = count(market.tbq);
+    tick.tsq = count(market.tsq);
     addTopOfBook(tick, quotes[0]);
     tick.depth = { bids: levels(quotes, "bid"), asks: levels(quotes, "ask") };
     if (isOption) addGreeks(tick, market.optionGreeks, market.iv);
   }
   if (first !== undefined) {
     tick.volume = count(first.vtt);
-    tick.oi = count(first.oi);
+    if (count(first.oi) > 0) tick.oi = count(first.oi);
     addTopOfBook(tick, first.firstDepth);
     if (isOption) addGreeks(tick, first.optionGreeks, first.iv);
   }

@@ -73,21 +73,42 @@ export function istToIso(text: string | null | undefined): string | undefined {
   return `${match[1] ?? ""}T${match[2] ?? ""}+05:30`;
 }
 
-/** `YYYY-MM-DDTHH:mm:ss[.SSS]` read as IST → Date (`expiryTime`), or `DD/MM/YYYY HH:mm` (`tokenValidity`). */
-export function istToDate(text: string | null | undefined): Date | undefined {
-  const value = text?.trim() ?? "";
-  const iso = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/.exec(value);
-  const dmy = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})/.exec(value);
+const YMD_TIME = /^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?\s*(Z|[+-]\d{2}:?\d{2})?$/i;
+const DMY_TIME = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})[ T,]+(\d{1,2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$/;
+const EPOCH = /^\d{9,13}$/;
+
+/** `Z`, `+05:30` or `-0400` → milliseconds east of UTC; none → IST (Dhan's wall clock). */
+function offsetMs(zone: string | undefined): number {
+  if (zone === undefined) return IST_OFFSET_MS;
+  if (zone.toUpperCase() === "Z") return 0;
+  const sign = zone.startsWith("-") ? -1 : 1;
+  const digits = zone.slice(1).replace(":", "");
+  return sign * (Number(digits.slice(0, 2)) * 60 + Number(digits.slice(2, 4))) * 60_000;
+}
+
+/**
+ * A Dhan validity time → Date. Reads `tokenValidity` (`DD/MM/YYYY HH:mm`, also with seconds or `-`), `expiryTime`
+ * (`YYYY-MM-DDTHH:mm:ss.SSS`), both as IST unless they carry an offset, and epoch seconds or milliseconds (number or
+ * digits). Undefined for anything else, a date without a time, or a year before 2000.
+ */
+export function istToDate(value: unknown): Date | undefined {
+  if (typeof value === "number" || (typeof value === "string" && EPOCH.test(value.trim()))) {
+    const epoch = Number(typeof value === "string" ? value.trim() : value);
+    if (!Number.isFinite(epoch) || epoch < 946_684_800) return undefined; // before 2000
+    return new Date(epoch < 1e11 ? epoch * 1000 : epoch);
+  }
+  if (typeof value !== "string") return undefined;
+  const text = value.trim();
+  const ymd = YMD_TIME.exec(text);
+  const dmy = ymd === null ? DMY_TIME.exec(text) : null;
   const parts =
-    iso !== null
-      ? [iso[1], iso[2], iso[3], iso[4], iso[5], iso[6]]
-      : dmy !== null
-        ? [dmy[3], dmy[2], dmy[1], dmy[4], dmy[5]]
-        : undefined;
+    ymd !== null ? ymd.slice(1, 7) : dmy !== null ? [dmy[3], dmy[2], dmy[1], ...dmy.slice(4, 7)] : undefined;
   if (parts === undefined) return undefined;
-  const [year, month, day, hour, minute, second] = parts.map((part) => Number(part ?? 0));
-  const ms = Date.UTC(year ?? 0, (month ?? 1) - 1, day ?? 1, hour ?? 0, minute ?? 0, second ?? 0) - IST_OFFSET_MS;
-  return Number.isNaN(ms) ? undefined : new Date(ms);
+  const [year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0] = parts.map((part) => Number(part ?? 0));
+  if (year < 2000 || month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 59) {
+    return undefined;
+  }
+  return new Date(Date.UTC(year, month - 1, day, hour, minute, second) - offsetMs(ymd?.[7]));
 }
 
 /** The IST wall clock of a Date: `YYYY-MM-DD HH:mm:ss`. */
@@ -100,17 +121,70 @@ export function istDate(date: Date): string {
   return istWallClock(date).slice(0, 10);
 }
 
-/** A JWT's `exp` claim as a Date (Dhan's access tokens are JWTs); undefined when it can't be read. */
-export function jwtExpiry(token: string): Date | undefined {
+/** A JWT's claims (Dhan's access tokens are JWTs: `exp`, `dhanClientId`, ...); undefined when they can't be read. */
+function jwtClaims(token: string): Readonly<Record<string, unknown>> | undefined {
   const payload = token.split(".")[1];
   if (payload === undefined || payload === "") return undefined;
   try {
     const claims: unknown = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
-    const exp = typeof claims === "object" && claims !== null ? (claims as { exp?: unknown }).exp : undefined;
-    return typeof exp === "number" && Number.isFinite(exp) && exp > 0 ? new Date(exp * 1000) : undefined;
+    return typeof claims === "object" && claims !== null && !Array.isArray(claims)
+      ? (claims as Record<string, unknown>)
+      : undefined;
   } catch {
     return undefined;
   }
+}
+
+/** A JWT's `exp` claim as a Date; undefined when it can't be read. */
+export function jwtExpiry(token: string): Date | undefined {
+  const exp = jwtClaims(token)?.exp;
+  return typeof exp === "number" && Number.isFinite(exp) && exp > 0 ? new Date(exp * 1000) : undefined;
+}
+
+/** The `dhanClientId` claim of a Dhan token (a string or a number), trimmed; undefined when absent. */
+export function jwtClientId(token: string): string | undefined {
+  const id = jwtClaims(token)?.dhanClientId;
+  const text =
+    typeof id === "number" && Number.isSafeInteger(id) ? String(id) : typeof id === "string" ? id.trim() : "";
+  return text === "" ? undefined : text;
+}
+
+/**
+ * The pasted token, cleaned of what a copy-paste brings along: surrounding whitespace and quotes, a `Bearer ` or
+ * `access-token:` prefix, and line breaks inside it.
+ */
+export function cleanToken(text: string | undefined): string {
+  const unquote = (value: string): string => value.replace(/^["'`]+|["'`]+$/g, "").trim();
+  const collapsed = unquote((text ?? "").replace(/\s+/g, " ").trim());
+  return unquote(collapsed.replace(/^(?:access[-_ ]?token\s*[:=]|bearer\s)\s*/i, "")).replace(/\s+/g, "");
+}
+
+const TOKEN_KEYS = ["accessToken", "access_token", "token", "newToken", "jwtToken"] as const;
+const EXPIRY_KEYS = ["expiryTime", "expiry_time", "tokenValidity", "expiresAt", "expiry"] as const;
+const JWT = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*$/;
+
+/**
+ * The new token in a RenewToken answer, whose shape the docs don't show: `{ accessToken, expiryTime }` (like
+ * generateAccessToken), snake case, inside `data`, or the bare token as JSON string or text. Undefined without one.
+ */
+export function renewedToken(body: unknown): { readonly token: string; readonly expiry?: unknown } | undefined {
+  if (typeof body === "string") {
+    const token = cleanToken(body);
+    return JWT.test(token) ? { token } : undefined;
+  }
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return undefined;
+  const record = body as Readonly<Record<string, unknown>>;
+  for (const source of [record, record.data]) {
+    if (typeof source !== "object" || source === null || Array.isArray(source)) continue;
+    const fields = source as Readonly<Record<string, unknown>>;
+    const token = TOKEN_KEYS.map((key) => fields[key]).find(
+      (value) => typeof value === "string" && value.trim() !== "",
+    );
+    if (typeof token !== "string") continue;
+    const expiry = EXPIRY_KEYS.map((key) => fields[key]).find((value) => value !== undefined && value !== null);
+    return { token: cleanToken(token), ...(expiry === undefined ? {} : { expiry }) };
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -252,6 +326,16 @@ function derivedKey(segment: string, hints: DhanInstrumentHints): InstrumentKey 
   }
 }
 
+/** The canonical key of a Dhan instrument from the map, else from the row itself; undefined when neither knows it. */
+export function keyOf(
+  map: DhanInstrumentMap,
+  segment: string,
+  securityId: string,
+  hints: DhanInstrumentHints = {},
+): InstrumentKey | undefined {
+  return map.keyOf(segment, securityId) ?? derivedKey(segment, hints);
+}
+
 /**
  * The canonical key of a Dhan instrument.
  *
@@ -263,7 +347,7 @@ export function resolveKey(
   securityId: string,
   hints: DhanInstrumentHints = {},
 ): InstrumentKey {
-  const key = map.keyOf(segment, securityId) ?? derivedKey(segment, hints);
+  const key = keyOf(map, segment, securityId, hints);
   if (key === undefined) {
     throw new BrokerInternalError(`Dhan instrument ${segment}:${securityId} is unknown; sync the instrument master`, {
       broker: BROKER,
@@ -273,14 +357,24 @@ export function resolveKey(
 }
 
 /** Holdings say `exchange: "ALL"` with no segment: try NSE, then BSE, then the symbol. */
-function holdingKey(map: DhanInstrumentMap, holding: DhanHolding): InstrumentKey {
+function holdingKey(map: DhanInstrumentMap, holding: DhanHolding): InstrumentKey | undefined {
   const exchange = holding.exchange?.toUpperCase();
   const segments: DhanExchangeSegment[] = exchange === "BSE" ? ["BSE_EQ", "NSE_EQ"] : ["NSE_EQ", "BSE_EQ"];
   for (const segment of segments) {
     const key = map.keyOf(segment, holding.securityId);
     if (key !== undefined) return key;
   }
-  return resolveKey(map, segments[0] ?? "NSE_EQ", holding.securityId, { tradingSymbol: holding.tradingSymbol });
+  return keyOf(map, segments[0] ?? "NSE_EQ", holding.securityId, { tradingSymbol: holding.tradingSymbol });
+}
+
+/** The key of an order book row, without throwing (rows we can't identify are left out of the book). */
+export function orderKeyOf(map: DhanInstrumentMap, order: DhanOrder): InstrumentKey | undefined {
+  return keyOf(map, order.exchangeSegment, order.securityId, {
+    tradingSymbol: order.tradingSymbol,
+    expiry: order.drvExpiryDate,
+    optionType: order.drvOptionType,
+    strike: order.drvStrikePrice,
+  });
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -302,14 +396,13 @@ export function toProfile(profile: DhanProfile): Profile {
   };
 }
 
+/** `availabelBalance` (sic) is what new orders can use; `utilizedAmount` the day's margin use. */
 export function toFunds(funds: DhanFundLimit): Funds {
   return {
-    availableMargin: moneyOf(funds.availabelBalance),
+    availableMargin: moneyOf(funds.availabelBalance ?? funds.availableBalance),
     usedMargin: moneyOf(funds.utilizedAmount),
     collateral: moneyOf(funds.collateralAmount),
-    ...(funds.withdrawableBalance === undefined || funds.withdrawableBalance === null
-      ? {}
-      : { withdrawable: moneyOf(funds.withdrawableBalance) }),
+    ...(funds.withdrawableBalance === undefined ? {} : { withdrawable: moneyOf(funds.withdrawableBalance) }),
   };
 }
 
@@ -317,7 +410,7 @@ export function toBrokerOrder(map: DhanInstrumentMap, order: DhanOrder, now: () 
   const type = orderTypeOf(order.orderType);
   const quantity = intOf(order.quantity);
   const filled =
-    order.filledQty === undefined || order.filledQty === null
+    order.filledQty === undefined
       ? Math.max(0, quantity - intOf(order.remainingQuantity ?? quantity))
       : intOf(order.filledQty);
   const qty = Math.max(1, quantity, filled);
@@ -353,17 +446,20 @@ export function toBrokerOrder(map: DhanInstrumentMap, order: DhanOrder, now: () 
   };
 }
 
-export function toBrokerPosition(map: DhanInstrumentMap, position: DhanPosition): BrokerPosition {
+/** A position row; undefined when neither the map nor the row identifies the instrument (the row is left out). */
+export function toBrokerPosition(map: DhanInstrumentMap, position: DhanPosition): BrokerPosition | undefined {
   const buyQty = intOf(position.buyQty);
   const sellQty = intOf(position.sellQty);
   const unrealised = decimalOf(position.unrealizedProfit);
+  const instrumentKey = keyOf(map, position.exchangeSegment, position.securityId, {
+    tradingSymbol: position.tradingSymbol,
+    expiry: position.drvExpiryDate,
+    optionType: position.drvOptionType,
+    strike: position.drvStrikePrice,
+  });
+  if (instrumentKey === undefined) return undefined;
   return {
-    instrumentKey: resolveKey(map, position.exchangeSegment, position.securityId, {
-      tradingSymbol: position.tradingSymbol,
-      expiry: position.drvExpiryDate,
-      optionType: position.drvOptionType,
-      strike: position.drvStrikePrice,
-    }),
+    instrumentKey,
     product: productOf(position.productType),
     netQty: buyQty - sellQty,
     buyQty,
@@ -375,11 +471,16 @@ export function toBrokerPosition(map: DhanInstrumentMap, position: DhanPosition)
   };
 }
 
-/** `qty` is `totalQty` (delivered + T1); `t1Qty` is the undelivered part. */
-export function toBrokerHolding(map: DhanInstrumentMap, holding: DhanHolding): BrokerHolding {
+/**
+ * `qty` is `totalQty` (delivered + T1); `t1Qty` is the undelivered part. Undefined when the instrument can't be
+ * identified (the row is left out).
+ */
+export function toBrokerHolding(map: DhanInstrumentMap, holding: DhanHolding): BrokerHolding | undefined {
   const t1 = intOf(holding.t1Qty);
+  const instrumentKey = holdingKey(map, holding);
+  if (instrumentKey === undefined) return undefined;
   return {
-    instrumentKey: holdingKey(map, holding),
+    instrumentKey,
     qty: intOf(holding.totalQty),
     ...(t1 > 0 ? { t1Qty: t1 } : {}),
     avgPrice: decimalOf(Math.max(0, holding.avgCostPrice)) ?? "0",

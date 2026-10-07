@@ -1,11 +1,14 @@
+import { MARKET_INDEX_KEYS } from "@finlytics/shared";
 import type { InstrumentKey } from "@finlytics/shared";
 import { describe, expect, it } from "vitest";
 
+import { MARKET_INDEX_ALIASES } from "../../../index-aliases";
 import { BrokerOrderSchema, InstrumentRowSchema, TickSchema } from "../../../models";
 import {
   candleSpec,
   count,
   decimalString,
+  fallbackEquityKey,
   fromUpstoxOrderType,
   fromUpstoxProduct,
   fromUpstoxValidity,
@@ -251,6 +254,7 @@ describe("orders, positions and holdings", () => {
       sellAvg: "0",
       realisedPnl: "0",
       ltp: "1.75",
+      close: "1.95",
       unrealisedPnl: "-658304.25",
     });
     const sparse = UpstoxPositionSchema.parse({ product: "I", instrument_token: "NSE_FO|52618", quantity: 0 });
@@ -275,8 +279,9 @@ describe("orders, positions and holdings", () => {
       t1Qty: 0,
       avgPrice: "18.75",
       ltp: "17.05",
+      close: "17.05",
     });
-    const sparse = toHolding({ ...row, t1_quantity: null, last_price: null }, YESBANK);
+    const sparse = toHolding({ ...row, t1_quantity: null, last_price: null, close_price: 0 }, YESBANK);
     expect(sparse).toEqual({ instrumentKey: YESBANK, qty: 36, avgPrice: "18.75" });
   });
 });
@@ -368,15 +373,67 @@ describe("instrument master rows → canonical keys", () => {
     expect(rows.get("NSE_EQ|INE528G01035")).toMatchObject({ isin: "INE528G01035", tickSize: "0.01", lotSize: 1 });
     expect(rows.get("MCX_FO|436953")).toMatchObject({ exchange: "MCX", tickSize: "1", lotSize: 100 });
     expect(rows.get("NCD_FO|1234")).toMatchObject({ exchange: "CDS", tickSize: "0.0025" });
-    expect(rows.get("NSE_INDEX|Nifty 50")).toMatchObject({ tickSize: "0.05", lotSize: 1, tradingSymbol: "NIFTY" });
+    expect(rows.get("NSE_INDEX|Nifty 50")).toMatchObject({
+      tickSize: "0.05",
+      lotSize: 1,
+      tradingSymbol: "NIFTY 50",
+      name: "Nifty 50",
+    });
     expect(rows.get("NSE_INDEX|Nifty 50")).not.toHaveProperty("freezeQty");
   });
 
   it("falls back to the key's symbol for a row without names", () => {
     const row = toInstrumentRow(
-      UpstoxInstrumentSchema.parse({ segment: "BSE_INDEX", instrument_key: "BSE_INDEX|SENSEX" }),
+      UpstoxInstrumentSchema.parse({ segment: "BSE_INDEX", instrument_key: "BSE_INDEX|AUTO" }),
     );
-    expect(row).toMatchObject({ instrumentKey: "BSE_INDEX|SENSEX", tradingSymbol: "SENSEX", name: "SENSEX" });
+    expect(row).toMatchObject({ instrumentKey: "BSE_INDEX|AUTO", tradingSymbol: "AUTO", name: "AUTO" });
+  });
+
+  it("maps Upstox's index rows to exactly the pinned market index keys, with the seed's symbol and name", () => {
+    const rows = (fixture("instruments-indices.json") as unknown[]).map((raw) =>
+      toInstrumentRow(UpstoxInstrumentSchema.parse(raw)),
+    );
+    for (const row of rows) expect(InstrumentRowSchema.safeParse(row).success, row?.instrumentKey).toBe(true);
+    const pinned = rows.filter((row) => MARKET_INDEX_ALIASES.some((alias) => alias.key === row?.instrumentKey));
+    expect(pinned.map((row) => row?.instrumentKey)).toEqual(Object.values(MARKET_INDEX_KEYS));
+    expect(pinned.map((row) => [row?.brokerToken, row?.tradingSymbol, row?.name])).toEqual([
+      ["NSE_INDEX|Nifty 50", "NIFTY 50", "Nifty 50"],
+      ["NSE_INDEX|Nifty Bank", "NIFTY BANK", "Nifty Bank"],
+      ["NSE_INDEX|Nifty Fin Service", "NIFTY FIN SERVICE", "Nifty Financial Services"],
+      ["NSE_INDEX|NIFTY MID SELECT", "NIFTY MID SELECT", "Nifty Midcap Select"],
+      ["NSE_INDEX|Nifty Next 50", "NIFTY NEXT 50", "Nifty Next 50"],
+      ["NSE_INDEX|Nifty IT", "NIFTY IT", "Nifty IT"],
+      ["NSE_INDEX|India VIX", "INDIA VIX", "India VIX"],
+      ["BSE_INDEX|SENSEX", "SENSEX", "BSE Sensex"],
+      ["BSE_INDEX|BANKEX", "BANKEX", "BSE Bankex"],
+    ]);
+    // Other indices keep Upstox's own name; SENSEX50 is not SENSEX.
+    expect(rows.map((row) => row?.instrumentKey)).toEqual(
+      expect.arrayContaining(["NSE_INDEX|NIFTY AUTO", "BSE_INDEX|SNSX50"]),
+    );
+  });
+
+  it("maps NIFTY 50 equity rows to NSE_EQ|<SYMBOL> like the dev seed", () => {
+    const rows = (fixture("instruments-indices.json") as unknown[]).flatMap((raw) => {
+      const row = toInstrumentRow(UpstoxInstrumentSchema.parse(raw));
+      return row?.segment === "EQ" ? [row] : [];
+    });
+    expect(rows.map((row) => [row.instrumentKey, row.tradingSymbol])).toEqual([
+      ["NSE_EQ|RELIANCE", "RELIANCE"],
+      ["NSE_EQ|M&M", "M&M"],
+      ["NSE_EQ|BAJAJ-AUTO", "BAJAJ-AUTO"],
+    ]);
+  });
+
+  it("derives an equity key from the trading symbol for rows the resolver doesn't know", () => {
+    expect(fallbackEquityKey("NSE_EQ|INE002A01018", " RELIANCE ")).toBe("NSE_EQ|RELIANCE");
+    expect(fallbackEquityKey("BSE_EQ|INE220J01025", "fconsumer")).toBe("BSE_EQ|FCONSUMER");
+    expect(fallbackEquityKey("NSE_EQ|INE848E01016", "NHPC-EQ")).toBe("NSE_EQ|NHPC");
+    expect(fallbackEquityKey("NSE_EQ|INE917I01010", "BAJAJ-AUTO")).toBe("NSE_EQ|BAJAJ-AUTO");
+    expect(fallbackEquityKey("NSE_EQ|INE848E01016", "-EQ")).toBeUndefined();
+    expect(fallbackEquityKey("NSE_FO|52618", "BANKNIFTY23OCT38000PE")).toBeUndefined();
+    expect(fallbackEquityKey("NSE_EQ|INE002A01018", null)).toBeUndefined();
+    expect(fallbackEquityKey("NSE_EQ|INE002A01018", "BAD|SYMBOL")).toBeUndefined();
   });
 });
 
@@ -411,6 +468,8 @@ describe("feed frames → ticks", () => {
       atp: "312.45",
       volume: 10234500,
       oi: 4521300,
+      tbq: 512300,
+      tsq: 498775,
       bid: "219.25",
       bidQty: 1500,
       ask: "219.4",
@@ -467,15 +526,19 @@ describe("feed frames → ticks", () => {
       42,
       true,
     );
-    expect(bare).toMatchObject({
-      open: "0",
-      high: "0",
-      low: "0",
+    // proto3 leaves "none yet" at 0: no zero prices and no zero OI on the tick; volume and book totals are counts.
+    expect(bare).toEqual({
+      instrumentKey: NIFTY_CE,
+      ltp: "2",
+      ts: 42,
       volume: 0,
-      oi: 0,
+      tbq: 0,
+      tsq: 0,
       depth: { bids: [], asks: [] },
       greeks: { iv: 0, delta: 0, gamma: 0, theta: 0, vega: 0 },
     });
     expect(bare?.greeks).not.toHaveProperty("rho");
+    const greeksOnly = toTick(NIFTY_CE, { firstLevelWithGreeks: { ltpc: { ltp: 3, cp: 0 } } }, 42, false);
+    expect(greeksOnly).toEqual({ instrumentKey: NIFTY_CE, ltp: "3", ts: 42, volume: 0 });
   });
 });

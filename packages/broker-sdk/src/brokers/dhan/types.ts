@@ -177,29 +177,52 @@ export const DHAN_DATA_ERRORS = Object.freeze({
 // ---------------------------------------------------------------------------------------------------------------------
 // Response schemas (only what the adapter reads)
 
-/** A JSON number, or a numeric string (Dhan's examples mix both). */
-export const DhanNumberSchema = z.union([
-  z.number(),
-  z
-    .string()
-    .regex(/^-?\d+(\.\d+)?$/)
-    .transform(Number),
-]);
-const OptionalNumber = DhanNumberSchema.nullish();
-const OptionalString = z.string().nullish();
+/** A finite number from a JSON number or a numeric string (`"98440.0"`, `" 1e3 "`); undefined for anything else. */
+export function dhanNumber(value: unknown): number | undefined {
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+  const number = Number(value.trim());
+  return Number.isFinite(number) ? number : undefined;
+}
 
-/** `{ errorType, errorCode, errorMessage }` on every failed REST call. */
-export const DhanErrorBodySchema = z.looseObject({
-  errorType: OptionalString,
-  errorCode: z.union([z.string(), z.number()]).nullish(),
-  errorMessage: OptionalString,
+/** A JSON number, or a numeric string (Dhan's examples mix both). Required: anything else fails the row. */
+export const DhanNumberSchema = z.unknown().transform((value, ctx) => {
+  const number = dhanNumber(value);
+  if (number !== undefined) return number;
+  ctx.addIssue({ code: "custom", message: "Expected a number" });
+  return z.NEVER;
 });
-export type DhanErrorBody = z.infer<typeof DhanErrorBodySchema>;
+/** Optional and forgiving: null, "", "NA" or garbage read as undefined rather than failing the whole answer. */
+const OptionalNumber = z
+  .unknown()
+  .transform((value) => dhanNumber(value))
+  .optional();
+/** A number that defaults to 0 when missing or unreadable (amounts and quantities on portfolio rows). */
+const NumberOrZero = z
+  .unknown()
+  .optional()
+  .transform((value) => dhanNumber(value) ?? 0);
+/** Optional text: strings pass, numbers become text, anything else is undefined. */
+const OptionalString = z
+  .unknown()
+  .transform((value) =>
+    typeof value === "string" ? value : typeof value === "number" && Number.isFinite(value) ? String(value) : undefined,
+  )
+  .optional();
+/** Ids Dhan sends as strings or numbers (`"1100003626"`, `1330`), trimmed. */
+const IdSchema = z
+  .union([z.string(), z.number().int().nonnegative()])
+  .transform((value) => String(value).trim())
+  .pipe(z.string().min(1));
 
-/** GET /profile. `tokenValidity` is `DD/MM/YYYY HH:mm` (IST). */
+/**
+ * GET /profile. Documented: every field a string; `tokenValidity` `DD/MM/YYYY HH:mm` IST (`30/03/2025 15:37`),
+ * `dataValidity` `YYYY-MM-DD HH:mm:ss.S`. Read forgivingly (numbers for strings, nulls, extra fields): connecting
+ * must not fail on a cosmetic change. Only `dhanClientId` is required.
+ */
 export const DhanProfileSchema = z.looseObject({
-  dhanClientId: z.string().min(1),
-  tokenValidity: OptionalString,
+  dhanClientId: IdSchema,
+  tokenValidity: z.unknown().optional(),
   activeSegment: OptionalString,
   ddpi: OptionalString,
   mtf: OptionalString,
@@ -209,26 +232,32 @@ export const DhanProfileSchema = z.looseObject({
 export type DhanProfile = z.infer<typeof DhanProfileSchema>;
 
 /**
- * GET /RenewToken. The docs show no response body; this assumes the shape of `generateAccessToken` and the consent
- * APIs (`accessToken`, `expiryTime` as `YYYY-MM-DDTHH:mm:ss.SSS` IST).
+ * GET /RenewToken (headers `access-token` + `dhanClientId`): "expires your current token and provides you with a new
+ * token with another 24 hours of validity"; only a live token renews. The docs show no response body, so ./mappers.ts
+ * `renewedToken` reads the shapes of `generateAccessToken` and the consent APIs (`accessToken`, `expiryTime`
+ * `YYYY-MM-DDTHH:mm:ss.SSS` IST), snake case, a `data` envelope, or the bare token.
  */
-export const DhanTokenResponseSchema = z.looseObject({
-  accessToken: z.string().min(1),
-  expiryTime: OptionalString,
-  dhanClientId: OptionalString,
-});
+export const DHAN_TOKEN_VALIDITY_MS = 24 * 3_600_000;
 
-/** GET /fundlimit. */
-export const DhanFundLimitSchema = z.looseObject({
-  dhanClientId: OptionalString,
-  availabelBalance: DhanNumberSchema,
-  sodLimit: OptionalNumber,
-  collateralAmount: OptionalNumber,
-  receiveableAmount: OptionalNumber,
-  utilizedAmount: OptionalNumber,
-  blockedPayoutAmount: OptionalNumber,
-  withdrawableBalance: OptionalNumber,
-});
+/**
+ * GET /fundlimit, Dhan's typos included (`availabelBalance`, `receiveableAmount`). The correct spelling
+ * `availableBalance` is read too, should Dhan ever fix it; at least one of the two must be there.
+ */
+export const DhanFundLimitSchema = z
+  .looseObject({
+    dhanClientId: OptionalString,
+    availabelBalance: OptionalNumber,
+    availableBalance: OptionalNumber,
+    sodLimit: OptionalNumber,
+    collateralAmount: OptionalNumber,
+    receiveableAmount: OptionalNumber,
+    utilizedAmount: OptionalNumber,
+    blockedPayoutAmount: OptionalNumber,
+    withdrawableBalance: OptionalNumber,
+  })
+  .refine((funds) => funds.availabelBalance !== undefined || funds.availableBalance !== undefined, {
+    message: "Expected availabelBalance",
+  });
 export type DhanFundLimit = z.infer<typeof DhanFundLimitSchema>;
 
 /** POST /orders body. */
@@ -263,14 +292,14 @@ export interface DhanModifyOrderRequest {
 
 /** POST, PUT and DELETE /orders answer `{ orderId, orderStatus }`. */
 export const DhanOrderAckSchema = z.looseObject({
-  orderId: z.union([z.string().min(1), z.number()]).transform(String),
+  orderId: IdSchema,
   orderStatus: OptionalString,
 });
 
 /** One order book row (GET /orders, GET /orders/{order-id}). Times are `YYYY-MM-DD HH:mm:ss` IST. */
 export const DhanOrderSchema = z.looseObject({
   dhanClientId: OptionalString,
-  orderId: z.union([z.string().min(1), z.number()]).transform(String),
+  orderId: IdSchema,
   correlationId: OptionalString,
   orderStatus: z.string(),
   transactionType: z.enum(DHAN_TRANSACTION_TYPES),
@@ -279,7 +308,7 @@ export const DhanOrderSchema = z.looseObject({
   orderType: z.string(),
   validity: OptionalString,
   tradingSymbol: OptionalString,
-  securityId: z.union([z.string(), z.number()]).transform(String),
+  securityId: IdSchema,
   quantity: DhanNumberSchema,
   disclosedQuantity: OptionalNumber,
   price: OptionalNumber,
@@ -291,7 +320,7 @@ export const DhanOrderSchema = z.looseObject({
   drvExpiryDate: OptionalString,
   drvOptionType: OptionalString,
   drvStrikePrice: OptionalNumber,
-  omsErrorCode: z.union([z.string(), z.number()]).nullish(),
+  omsErrorCode: OptionalString,
   omsErrorDescription: OptionalString,
   remainingQuantity: OptionalNumber,
   averageTradedPrice: OptionalNumber,
@@ -299,19 +328,24 @@ export const DhanOrderSchema = z.looseObject({
 });
 export type DhanOrder = z.infer<typeof DhanOrderSchema>;
 
-/** GET /positions row. */
+/**
+ * GET /positions row (positionType LONG | SHORT | CLOSED). Also documented and passed through: costPrice,
+ * rbiReferenceRate, multiplier, carryForward{Buy,Sell}{Qty,Value}, day{Buy,Sell}{Qty,Value}, crossCurrency.
+ * Amounts and quantities default to 0 when missing or null.
+ */
 export const DhanPositionSchema = z.looseObject({
+  dhanClientId: OptionalString,
   tradingSymbol: OptionalString,
-  securityId: z.union([z.string(), z.number()]).transform(String),
+  securityId: IdSchema,
   positionType: OptionalString,
   exchangeSegment: z.string(),
   productType: z.string(),
-  buyAvg: DhanNumberSchema,
-  buyQty: DhanNumberSchema,
-  sellAvg: DhanNumberSchema,
-  sellQty: DhanNumberSchema,
-  netQty: DhanNumberSchema,
-  realizedProfit: DhanNumberSchema,
+  buyAvg: NumberOrZero,
+  buyQty: NumberOrZero,
+  sellAvg: NumberOrZero,
+  sellQty: NumberOrZero,
+  netQty: NumberOrZero,
+  realizedProfit: NumberOrZero,
   unrealizedProfit: OptionalNumber,
   drvExpiryDate: OptionalString,
   drvOptionType: OptionalString,
@@ -322,15 +356,15 @@ export type DhanPosition = z.infer<typeof DhanPositionSchema>;
 /** GET /holdings row. `exchange` is `"ALL"` for a scrip held across NSE and BSE. */
 export const DhanHoldingSchema = z.looseObject({
   exchange: OptionalString,
-  tradingSymbol: z.string().min(1),
-  securityId: z.union([z.string(), z.number()]).transform(String),
+  tradingSymbol: OptionalString,
+  securityId: IdSchema,
   isin: OptionalString,
-  totalQty: DhanNumberSchema,
+  totalQty: NumberOrZero,
   dpQty: OptionalNumber,
   t1Qty: OptionalNumber,
   availableQty: OptionalNumber,
   collateralQty: OptionalNumber,
-  avgCostPrice: DhanNumberSchema,
+  avgCostPrice: NumberOrZero,
 });
 export type DhanHolding = z.infer<typeof DhanHoldingSchema>;
 
@@ -391,9 +425,9 @@ export interface DhanOrderUpdateLogin {
 export const DhanOrderAlertDataSchema = z.looseObject({
   Exchange: z.string(),
   Segment: z.string(),
-  SecurityId: z.union([z.string(), z.number()]).transform(String),
+  SecurityId: IdSchema,
   ClientId: OptionalString,
-  OrderNo: z.union([z.string().min(1), z.number()]).transform(String),
+  OrderNo: IdSchema,
   Product: z.string(),
   TxnType: z.string(),
   OrderType: z.string(),

@@ -20,6 +20,7 @@ import {
   fakeJwt,
   fixture,
   KEYS,
+  NOW,
   RENEWED_EXPIRES_AT,
   RENEWED_TOKEN,
   seededInstruments,
@@ -28,7 +29,10 @@ import {
 
 function setup(instruments: DhanInstrumentMap = seededInstruments()): { dhan: FakeDhan; adapter: DhanAdapter } {
   const dhan = new FakeDhan();
-  return { dhan, adapter: new DhanAdapter({ fetch: dhan.fetch, webSocket: dhan.sockets.factory, instruments }) };
+  return {
+    dhan,
+    adapter: new DhanAdapter({ fetch: dhan.fetch, webSocket: dhan.sockets.factory, instruments, now: () => NOW }),
+  };
 }
 
 const ctx = (creds = CREDS) => ({ signal: new AbortController().signal, creds });
@@ -129,8 +133,106 @@ describe("DhanAdapter: auth", () => {
       json({ accessToken: "opaque-renewed-0123", expiryTime: "2025-10-09T21:30:00.000" }),
     );
     expect((await adapter.refreshToken(ctx())).expiresAt?.toISOString()).toBe("2025-10-09T16:00:00.000Z");
+    // No expiry anywhere: the documented 24 hours from now.
     dhan.overrides.set("GET /v2/RenewToken", () => json({ accessToken: "opaque-renewed-0123" }));
-    expect((await adapter.refreshToken(ctx())).expiresAt).toBeUndefined();
+    expect((await adapter.refreshToken(ctx())).expiresAt).toEqual(new Date(NOW.getTime() + 86_400_000));
+  });
+
+  it("reads the renewed token from every shape Dhan might answer with", async () => {
+    const { adapter, dhan } = setup();
+    const renewed = async (response: Response): Promise<{ token: string; expiresAt: string | undefined }> => {
+      dhan.overrides.set("GET /v2/RenewToken", () => response);
+      const creds = await adapter.refreshToken(ctx());
+      return { token: creds.accessToken.reveal(), expiresAt: creds.expiresAt?.toISOString() };
+    };
+    const enveloped = fixture("renew-token-envelope.json") as { data: Record<string, unknown> };
+    expect(
+      await renewed(json({ ...enveloped, data: { ...enveloped.data, access_token: "opaque-renewed-4567" } })),
+    ).toEqual({ token: "opaque-renewed-4567", expiresAt: "2025-10-09T16:00:00.000Z" });
+    expect(await renewed(new Response(` ${RENEWED_TOKEN}\n`, { headers: { "content-type": "text/plain" } }))).toEqual({
+      token: RENEWED_TOKEN,
+      expiresAt: RENEWED_EXPIRES_AT.toISOString(),
+    });
+    expect((await renewed(json(RENEWED_TOKEN))).token).toBe(RENEWED_TOKEN);
+    expect((await renewed(json({ token: "opaque-renewed-8910", tokenValidity: "09/10/2025 21:30" }))).expiresAt).toBe(
+      "2025-10-09T16:00:00.000Z",
+    );
+    for (const answer of [new Response("OK"), json("short"), json([RENEWED_TOKEN]), json({ accessToken: "short" })]) {
+      dhan.overrides.set("GET /v2/RenewToken", () => answer);
+      expect(await failure(adapter.refreshToken(ctx()))).toMatchObject({
+        code: "NEEDS_RELOGIN",
+        brokerError: { code: "UNEXPECTED_RESPONSE" },
+      });
+    }
+  });
+
+  it("asks for a re-login when Dhan refuses to renew an expired token", async () => {
+    const { adapter, dhan } = setup();
+    dhan.overrides.set("GET /v2/RenewToken", () => json(fixture("error-dh901.json"), 401));
+    expect(await failure(adapter.refreshToken(ctx()))).toMatchObject({
+      code: "NEEDS_RELOGIN",
+      operation: "refreshToken",
+      brokerError: { code: "DH-901" },
+    });
+    dhan.overrides.set("GET /v2/RenewToken", () => json(fixture("error-legacy.json")));
+    expect((await failure(adapter.refreshToken(ctx()))).code).toBe("NEEDS_RELOGIN");
+  });
+
+  it("cleans a pasted token and takes the client id from the token when the form leaves it empty", async () => {
+    const { adapter, dhan } = setup();
+    const creds = await adapter.exchangeToken(ctx(), {
+      fields: { clientId: "", accessToken: ` "Bearer ${TOKEN}\n" ` },
+    });
+    expect(creds).toMatchObject({ clientId: CLIENT_ID, expiresAt: EXPIRES_AT });
+    expect(creds.accessToken.reveal()).toBe(TOKEN);
+    expect(dhan.requests[0]?.headers["access-token"]).toBe(TOKEN);
+    const prefixed = await adapter.exchangeToken(ctx(), { fields: { accessToken: `access-token: ${TOKEN}` } });
+    expect(prefixed.accessToken.reveal()).toBe(TOKEN);
+  });
+
+  it("reads a profile with numbers for strings, nulls and extra fields", async () => {
+    const { adapter, dhan } = setup();
+    dhan.overrides.set("GET /v2/profile", () => json(fixture("profile-lenient.json")));
+    const creds = await adapter.exchangeToken(ctx(), { fields: { accessToken: "opaque-token-0123456789" } });
+    // An opaque token has no claims: the client id and the expiry come from the profile.
+    expect(creds.clientId).toBe(CLIENT_ID);
+    expect(creds.expiresAt?.toISOString()).toBe("2025-10-08T16:00:30.000Z");
+    expect(await adapter.getProfile(ctx())).toEqual({ brokerClientId: CLIENT_ID, name: "Dhan account", exchanges: [] });
+  });
+
+  it("refuses an expired token or one for another client before asking Dhan", async () => {
+    const { adapter, dhan } = setup();
+    const expired = fakeJwt({ exp: NOW.getTime() / 1000 - 60, dhanClientId: CLIENT_ID });
+    expect(await failure(adapter.exchangeToken(ctx(), { fields: { accessToken: expired } }))).toMatchObject({
+      code: "BROKER_REJECTED",
+      brokerError: { code: "TOKEN_EXPIRED" },
+    });
+    const other = fakeJwt({ exp: EXPIRES_AT.getTime() / 1000, dhanClientId: 1000000002 });
+    expect(
+      await failure(adapter.exchangeToken(ctx(), { fields: { clientId: CLIENT_ID, accessToken: other } })),
+    ).toMatchObject({ code: "BROKER_REJECTED", brokerError: { code: "CLIENT_MISMATCH" } });
+    expect(dhan.requests).toEqual([]);
+    // An opaque token has no claim to compare: the profile tells.
+    dhan.overrides.set("GET /v2/profile", () => json(fixture("profile.json")));
+    expect(
+      await failure(
+        adapter.exchangeToken(ctx(), { fields: { clientId: "1000000002", accessToken: "opaque-token-0123456789" } }),
+      ),
+    ).toMatchObject({ code: "BROKER_REJECTED", brokerError: { code: "CLIENT_MISMATCH" } });
+  });
+
+  it("reports a token Dhan refuses in its legacy error shape, and a profile without a usable client id", async () => {
+    const { adapter, dhan } = setup();
+    dhan.overrides.set("GET /v2/profile", () => json(fixture("error-legacy.json")));
+    expect(await failure(adapter.exchangeToken(ctx(), { fields: { accessToken: TOKEN } }))).toMatchObject({
+      code: "BROKER_REJECTED",
+      operation: "exchangeToken",
+      brokerError: { code: "DH-901" },
+    });
+    dhan.overrides.set("GET /v2/profile", () => json({ dhanClientId: "not a client id" }));
+    expect(
+      await failure(adapter.exchangeToken(ctx(), { fields: { accessToken: "opaque-token-0123456789" } })),
+    ).toMatchObject({ code: "BROKER_UNAVAILABLE", brokerError: { code: "UNEXPECTED_RESPONSE" } });
   });
 
   it("asks for a re-login when renewal returns no token or the credentials lack a client id", async () => {
@@ -176,6 +278,59 @@ describe("DhanAdapter: account reads", () => {
     expect(await adapter.getOrderBook(ctx())).toEqual([]);
     dhan.overrides.set("GET /v2/holdings", () => new Response(""));
     expect(await adapter.getHoldings(ctx())).toEqual([]);
+  });
+
+  it("reads funds with numbers as strings and the correctly spelled balance", async () => {
+    const { adapter, dhan } = setup();
+    dhan.overrides.set("GET /v2/fundlimit", () => json(fixture("fundlimit-strings.json")));
+    expect(await adapter.getFunds(ctx())).toEqual({ availableMargin: "98440.5", usedMargin: "15202", collateral: "0" });
+  });
+
+  it("maps every documented position field set, leaving out rows it can't read or identify", async () => {
+    const { adapter, dhan } = setup();
+    dhan.overrides.set("GET /v2/positions", () => json(fixture("positions-full.json")));
+    expect(await adapter.getPositions(ctx())).toEqual([
+      {
+        instrumentKey: "NSE_EQ|TCS",
+        product: "DELIVERY",
+        netQty: 40,
+        buyQty: 40,
+        sellQty: 0,
+        buyAvg: "3345.8",
+        sellAvg: "0",
+        realisedPnl: "0",
+        unrealisedPnl: "6122",
+      },
+      {
+        instrumentKey: KEYS.niftyCe,
+        product: "INTRADAY",
+        netQty: 0,
+        buyQty: 75,
+        sellQty: 75,
+        buyAvg: "101.5",
+        sellAvg: "100",
+        realisedPnl: "-112.5",
+      },
+    ]);
+    dhan.overrides.set("GET /v2/positions", () => json({ data: (fixture("positions.json") as unknown[]).slice(0, 1) }));
+    expect((await adapter.getPositions(ctx())).map((position) => position.instrumentKey)).toEqual(["NSE_EQ|TCS"]);
+    dhan.overrides.set("GET /v2/holdings", () =>
+      json([...(fixture("holdings.json") as object[]), { securityId: "999999", exchange: "ALL" }]),
+    );
+    expect((await adapter.getHoldings(ctx())).map((holding) => holding.instrumentKey)).toEqual(["NSE_EQ|HDFC"]);
+    dhan.overrides.set("GET /v2/orders", () =>
+      json([
+        { ...(fixture("order.json") as object), tradingSymbol: "TCS" },
+        { ...(fixture("order.json") as object), exchangeSegment: "BSE_CURRENCY" },
+        7,
+      ]),
+    );
+    expect((await adapter.getOrderBook(ctx())).map((order) => order.brokerOrderId)).toEqual(["112111182198"]);
+    dhan.overrides.set("GET /v2/holdings", () => json({ unexpected: true }));
+    expect(await failure(adapter.getHoldings(ctx()))).toMatchObject({
+      code: "BROKER_UNAVAILABLE",
+      brokerError: { code: "UNEXPECTED_RESPONSE" },
+    });
   });
 
   it("fails as unavailable on an answer in the wrong shape, and passes other errors through", async () => {

@@ -12,6 +12,7 @@ import {
   alertToOrder,
   alertToTrade,
   candlePlan,
+  cleanToken,
   decimalOf,
   finaliseCandles,
   intOf,
@@ -19,10 +20,12 @@ import {
   istToDate,
   istToIso,
   istWallClock,
+  jwtClientId,
   jwtExpiry,
   moneyOf,
   parsedKey,
   positivePriceOf,
+  renewedToken,
   resolveKey,
   toBrokerHolding,
   toBrokerOrder,
@@ -33,7 +36,15 @@ import {
   toFunds,
   toProfile,
 } from "../mappers";
-import { DhanHoldingSchema, DhanOrderAlertDataSchema, DhanOrderSchema, DhanPositionSchema } from "../types";
+import {
+  dhanNumber,
+  DhanFundLimitSchema,
+  DhanHoldingSchema,
+  DhanOrderAlertDataSchema,
+  DhanOrderSchema,
+  DhanPositionSchema,
+  DhanProfileSchema,
+} from "../types";
 
 import { fakeJwt, fixture, seededInstruments } from "./fake-dhan";
 
@@ -101,6 +112,46 @@ describe("numbers and times", () => {
     expect(jwtExpiry("opaque-token")).toBeUndefined();
     expect(jwtExpiry("a.%%%.c")).toBeUndefined();
   });
+
+  it("reads token validity in every form Dhan uses, as IST unless it says otherwise", () => {
+    expect(istToDate("30/03/2025 15:37:20")?.toISOString()).toBe("2025-03-30T10:07:20.000Z");
+    expect(istToDate("30-03-2025 15:37")?.toISOString()).toBe("2025-03-30T10:07:00.000Z");
+    expect(istToDate("2025-09-23T12:37:23")?.toISOString()).toBe("2025-09-23T07:07:23.000Z");
+    expect(istToDate("2025-09-23 12:37:23.0")?.toISOString()).toBe("2025-09-23T07:07:23.000Z");
+    expect(istToDate("2025-09-23T07:07:23Z")?.toISOString()).toBe("2025-09-23T07:07:23.000Z");
+    expect(istToDate("2025-09-23T12:37:23+05:30")?.toISOString()).toBe("2025-09-23T07:07:23.000Z");
+    expect(istToDate("2025-09-23T02:07:23-0500")?.toISOString()).toBe("2025-09-23T07:07:23.000Z");
+    expect(istToDate(1_759_852_800)?.toISOString()).toBe("2025-10-07T16:00:00.000Z");
+    expect(istToDate("1759852800000")?.toISOString()).toBe("2025-10-07T16:00:00.000Z");
+    for (const value of ["30/03/2025", "31/13/2025 10:00", "0001-01-01 00:00:00", "", 12, null, {}, Number.NaN]) {
+      expect(istToDate(value), JSON.stringify(value)).toBeUndefined();
+    }
+  });
+
+  it("finds the client id claim and cleans what a paste brings along", () => {
+    expect(jwtClientId(fakeJwt({ dhanClientId: " 1000000001 " }))).toBe("1000000001");
+    expect(jwtClientId(fakeJwt({ dhanClientId: 1000000001 }))).toBe("1000000001");
+    expect(jwtClientId(fakeJwt({ dhanClientId: 1.5 }))).toBeUndefined();
+    expect(jwtClientId(fakeJwt({ exp: 1 }))).toBeUndefined();
+    expect(jwtClientId("opaque")).toBeUndefined();
+    expect(cleanToken(' "Bearer eyJ.a.b\n" ')).toBe("eyJ.a.b");
+    expect(cleanToken("access_token= 'eyJ.a\n.b'")).toBe("eyJ.a.b");
+    expect(cleanToken(undefined)).toBe("");
+  });
+
+  it("finds a renewed token in every shape, or nothing", () => {
+    const jwt = fakeJwt({ exp: 1 });
+    expect(renewedToken({ accessToken: jwt, expiryTime: "2025-10-09T21:30:00.000" })).toEqual({
+      token: jwt,
+      expiry: "2025-10-09T21:30:00.000",
+    });
+    expect(renewedToken({ data: { access_token: ` ${jwt} ` } })).toEqual({ token: jwt });
+    expect(renewedToken({ status: "success", data: { newToken: jwt, expiry: 5 } })).toEqual({ token: jwt, expiry: 5 });
+    expect(renewedToken(` ${jwt}\n`)).toEqual({ token: jwt });
+    for (const body of ["not a token", { accessToken: "" }, { data: "x" }, [jwt], null, 42]) {
+      expect(renewedToken(body)).toBeUndefined();
+    }
+  });
 });
 
 describe("enums", () => {
@@ -124,7 +175,7 @@ describe("profile and funds", () => {
         exchanges: ["NSE", "BSE", "MCX", "NFO", "BFO", "CDS"],
       },
     );
-    expect(toProfile({ dhanClientId: "1", activeSegment: null }).exchanges).toEqual([]);
+    expect(toProfile({ dhanClientId: "1", activeSegment: undefined }).exchanges).toEqual([]);
   });
 
   it("maps the fund limit, with or without a withdrawable balance", () => {
@@ -137,6 +188,31 @@ describe("profile and funds", () => {
       withdrawable: "98310",
     });
     expect(toFunds({ availabelBalance: 1 })).toEqual({ availableMargin: "1", usedMargin: "0", collateral: "0" });
+    // Should Dhan ever fix the typo.
+    expect(toFunds({ availableBalance: 2.5 }).availableMargin).toBe("2.5");
+    expect(toFunds({ availabelBalance: 3, availableBalance: 4 }).availableMargin).toBe("3");
+  });
+
+  it("reads the fund limit and profile forgivingly: numeric strings, nulls, extra fields", () => {
+    expect(DhanFundLimitSchema.parse({ availabelBalance: " 1e3 ", utilizedAmount: "NA", extra: [1] })).toMatchObject({
+      availabelBalance: 1000,
+    });
+    expect(DhanFundLimitSchema.parse({ availabelBalance: "7" }).utilizedAmount).toBeUndefined();
+    expect(DhanFundLimitSchema.safeParse({ sodLimit: 1 }).success).toBe(false);
+    expect([Number.POSITIVE_INFINITY, "abc", " ", true].map(dhanNumber)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    expect(DhanOrderSchema.safeParse({ ...(fixture("order.json") as object), quantity: "five" }).success).toBe(false);
+    expect(DhanOrderSchema.parse({ ...(fixture("order.json") as object), quantity: "5" }).quantity).toBe(5);
+    expect(DhanProfileSchema.parse({ dhanClientId: 1100003626, ddpi: 5, mtf: null })).toMatchObject({
+      dhanClientId: "1100003626",
+      ddpi: "5",
+    });
+    expect(DhanProfileSchema.safeParse({ dhanClientId: " " }).success).toBe(false);
+    expect(DhanProfileSchema.safeParse({ dhanClientId: -1 }).success).toBe(false);
   });
 });
 
@@ -291,7 +367,17 @@ describe("positions and holdings", () => {
       },
     ]);
     const row = DhanPositionSchema.parse({ ...(fixture("positions.json") as object[])[0], unrealizedProfit: null });
-    expect(toBrokerPosition(map, row).unrealisedPnl).toBeUndefined();
+    expect(toBrokerPosition(map, row)?.unrealisedPnl).toBeUndefined();
+    // Missing amounts are 0; an instrument nobody can identify is left out.
+    const sparse = DhanPositionSchema.parse({ securityId: 11536, exchangeSegment: "NSE_EQ", productType: "CNC" });
+    expect(toBrokerPosition(map, { ...sparse, tradingSymbol: "TCS" })).toMatchObject({
+      instrumentKey: "NSE_EQ|TCS",
+      netQty: 0,
+      buyAvg: "0",
+      realisedPnl: "0",
+    });
+    expect(toBrokerPosition(map, sparse)).toBeUndefined();
+    expect(toBrokerHolding(new DhanInstrumentMap(), DhanHoldingSchema.parse({ securityId: "1" }))).toBeUndefined();
   });
 
   it("maps holdings through NSE, then BSE, then the symbol", () => {
@@ -309,11 +395,11 @@ describe("positions and holdings", () => {
       t1Qty: 5,
       avgPrice: "2655",
     });
-    expect(toBrokerHolding(bseMap, DhanHoldingSchema.parse({ ...docs, exchange: "BSE" })).instrumentKey).toBe(
+    expect(toBrokerHolding(bseMap, DhanHoldingSchema.parse({ ...docs, exchange: "BSE" }))?.instrumentKey).toBe(
       "BSE_EQ|HDFC",
     );
     expect(
-      toBrokerHolding(new DhanInstrumentMap(), DhanHoldingSchema.parse({ ...docs, exchange: "BSE" })).instrumentKey,
+      toBrokerHolding(new DhanInstrumentMap(), DhanHoldingSchema.parse({ ...docs, exchange: "BSE" }))?.instrumentKey,
     ).toBe("BSE_EQ|HDFC");
   });
 });

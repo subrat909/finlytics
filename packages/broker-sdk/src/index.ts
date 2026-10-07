@@ -11,7 +11,11 @@ export type {
   BrokerMethod,
   BrokerMethodsMatchInterface,
   CallContext,
+  FeedLimits,
 } from "./adapter";
+
+export { MARKET_INDEX_ALIASES, marketIndexAlias, marketIndexByDhanSecurityId } from "./index-aliases";
+export type { MarketIndexAlias } from "./index-aliases";
 
 export {
   AuthStartSchema,
