@@ -78,8 +78,9 @@ New primitives go through the shadcn porting checklist in `packages/ui/README.md
 ## App shell (0.6, redesigned in 1b, `apps/web`)
 Plans: `docs/plans/phase-0-web-bootstrap.md`, `docs/plans/phase-1b-terminal-ui-live-data.md`. Code:
 `apps/web/src/components/shell/`, `apps/web/src/features/market/`.
-- **Frame.** The content column is one viewport high (`h-dvh`): navbar (h-14), optional banner, `<main>` (the only
-  scroll container, no padding) and the status bar (h-8). Navbar, sidebar and status bar never move.
+- **Frame.** The content column is `fixed inset-0` (moved by the sidebar's margin): navbar (h-14), optional banner,
+  `<main>` (the only scroll container, no padding) and the status bar (h-8). The document never scrolls on app pages
+  (`body:has([data-slot=app-content])`), so navbar, sidebar and status bar never move, on every screen size.
 - **Sidebar.** Fixed, `bg-surface-1` with a 1px right `border`, `w-64 ↔ w-16` (`transition-[width] duration-200
   ease-out`), the content column moves with `transition-[margin]`; labels fade (`opacity`) and keep their accessible
   names. Groups: Overview · Markets · Trading · Algo · Account; sections still to come carry a "Soon" badge and lead
@@ -91,13 +92,13 @@ Plans: `docs/plans/phase-0-web-bootstrap.md`, `docs/plans/phase-1b-terminal-ui-l
   typing). `<main id="main-content">` is rendered once and never re-mounted (the e2e suite checks the DOM node).
 - **Below 1024 px** the sidebar is a Radix Dialog sheet from the left (focus trap, Escape, focus return).
 - **Navbar.** `bg-surface-1` with a 1px bottom `border`: the sidebar toggle (`SidebarToggle`, ≥ 1024 px; the sheet's
-  menu button below), the search in the centre (opens ⌘K), the index ticker (`TICKER_INDEX_IDS`: live LTP, change and
-  change % with ▲/▼, an amber "Simulated" badge when the feed isn't live; ≥ 1280 px only, so smaller screens open no
-  socket for it) and the account menu (Brokers, Settings, Sign out). No theme switch: that's on `/settings`.
-- **Status bar** (`status-bar.tsx`, `contentinfo` "Status bar"): NSE/BSE/MCX session dots with the next open or close
-  in IST (`GET /v1/market/overview`), the feed source ("Live · Upstox", or an amber "Simulated prices" link to
-  /brokers with the reason in a tooltip), the realtime socket state with Retry, the SEBI risk line, the app version
-  and an isolated 1 s IST clock. Below 640 px: NSE, the feed and the clock.
+  menu button below), the search (opens ⌘K), the NSE market status chip, the notifications bell (unread count; list,
+  mark read; refreshed by realtime `user` events, never polled) and the account menu. No live prices (indices are on
+  the dashboard) and no theme switch (that's on `/settings`).
+- **Status bar** (`status-bar.tsx`, `contentinfo` "Status bar"): market countdowns for NSE and MCX ("Pre-open in",
+  "Opens in", "Closes in", "Post-close ends in", ticking on one shared 1 s clock; a countdown that runs out refetches
+  the overview once), the broker connections (Connected / Login needed / Error, linking to /brokers), the data source
+  (Live data / Simulated), the realtime link and the IST clock. Below 640 px: NSE and the clock.
 - **Banner slot.** `AppShell`'s `banner` prop (set in `(app)/layout.tsx`) renders full width between the top bar and
   the page, for the broker NEEDS_RELOGIN banner; it comes and goes without re-mounting the page.
 - **Full width.** Pages have no max-width container and the content reflows as the sidebar's margin transitions (like
@@ -130,7 +131,7 @@ stylesheet, `@finlytics/ui/globals.css`.
     `:root, [data-theme]`, so a themed island resolves them against its own values.
   - `theme.css`: maps tokens to utilities (`bg-surface-2`, `text-profit`, `text-fg-muted`), removes Tailwind's default
     palette (`bg-red-500` and `text-white` generate nothing), and defines the font and radius scales (cards,
-    buttons and inputs use the medium radius, `rounded-md`, 8px), the shimmer animation and the `tabular` utility.
+    buttons, inputs and every surface use the small radius, `rounded-sm`, 6px), the shimmer animation and the `tabular` utility.
   - `base.css`: document colours and font, controls reset to no border and no shadow (inputs add their edge back),
     the focus outline, reduced motion.
   - `globals.css`: imports Tailwind once, `tw-animate-css` and the three files, and registers the package's sources
@@ -149,7 +150,7 @@ stylesheet, `@finlytics/ui/globals.css`.
   Cards, inputs and other surfaces (menus, sheets, the palette, skeleton cards, segmented-control tracks) have a 1px
   edge: `border border-border` (decorative, light `#e2e8f0`, dark `#283446`), and inputs `border border-border-strong`
   (light `#7d8a9e`, dark `#6a778c`, ≥ 3:1 against bg, surface-1 and surface-2, WCAG 1.4.11; `aria-invalid` turns it
-  `loss`). Radius stays `rounded-md`.
+  `loss`). Radius stays `rounded-sm`.
 - **Density.** `<html data-density="comfortable|compact">`; compact sets Tailwind's `--spacing` to `0.21875rem`
   (87.5%), so every padding, gap and control height built from the scale tightens together. Type sizes don't change.
 - **Contrast matrix.** Every token pair the components render, in both themes: text ≥ 4.5:1 (including the `/90` hover

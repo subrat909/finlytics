@@ -79,7 +79,7 @@ docs/            architecture decisions (read before building a feature)
 - Conventional Commits. Small PRs. Every PR runs `/review` and `/security-audit` commands.
 
 ### UI (full spec: `.claude/rules/frontend.md`, `docs/05-UI-ARCHITECTURE.md`)
-- Design tokens only (no hard-coded colours). Light + dark via `data-theme`. **No borders or shadows on buttons**; cards, inputs and surfaces use a 1px border token (`border-border`; inputs `border-border-strong`, ≥ 3:1). Buttons get affordance from filled surfaces (`bg-surface-2`) and focus outlines. No shadows. Full-width pages; navbar and sidebar on `bg-surface-1` with borders.
+- Design tokens only (no hard-coded colours). Light + dark via `data-theme`. **No borders or shadows on buttons**; cards, inputs and surfaces use a 1px border token (`border-border`; inputs `border-border-strong`, ≥ 3:1). Buttons get affordance from filled surfaces (`bg-surface-2`) and focus outlines. No shadows. Small radius everywhere (`rounded-sm`). Full-width pages; navbar, sidebar and footer fixed on `bg-surface-1` with borders.
 - Every page implements: loading skeleton matching layout shape, empty state with icon + CTA, error state with retry, responsive (mobile ≥ 360px), keyboard navigation + ARIA.
 - Sidebar collapse is a CSS-width transition on a persisted Zustand store; it must not re-mount page content.
 - Icons: lucide-react; colourful semantic accents (profit green, loss rose, warning amber, info sky, primary indigo).
@@ -98,7 +98,8 @@ pnpm test:integration      Testcontainers integration tests (needs Docker)
 pnpm check:pkg             publint + attw + require/import smoke tests on built packages
 pnpm storybook             packages/ui Storybook at http://127.0.0.1:6006 (theme toolbar: light/dark)
 pnpm test:storybook        every story as a test in Chromium: render, play, a11y, design checks (light, dark, 360 px)
-pnpm test:visual           screenshots of every story vs committed baselines, in the pinned Playwright image (Docker)
+pnpm test:visual           screenshots vs baselines in the pinned Playwright image (Docker): CI ONLY; never run it locally
+                           (too heavy). After ui visual changes, run the CI workflow with update_snapshots and commit the artifact
 pnpm test:e2e              apps/web Playwright e2e (magic-link sign-in via mailpit, shell, sign-out); needs compose up and
                            migrations applied; builds deps + api, starts both servers. With `pnpm dev` already running,
                            use `pnpm --filter @finlytics/web test:e2e` (reuses :3000/:4000, rebuilds nothing under them)

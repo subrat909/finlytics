@@ -39,14 +39,14 @@ secondary: "bg-surface-2 text-fg hover:bg-surface-3"
 ghost:     "bg-transparent hover:bg-surface-2"
 profit:    "bg-profit text-profit-fg hover:bg-profit/90"
 loss:      "bg-loss text-loss-fg hover:bg-loss/90"
-// all: rounded-md h-10 px-4 font-medium transition-[color,background-color] disabled:opacity-50
+// all: rounded-sm h-10 px-4 font-medium transition-[color,background-color] disabled:opacity-50
 //      focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid
 //      — NO border, NO shadow, no outline-hidden; never transition-colors (it fades the outline in from the text colour)
-// input: border border-border-strong bg-surface-2 rounded-md h-10 px-3 placeholder:text-fg-muted aria-invalid:border-loss
+// input: border border-border-strong bg-surface-2 rounded-sm h-10 px-3 placeholder:text-fg-muted aria-invalid:border-loss
 //      transition-[color,background-color]
 //      focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid
 //      — 1px border-strong (≥ 3:1), NO shadow
-// card:  rounded-md border border-border bg-surface-1 p-4 sm:p-6 — NO shadow
+// card:  rounded-sm border border-border bg-surface-1 p-4 sm:p-6 — NO shadow
 ```
 
 ## Page skeleton recipe
