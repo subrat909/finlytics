@@ -23,13 +23,13 @@ export function WatchlistsSkeleton() {
   return (
     <div aria-hidden="true" className="flex min-h-0 flex-1 flex-col" data-slot="watchlists-skeleton">
       <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-2">
-        <Skeleton className="h-7 w-20 rounded-md" />
-        <Skeleton className="h-7 w-7 rounded-md" />
-        <Skeleton className="h-7 w-7 rounded-md" />
-        <Skeleton className="ml-auto h-7 w-7 rounded-md" />
+        <Skeleton className="h-7 w-20 rounded-sm" />
+        <Skeleton className="h-7 w-7 rounded-sm" />
+        <Skeleton className="h-7 w-7 rounded-sm" />
+        <Skeleton className="ml-auto h-7 w-7 rounded-sm" />
       </div>
       <div className="shrink-0 border-b border-border p-2">
-        <Skeleton className="h-9 w-full rounded-md" />
+        <Skeleton className="h-9 w-full rounded-sm" />
       </div>
       <div className="min-h-0 flex-1 overflow-hidden py-1">
         {Array.from({ length: ROWS }, (_, row) => (
@@ -54,12 +54,12 @@ export function InstrumentDetailSkeleton() {
             <Skeleton className="h-5 w-40" />
             <Skeleton className="h-3 w-56" />
           </div>
-          <Skeleton className="h-8 w-28 rounded-md" />
+          <Skeleton className="h-8 w-28 rounded-sm" />
         </div>
         <Skeleton className="h-8 w-52" />
       </div>
       <div className="space-y-5 p-4">
-        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-sm border border-border bg-border sm:grid-cols-4">
           {Array.from({ length: 8 }, (_, cell) => (
             <div key={cell} className="space-y-1.5 bg-surface-1 px-3 py-2">
               <Skeleton className="h-2.5 w-12" />
@@ -84,7 +84,7 @@ export function InstrumentDetailSkeleton() {
 /** The list panel's frame (header bar), around the body skeleton. */
 function ListPanelSkeleton() {
   return (
-    <div className="flex min-h-0 w-full flex-col bg-surface-1 lg:w-[360px] lg:shrink-0 lg:rounded-md lg:border lg:border-border">
+    <div className="flex min-h-0 w-full flex-col bg-surface-1 lg:w-[360px] lg:shrink-0 lg:rounded-sm lg:border lg:border-border">
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
         <Skeleton className="h-4 w-24" />
         <Skeleton className="h-6 w-16 rounded-full" />
@@ -99,7 +99,7 @@ export function WatchlistsPageSkeleton() {
   return (
     <>
       <ListPanelSkeleton />
-      <div className="hidden min-w-0 flex-1 flex-col rounded-md border border-border bg-surface-1 lg:flex">
+      <div className="hidden min-w-0 flex-1 flex-col rounded-sm border border-border bg-surface-1 lg:flex">
         <InstrumentDetailSkeleton />
       </div>
     </>

@@ -84,7 +84,7 @@ function Stepper({ steps, current }: { steps: readonly string[]; current: number
 /** Numbered instructions inside a step. */
 function Instructions({ children }: { children: React.ReactNode }) {
   return (
-    <ol className="list-decimal space-y-2 rounded-md border border-border bg-surface-2/50 py-3 pr-3 pl-8 text-sm text-fg marker:text-fg-muted">
+    <ol className="list-decimal space-y-2 rounded-sm border border-border bg-surface-2/50 py-3 pr-3 pl-8 text-sm text-fg marker:text-fg-muted">
       {children}
     </ol>
   );
@@ -143,7 +143,7 @@ function RedirectUrl() {
           onFocus={(event) => {
             event.currentTarget.select();
           }}
-          className="h-10 w-full min-w-0 rounded-md border border-border-strong bg-surface-2 px-3 text-sm text-fg tabular focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid"
+          className="h-10 w-full min-w-0 rounded-sm border border-border-strong bg-surface-2 px-3 text-sm text-fg tabular focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid"
         />
         <Button
           variant="secondary"
@@ -283,7 +283,7 @@ function BrokerPicker({
                 data-broker={broker}
                 disabled={reason !== undefined}
                 aria-describedby={reason === undefined ? undefined : reasonId}
-                className="flex w-full cursor-pointer items-center gap-3 rounded-md bg-surface-2 p-3 text-left transition-[background-color] hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-surface-2"
+                className="flex w-full cursor-pointer items-center gap-3 rounded-sm bg-surface-2 p-3 text-left transition-[background-color] hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-surface-2"
                 onClick={() => {
                   onPick(broker);
                 }}

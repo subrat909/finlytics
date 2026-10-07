@@ -21,7 +21,7 @@ export function BrokerAccountsSkeleton({ rows = 2 }: { rows?: number }) {
           className="grid grid-cols-2 gap-3 border-b border-border px-3 py-3 last:border-b-0 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] md:items-center"
         >
           <div className="col-span-2 flex items-center gap-3 md:col-span-1">
-            <Skeleton className="size-9 rounded-md" />
+            <Skeleton className="size-9 rounded-sm" />
             <div className="flex-1 space-y-1.5">
               <Skeleton className="h-3.5 w-28" />
               <Skeleton className="h-3 w-16" />
@@ -34,7 +34,7 @@ export function BrokerAccountsSkeleton({ rows = 2 }: { rows?: number }) {
           </div>
           <Skeleton className="h-3.5 w-32" />
           <Skeleton className="h-5 w-20 rounded-sm" />
-          <Skeleton className="ml-auto size-8 rounded-md" />
+          <Skeleton className="ml-auto size-8 rounded-sm" />
         </div>
       ))}
     </div>
@@ -46,15 +46,15 @@ export function BrokerCatalogSkeleton() {
   return (
     <div className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3" aria-hidden="true">
       {range(3).map((card) => (
-        <div key={card} className="space-y-3 rounded-md border border-border p-3">
+        <div key={card} className="space-y-3 rounded-sm border border-border p-3">
           <div className="flex items-start gap-3">
-            <Skeleton className="size-9 rounded-md" />
+            <Skeleton className="size-9 rounded-sm" />
             <div className="flex-1 space-y-1.5">
               <Skeleton className="h-3.5 w-24" />
               <Skeleton className="h-3 w-full" />
             </div>
           </div>
-          <Skeleton className="h-8 w-36 rounded-md" />
+          <Skeleton className="h-8 w-36 rounded-sm" />
         </div>
       ))}
     </div>
@@ -64,7 +64,7 @@ export function BrokerCatalogSkeleton() {
 /** A panel frame with a header bar, for the route's skeleton. */
 function PanelFrame({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-md border border-border bg-surface-1">
+    <div className="rounded-sm border border-border bg-surface-1">
       <div className="flex h-10 items-center justify-between border-b border-border px-3">
         <Skeleton className="h-3.5 w-36" />
         <Skeleton className="h-3.5 w-16" />
@@ -80,15 +80,15 @@ export function BrokersPageSkeleton() {
     <div className="flex flex-col gap-4 lg:gap-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
-          <Skeleton className="size-9 rounded-md" />
+          <Skeleton className="size-9 rounded-sm" />
           <div className="space-y-1.5">
             <Skeleton className="h-5 w-28" />
             <Skeleton className="h-3.5 w-72 max-w-full" />
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <Skeleton className="h-8 w-40 rounded-md" />
-          <Skeleton className="h-10 w-36 rounded-md" />
+          <Skeleton className="h-8 w-40 rounded-sm" />
+          <Skeleton className="h-10 w-36 rounded-sm" />
         </div>
       </div>
       <PanelFrame>

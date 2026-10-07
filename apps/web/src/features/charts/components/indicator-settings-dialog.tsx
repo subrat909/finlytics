@@ -13,6 +13,7 @@ import {
   COLOR_TOKEN_LABELS,
   INDICATORS,
   LINE_WIDTHS,
+  PLOT_DASHES,
   defaultStyles,
   sanitizeInputs,
 } from "../lib/indicators/registry";
@@ -30,7 +31,7 @@ import {
 } from "./ui";
 
 const fieldClasses = cn(
-  "h-9 w-full rounded-md border border-border-strong bg-surface-2 px-2.5 text-sm text-fg tabular",
+  "h-9 w-full rounded-sm border border-border-strong bg-surface-2 px-2.5 text-sm text-fg tabular",
   "transition-[background-color] hover:bg-surface-3",
   focusRing,
 );
@@ -149,7 +150,17 @@ function Editor({ instance, onDone }: EditorProps) {
             const widthId = `${id}-${plot.key}-width`;
             return (
               <div key={plot.key} className="space-y-2">
-                <p className="text-sm font-medium text-fg">{plot.label}</p>
+                <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-fg">
+                  <input
+                    type="checkbox"
+                    checked={style.visible !== false}
+                    onChange={(event) => {
+                      setStyle(plot.key, { visible: event.target.checked });
+                    }}
+                    className={cn("size-4 cursor-pointer accent-primary", focusRing)}
+                  />
+                  {plot.label}
+                </label>
                 <div className="flex flex-wrap items-center gap-3">
                   <RadioGroup.Root
                     aria-label={`${plot.label} colour`}
@@ -165,7 +176,7 @@ function Editor({ instance, onDone }: EditorProps) {
                         value={token}
                         aria-label={COLOR_TOKEN_LABELS[token]}
                         className={cn(
-                          "flex size-7 cursor-pointer items-center justify-center rounded-md transition-[background-color] hover:bg-surface-2",
+                          "flex size-7 cursor-pointer items-center justify-center rounded-sm transition-[background-color] hover:bg-surface-2",
                           "data-[state=checked]:bg-surface-3",
                           focusRing,
                         )}
@@ -190,6 +201,25 @@ function Editor({ instance, onDone }: EditorProps) {
                         {LINE_WIDTHS.map((width) => (
                           <option key={width} value={width}>
                             {width}px
+                          </option>
+                        ))}
+                      </select>
+                      <label htmlFor={`${widthId}-dash`} className="text-xs text-fg-muted">
+                        Style
+                      </label>
+                      <select
+                        id={`${widthId}-dash`}
+                        value={style.dash ?? "solid"}
+                        onChange={(event) => {
+                          const dash = PLOT_DASHES.find((candidate) => candidate === event.target.value);
+                          if (dash !== undefined) setStyle(plot.key, { dash });
+                        }}
+                        className={cn(fieldClasses, "w-24")}
+                      >
+                        {PLOT_DASHES.map((dash) => (
+                          <option key={dash} value={dash}>
+                            {dash[0]?.toUpperCase()}
+                            {dash.slice(1)}
                           </option>
                         ))}
                       </select>

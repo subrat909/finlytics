@@ -108,7 +108,6 @@ const depthRoute = {
   respond: ({ path }: { path: string }) =>
     path.endsWith(encodeURIComponent(INFY.key)) ? Response.json(DEPTH) : problem(404, "NOT_FOUND"),
 };
-const candlesRoute = { path: /^\/v1\/candles\?/, respond: () => Response.json([]) };
 
 /** The server's view after a reorder or removal: the same items (ids kept), in a new order. */
 function reordered(list: Watchlist, indexes: number[]): Watchlist {
@@ -454,7 +453,6 @@ describe("WatchlistsView", () => {
       listsRoute([CORE]),
       quotesRoute,
       depthRoute,
-      candlesRoute,
       {
         method: "DELETE",
         path: "/v1/watchlists/wl1/items/wl1-item-1",
@@ -484,7 +482,7 @@ describe("WatchlistsView", () => {
   it("shows the selected instrument beside the list on large screens; Enter focuses it", async () => {
     asDesktop();
     const actor = userEvent.setup();
-    mockApi([listsRoute([CORE]), quotesRoute, depthRoute, candlesRoute]);
+    mockApi([listsRoute([CORE]), quotesRoute, depthRoute]);
     const { container } = renderWithProviders(<WatchlistsView />);
     const detail = await screen.findByRole("article", { name: "RELIANCE" });
     expect(within(detail).getByText("Prev close").nextElementSibling).toHaveTextContent("2,938.00");

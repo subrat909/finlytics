@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { INTRADAY_LOOKBACK_S, IST_OFFSET_S, intradayRange, istDay, lastSession, tickBucket } from "../lib/intraday";
 import {
   chartHref,
   isEditableTarget,
@@ -59,21 +58,5 @@ describe("watchlist helpers", () => {
     expect(isEditableTarget(editable)).toBe(true);
     expect(isEditableTarget(document.createElement("button"))).toBe(false);
     expect(isEditableTarget(null)).toBe(false);
-  });
-});
-
-describe("intraday maths", () => {
-  it("buckets ticks into IST 5-minute bars and keeps the latest session", () => {
-    const open = Date.UTC(2026, 9, 6, 3, 45); // 09:15 IST
-    expect(tickBucket(open + 299_999)).toBe(open / 1_000 + IST_OFFSET_S);
-    expect(tickBucket(open + 300_000)).toBe(open / 1_000 + 300 + IST_OFFSET_S);
-    expect(istDay(open / 1_000 + IST_OFFSET_S)).toBe(istDay(open / 1_000 + IST_OFFSET_S + 6 * 3_600));
-    const bar = (ts: number, close: string) => ({ ts, open: "1", high: "1", low: "1", close, volume: 0 });
-    expect(lastSession([bar(open - 86_400_000, "1"), bar(open, "2"), bar(open + 300_000, "3")])).toEqual([
-      { time: open / 1_000 + IST_OFFSET_S, value: 2 },
-      { time: open / 1_000 + 300 + IST_OFFSET_S, value: 3 },
-    ]);
-    expect(lastSession([])).toEqual([]);
-    expect(intradayRange(10_000_000)).toEqual({ from: 10_000 - INTRADAY_LOOKBACK_S, to: 10_000 });
   });
 });

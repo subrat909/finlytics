@@ -64,7 +64,7 @@ function AccountSwitcher({
         onChange={(event) => {
           onChange(event.target.value);
         }}
-        className="h-8 max-w-48 rounded-md border border-border-strong bg-surface-2 px-2 text-sm text-fg transition-[background-color] hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid"
+        className="h-8 max-w-48 rounded-sm border border-border-strong bg-surface-2 px-2 text-sm text-fg transition-[background-color] hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid"
       >
         {accounts.map((account) => (
           <option key={account.id} value={account.id}>
@@ -126,7 +126,7 @@ export function DashboardView({ navigate }: { navigate?: ((url: string) => void)
       <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
         <section
           aria-label="Portfolio"
-          className="rounded-md border border-border bg-surface-1 lg:col-span-1 xl:col-span-2"
+          className="rounded-sm border border-border bg-surface-1 lg:col-span-1 xl:col-span-2"
         >
           <ErrorState
             title="Your dashboard didn't load"

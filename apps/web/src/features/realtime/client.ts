@@ -21,7 +21,9 @@ import {
   RT_PATH,
   RtDepthAckSchema,
   RtSubscribeAckSchema,
+  RtUserEventSchema,
 } from "@finlytics/shared";
+import type { RtUserEvent } from "@finlytics/shared";
 
 import { parseDepth, parseQuoteBatch, parseStatus } from "./schemas";
 import type { Depth, Tick } from "./schemas";
@@ -184,6 +186,8 @@ export class RealtimeClient {
   readonly #depthRetries = new Set<unknown>();
   #pending = new Map<string, Tick>();
   #pendingDepth = new Map<string, Depth>();
+  /** `user` event listeners (the bell, broker status): while any exist the socket stays open, even without keys. */
+  readonly #userListeners = new Set<(event: RtUserEvent) => void>();
 
   #active = true;
   #socket: RealtimeSocket | undefined;
@@ -230,6 +234,18 @@ export class RealtimeClient {
       released = true;
       countDown(this.#depthCounts, key);
       releaseQuotes();
+    };
+  }
+
+  /**
+   * Listens for `user` events (notifications, broker accounts) on the tab's one socket, opening it if needed. Returns
+   * the release function.
+   */
+  onUserEvent(listener: (event: RtUserEvent) => void): () => void {
+    this.#userListeners.add(listener);
+    this.#queueSync();
+    return () => {
+      this.#userListeners.delete(listener);
     };
   }
 
@@ -316,7 +332,10 @@ export class RealtimeClient {
       marketActions.forget(released);
     }
 
-    if (this.#counts.size === 0) return;
+    if (this.#counts.size === 0) {
+      if (this.#userListeners.size > 0 && this.#socket === undefined) this.#openSocket();
+      return;
+    }
     const socket = this.#socket;
     if (socket === undefined) {
       this.#openSocket();
@@ -432,6 +451,11 @@ export class RealtimeClient {
     });
     socket.on(RT_EVENTS.depth, (message) => {
       this.#onDepth(message);
+    });
+    socket.on(RT_EVENTS.user, (message) => {
+      const event = RtUserEventSchema.safeParse(message);
+      if (!event.success) return;
+      for (const listener of this.#userListeners) listener(event.data);
     });
   }
 

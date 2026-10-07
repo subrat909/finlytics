@@ -8,7 +8,7 @@ function RowSkeleton({ controlWidth }: { controlWidth: string }) {
         <Skeleton className="h-4 w-20" />
         <Skeleton className="h-3 w-56 max-w-full" />
       </div>
-      <Skeleton className={`h-10 rounded-md ${controlWidth}`} />
+      <Skeleton className={`h-10 rounded-sm ${controlWidth}`} />
     </div>
   );
 }
@@ -19,7 +19,7 @@ function RowSkeleton({ controlWidth }: { controlWidth: string }) {
  */
 export function AppearanceCardSkeleton() {
   return (
-    <div aria-hidden="true" data-slot="appearance-skeleton" className="rounded-md border border-border bg-surface-1">
+    <div aria-hidden="true" data-slot="appearance-skeleton" className="rounded-sm border border-border bg-surface-1">
       <div className="flex h-10 items-center justify-between gap-3 border-b border-border px-4">
         <Skeleton className="h-4 w-28" />
         <Skeleton className="hidden h-3 w-64 sm:block" />

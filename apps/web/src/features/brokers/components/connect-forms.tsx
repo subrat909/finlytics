@@ -54,7 +54,7 @@ function formErrorOf(mutation: FormMutation<never, unknown>, broker: string): st
 export function FormAlert({ message }: { message: string | undefined }) {
   if (!message) return null;
   return (
-    <p role="alert" data-slot="form-alert" className="rounded-md bg-loss/10 px-3 py-2 text-sm text-fg">
+    <p role="alert" data-slot="form-alert" className="rounded-sm bg-loss/10 px-3 py-2 text-sm text-fg">
       {message}
     </p>
   );

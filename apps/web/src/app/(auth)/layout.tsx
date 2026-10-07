@@ -67,10 +67,10 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           </div>
           <ul className="grid gap-3 sm:grid-cols-2">
             {HIGHLIGHTS.map(({ Icon, accent, title, text }) => (
-              <li key={title} className="flex gap-3 rounded-md border border-border bg-surface-1 p-4">
+              <li key={title} className="flex gap-3 rounded-sm border border-border bg-surface-1 p-4">
                 <span
                   aria-hidden="true"
-                  className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface-2"
+                  className="flex size-8 shrink-0 items-center justify-center rounded-sm border border-border bg-surface-2"
                 >
                   <Icon className={`size-4 ${accent}`} />
                 </span>
@@ -102,7 +102,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           <div className="mb-8 flex justify-center lg:hidden">
             <Logo />
           </div>
-          <div className="rounded-md border border-border bg-surface-1 p-6 sm:p-8">{children}</div>
+          <div className="rounded-sm border border-border bg-surface-1 p-6 sm:p-8">{children}</div>
           <p className="mt-6 text-center text-xs text-fg-muted lg:hidden">
             Investments in securities are subject to market risks.
           </p>

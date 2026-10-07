@@ -81,6 +81,11 @@ test("adds an instrument to a watchlist, sees its price move live, and opens its
   await expect(chart.locator("canvas").first()).toBeVisible();
   expect(await axeViolations(page)).toEqual([]);
 
+  // /charts with no key opens NIFTY 50.
+  await page.goto("/charts");
+  await expect(page.getByRole("heading", { level: 1, name: "NIFTY 50 chart" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('[data-slot="drawing-toolbar"]')).toBeVisible();
+
   expect(problems).toEqual([]);
 });
 

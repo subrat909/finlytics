@@ -20,9 +20,9 @@ import { useMarketStore } from "@/features/realtime/store";
 
 import { chartHref } from "../lib/watchlist-lib";
 
-import { IntradayChart } from "./intraday-chart";
 import { MarketDepth } from "./market-depth";
 import { QuoteStats } from "./quote-stats";
+import { SessionInsights } from "./session-insights";
 
 /** The detail panel announces the price at most this often (frontend.md: throttled `aria-live`). */
 export const ANNOUNCE_EVERY_MS = 10_000;
@@ -202,11 +202,9 @@ export function InstrumentDetail({
               <MarketDepth instrumentKey={key} symbol={symbol} />
             )}
           </section>
-          <section aria-labelledby={`${id}-chart`} className="flex flex-col">
-            <SectionTitle id={`${id}-chart`}>Intraday · 5 min</SectionTitle>
-            <div className="h-56 @3xl:h-auto @3xl:min-h-56 @3xl:flex-1">
-              <IntradayChart instrumentKey={key} symbol={symbol} />
-            </div>
+          <section aria-labelledby={`${id}-insights`} className="@3xl:col-span-2">
+            <SectionTitle id={`${id}-insights`}>Session insights</SectionTitle>
+            <SessionInsights instrumentKey={key} tradable={instrument.segment !== "INDEX"} />
           </section>
         </div>
       </div>

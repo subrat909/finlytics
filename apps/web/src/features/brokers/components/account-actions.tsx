@@ -26,7 +26,7 @@ import { FormField } from "./form-field";
 
 /** A menu surface: surface-1 with the 1px border token, no shadow. */
 export const menuContentClasses =
-  "z-50 min-w-48 rounded-md border border-border bg-surface-1 p-1 text-fg motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0";
+  "z-50 min-w-48 rounded-sm border border-border bg-surface-1 p-1 text-fg motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0";
 
 /** A menu row: borderless, tinted when highlighted, the solid focus outline for keyboard users. */
 export const menuItemClasses = cn(

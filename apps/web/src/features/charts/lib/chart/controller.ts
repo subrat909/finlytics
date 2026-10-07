@@ -16,6 +16,7 @@ import {
   LineStyle,
   PriceScaleMode,
   createChart,
+  createTextWatermark,
 } from "lightweight-charts";
 import type {
   ChartOptions,
@@ -23,9 +24,11 @@ import type {
   IChartApi,
   IPriceLine,
   ISeriesApi,
+  ITextWatermarkPluginApi,
   Logical,
   LogicalRange,
   MouseEventParams,
+  Time,
   PriceFormat,
   SeriesType,
   UTCTimestamp,
@@ -87,7 +90,16 @@ export interface ControllerState {
   minMove: number;
   interval: ChartInterval;
   session: Session;
+  /** The watermark's text (the symbol). */
+  symbol?: string | undefined;
 }
+
+/** Line styles for the settings' dash names. */
+export const DASH_STYLES = Object.freeze({
+  solid: LineStyle.Solid,
+  dashed: LineStyle.Dashed,
+  dotted: LineStyle.Dotted,
+} as const);
 
 export type DataMode = "reset" | "keep";
 
@@ -115,7 +127,7 @@ function chartOptions(state: ControllerState, tool: DrawingTool): DeepPartial<Ch
   const crosshairLine = {
     color: colors.crosshair,
     labelBackgroundColor: colors.crosshairLabel,
-    style: LineStyle.Dashed,
+    style: DASH_STYLES[settings.crosshairStyle],
     width: 1 as const,
   };
   return {
@@ -132,7 +144,8 @@ function chartOptions(state: ControllerState, tool: DrawingTool): DeepPartial<Ch
       vertLines: { visible: settings.gridVertical, color: colors.grid },
       horzLines: { visible: settings.gridHorizontal, color: colors.grid },
     },
-    rightPriceScale: { borderColor: colors.border },
+    rightPriceScale: { borderColor: colors.border, visible: settings.priceScale === "right" },
+    leftPriceScale: { borderColor: colors.border, visible: settings.priceScale === "left" },
     timeScale: {
       borderColor: colors.border,
       timeVisible: INTERVALS[interval].intraday,
@@ -291,6 +304,7 @@ export class ChartController {
       this.resizeObserver.observe(container);
     }
     this.scheduleLayout();
+    this.applyWatermark();
   }
 
   // -------------------------------------------------------------------------------------------------------------------
@@ -411,8 +425,10 @@ export class ChartController {
       priceLineVisible: settings.priceLine,
       lastValueVisible: true,
       priceFormat: priceFormat(this.state, "main"),
+      priceScaleId: settings.priceScale,
     };
-    const { up, down } = colors;
+    const up = colors.palette[settings.upColor] || colors.up;
+    const down = colors.palette[settings.downColor] || colors.down;
     const primary = colors.palette.primary;
     let series: ISeriesApi<SeriesType>;
     switch (type) {
@@ -472,7 +488,17 @@ export class ChartController {
       case "heikin-ashi":
         series = this.chart.addSeries(
           CandlestickSeries,
-          { ...common, upColor: up, downColor: down, borderVisible: false, wickUpColor: up, wickDownColor: down },
+          {
+            ...common,
+            upColor: up,
+            downColor: down,
+            borderVisible: settings.candleBorders,
+            borderUpColor: up,
+            borderDownColor: down,
+            wickVisible: settings.candleWicks,
+            wickUpColor: up,
+            wickDownColor: down,
+          },
           0,
         );
         break;
@@ -506,18 +532,55 @@ export class ChartController {
   }
 
   private applyScale(): void {
-    this.chart.priceScale("right").applyOptions({
+    this.chart.priceScale(this.state.settings.priceScale).applyOptions({
       mode: SCALE_MODES[this.state.scaleMode],
       autoScale: this.state.autoScale,
     });
   }
 
   setSettings(settings: ChartSettings): void {
-    const priceLineChanged = settings.priceLine !== this.state.settings.priceLine;
+    const previous = this.state.settings;
     this.state = { ...this.state, settings };
     this.chart.applyOptions(chartOptions(this.state, this.tool));
-    if (priceLineChanged) this.main.applyOptions({ priceLineVisible: settings.priceLine });
+    const restyle =
+      settings.upColor !== previous.upColor ||
+      settings.downColor !== previous.downColor ||
+      settings.candleBorders !== previous.candleBorders ||
+      settings.candleWicks !== previous.candleWicks ||
+      settings.priceScale !== previous.priceScale;
+    if (restyle) this.rebuildMain();
+    else if (settings.priceLine !== previous.priceLine)
+      this.main.applyOptions({ priceLineVisible: settings.priceLine });
+    if (restyle || settings.indicatorLabels !== previous.indicatorLabels) {
+      this.buildIndicators(this.instances);
+      this.emitLegend();
+    }
     this.primitive.update({ sessionBreaks: settings.sessionBreaks });
+    this.applyWatermark();
+  }
+
+  private watermark: ITextWatermarkPluginApi<Time> | undefined;
+
+  /** The faint symbol behind the bars (settings → Canvas → Watermark). */
+  private applyWatermark(): void {
+    const text = this.state.symbol;
+    const wanted = this.state.settings.watermark && text !== undefined && text !== "";
+    if (!wanted) {
+      this.watermark?.detach();
+      this.watermark = undefined;
+      return;
+    }
+    const options = {
+      horzAlign: "center" as const,
+      vertAlign: "center" as const,
+      lines: [{ text, color: withAlpha(this.state.colors.text, 0.08), fontSize: 64, fontStyle: "600" }],
+    };
+    if (this.watermark === undefined) {
+      const pane = this.chart.panes()[0];
+      if (pane !== undefined) this.watermark = createTextWatermark(pane, options);
+    } else {
+      this.watermark.applyOptions(options);
+    }
   }
 
   /** New token colours (theme switch): the chart, the series, the indicators and the drawings. */
@@ -527,6 +590,7 @@ export class ChartController {
     this.rebuildMain();
     this.buildIndicators(this.instances);
     this.primitive.update({ colors, fontFamily });
+    this.applyWatermark();
     this.emitLegend();
   }
 
@@ -555,7 +619,9 @@ export class ChartController {
         const instance = instances.find((candidate) => candidate.id === runtime.instance.id);
         if (instance === undefined) continue;
         runtime.instance = instance;
-        for (const series of runtime.series.values()) series.applyOptions({ visible: !instance.hidden });
+        for (const [key, series] of runtime.series) {
+          series.applyOptions({ visible: !instance.hidden && instance.styles[key]?.visible !== false });
+        }
       }
       return;
     }
@@ -595,11 +661,11 @@ export class ChartController {
         const style = instance.styles[plot.key] ?? { color: plot.color, width: plot.width ?? 1 };
         const color = colors.palette[style.color];
         const base = {
-          visible: !instance.hidden,
+          visible: !instance.hidden && style.visible !== false,
           priceLineVisible: false,
-          lastValueVisible: placement !== "volume",
+          lastValueVisible: placement !== "volume" && this.state.settings.indicatorLabels,
           priceFormat: priceFormat(this.state, definition.format),
-          ...(placement === "volume" ? { priceScaleId: "volume" } : {}),
+          priceScaleId: placement === "volume" ? "volume" : this.state.settings.priceScale,
         };
         const series =
           plot.style === "histogram"
@@ -610,6 +676,7 @@ export class ChartController {
                   ...base,
                   color,
                   lineWidth: style.width,
+                  lineStyle: DASH_STYLES[style.dash ?? "solid"],
                   lineVisible: plot.style === "line",
                   pointMarkersVisible: plot.style === "dots",
                   pointMarkersRadius: 1.5,

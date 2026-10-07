@@ -23,7 +23,7 @@ const USER = { id: "u1", name: "Asha Rao", email: "asha@example.com", image: nul
 
 function renderShell(initialCollapsed = false) {
   return renderWithProviders(
-    <AppShell user={USER} initialCollapsed={initialCollapsed} version="0.0.1">
+    <AppShell user={USER} initialCollapsed={initialCollapsed}>
       <p>Page content</p>
     </AppShell>,
   );
@@ -37,7 +37,11 @@ function pastTooltipDelay(): Promise<void> {
 }
 
 beforeEach(() => {
-  mockApi([{ path: "/v1/market/overview", respond: () => Response.json(marketOverview()) }]);
+  mockApi([
+    { path: "/v1/market/overview", respond: () => Response.json(marketOverview()) },
+    { path: "/v1/notifications", respond: () => Response.json({ items: [], unread: 0 }) },
+    { path: "/v1/brokers", respond: () => Response.json([]) },
+  ]);
 });
 
 afterEach(() => {
@@ -201,11 +205,11 @@ describe("AppShell", () => {
 
     expect(footer.previousElementSibling).toBe(screen.getByRole("main"));
     expect(screen.getByRole("main")).toHaveClass("overflow-y-auto", "flex-1", "min-h-0");
-    expect(footer.parentElement).toHaveClass("h-dvh", "flex-col");
-    expect(footer).toHaveTextContent("v0.0.1");
+    // A fixed, viewport-sized column: the document never scrolls, so navbar, sidebar and footer never move.
+    expect(footer.parentElement).toHaveClass("fixed", "inset-0", "flex-col", "overflow-hidden");
   });
 
-  it("puts the sidebar toggle, the centred search and the index ticker in the top bar, and no theme switch", () => {
+  it("puts the sidebar toggle, the search, the market status and the bell in the top bar, no ticker or theme switch", async () => {
     renderShell();
     const topbar = screen.getByRole("banner");
 
@@ -218,7 +222,9 @@ describe("AppShell", () => {
     // space at the start of the inner span; browsers keep it, and the e2e checks the real name.
     expect(search).toHaveAccessibleName(/^Search\s?sections and actions/);
     expect(topbar).toHaveClass("bg-surface-1", "border-b", "border-border", "h-14", "shrink-0");
-    expect(within(topbar).getByRole("list", { name: "Market indices" })).toHaveClass("hidden", "xl:flex");
+    expect(within(topbar).queryByRole("list", { name: "Market indices" })).not.toBeInTheDocument();
+    expect(topbar.querySelector('[data-slot="market-status"]')).toBeInTheDocument();
+    expect(await within(topbar).findByRole("button", { name: "Notifications" })).toBeInTheDocument();
     expect(screen.queryByRole("radiogroup", { name: "Theme" })).not.toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "Sidebar" })).toHaveClass("border-r", "border-border");
   });

@@ -182,7 +182,7 @@ export function SymbolSearch({
           }}
           onKeyDown={onKeyDown}
           className={cn(
-            "h-10 w-full min-w-0 rounded-md border border-border-strong bg-surface-2 pr-9 pl-9 text-sm text-fg uppercase",
+            "h-10 w-full min-w-0 rounded-sm border border-border-strong bg-surface-2 pr-9 pl-9 text-sm text-fg uppercase",
             "transition-[background-color] placeholder:text-fg-muted placeholder:normal-case hover:bg-surface-3",
             focusRing,
           )}
@@ -207,7 +207,7 @@ export function SymbolSearch({
                   setActive(0);
                 }}
                 className={cn(
-                  "h-7 cursor-pointer rounded-md bg-surface-2 px-2.5 text-xs font-medium text-fg-muted transition-[color,background-color]",
+                  "h-7 cursor-pointer rounded-sm bg-surface-2 px-2.5 text-xs font-medium text-fg-muted transition-[color,background-color]",
                   "hover:bg-surface-3 hover:text-fg aria-pressed:bg-primary aria-pressed:text-primary-fg",
                   focusRing,
                 )}
@@ -225,7 +225,7 @@ export function SymbolSearch({
             aria-label={`${label}: results`}
             className={cn(
               "mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain",
-              variant === "inline" && "max-h-72 rounded-md border border-border bg-surface-1 p-1",
+              variant === "inline" && "max-h-72 rounded-sm border border-border bg-surface-1 p-1",
               variant === "inline" && results.length === 0 && "hidden",
             )}
           >
@@ -246,7 +246,7 @@ export function SymbolSearch({
                   if (index !== activeIndex) setActive(index);
                 }}
                 className={cn(
-                  "flex h-11 cursor-pointer items-center gap-3 rounded-md px-3 text-sm",
+                  "flex h-11 cursor-pointer items-center gap-3 rounded-sm px-3 text-sm",
                   index === activeIndex && "bg-surface-2",
                 )}
               >

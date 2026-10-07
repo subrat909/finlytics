@@ -9,7 +9,7 @@ import { cn } from "@finlytics/ui/lib/utils";
 import type { Watchlist } from "../schemas";
 
 const tabClasses = cn(
-  "inline-flex h-7 min-w-7 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium text-fg-muted tabular",
+  "inline-flex h-7 min-w-7 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-sm px-2 text-xs font-medium text-fg-muted tabular",
   "transition-[color,background-color] hover:bg-surface-2 hover:text-fg data-[state=active]:bg-surface-2 data-[state=active]:text-fg",
   "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid",
 );
@@ -42,7 +42,7 @@ export function WatchlistMenu({ active, onCreate, onRename, onDelete }: Watchlis
           align="end"
           sideOffset={4}
           data-slot="watchlist-menu"
-          className="z-40 min-w-48 rounded-md border border-border bg-surface-1 p-1 text-fg motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0"
+          className="z-40 min-w-48 rounded-sm border border-border bg-surface-1 p-1 text-fg motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0"
         >
           <DropdownMenu.Item className={menuItemClasses} onSelect={onCreate}>
             <Plus aria-hidden="true" />

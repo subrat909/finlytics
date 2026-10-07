@@ -5,6 +5,7 @@ import type * as React from "react";
 
 import { cn } from "@finlytics/ui/lib/utils";
 
+import { useUserEvents } from "@/features/realtime/hooks/use-user-events";
 import { useIsClient } from "@/hooks/use-is-client";
 import { useUiStore, writeSidebarCookie } from "@/stores/ui.store";
 
@@ -28,8 +29,6 @@ export interface AppShellProps {
    * so it can come and go without re-mounting the page. Nothing renders for null or undefined.
    */
   banner?: React.ReactNode;
-  /** The app's version, for the status bar. */
-  version?: string | undefined;
   children: React.ReactNode;
 }
 
@@ -41,13 +40,14 @@ export interface AppShellProps {
  * `<main>` has no padding: pages bring their own (`PageContainer`) or fill it (`TerminalPage`), full width, reflowing as
  * the sidebar's margin transitions.
  */
-export function AppShell({ user, initialCollapsed, banner, version, children }: AppShellProps) {
+export function AppShell({ user, initialCollapsed, banner, children }: AppShellProps) {
   const isClient = useIsClient();
   const storedCollapsed = useUiStore((state) => state.sidebarCollapsed);
   // The server and the hydration render use the cookie's value; after hydration, the persisted store decides.
   const collapsed = isClient ? storedCollapsed : initialCollapsed;
 
   useShellShortcuts();
+  useUserEvents();
 
   // Keep the SSR hint cookie in step with the persisted preference.
   useEffect(() => {
@@ -61,16 +61,17 @@ export function AppShell({ user, initialCollapsed, banner, version, children }: 
     <TooltipProvider>
       <a
         href={`#${MAIN_CONTENT_ID}`}
-        className="sr-only z-50 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-fg focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
+        className="sr-only z-50 rounded-sm bg-primary px-4 py-2 text-sm font-medium text-primary-fg focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
       >
         Skip to content
       </a>
       <Sidebar collapsed={collapsed} />
-      {/* One viewport-high column: the navbar and the footer never move; only <main> scrolls (plan phase-1b). */}
+      {/* A fixed, viewport-sized column: the document never scrolls, so the navbar, sidebar and footer never move;
+          only <main> scrolls. The sidebar's width moves it with a margin transition (never left/right). */}
       <div
         data-slot="app-content"
         className={cn(
-          "flex h-dvh min-w-0 flex-col transition-[margin] duration-200 ease-out motion-reduce:transition-none",
+          "fixed inset-0 flex min-w-0 flex-col overflow-hidden transition-[margin] duration-200 ease-out motion-reduce:transition-none",
           collapsed ? "lg:ml-16" : "lg:ml-64",
         )}
       >
@@ -83,11 +84,11 @@ export function AppShell({ user, initialCollapsed, banner, version, children }: 
         <main
           id={MAIN_CONTENT_ID}
           tabIndex={-1}
-          className="min-h-0 w-full min-w-0 flex-1 overflow-y-auto focus:outline-none"
+          className="min-h-0 w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain focus:outline-none"
         >
           {children}
         </main>
-        <StatusBar version={version} />
+        <StatusBar />
       </div>
       <CommandPalette />
       <ShellAnnouncer />

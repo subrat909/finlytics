@@ -23,7 +23,7 @@ export const focusRing =
 
 /** A borderless, shadowless toolbar button: a hover tint, the 2px focus ring, primary text when active. */
 export const toolButtonClasses = cn(
-  "inline-flex h-8 min-w-8 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-md px-1.5 text-sm",
+  "inline-flex h-8 min-w-8 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-sm px-1.5 text-sm",
   "text-fg-muted transition-[color,background-color] select-none hover:bg-surface-2 hover:text-fg",
   "disabled:pointer-events-none disabled:opacity-40 aria-disabled:pointer-events-none aria-disabled:opacity-40",
   "aria-pressed:bg-primary/12 aria-pressed:text-primary aria-checked:text-primary",
@@ -36,20 +36,20 @@ export const overlayClasses =
 
 export const dialogClasses = cn(
   "fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2",
-  "flex-col overflow-hidden rounded-md border border-border bg-surface-1 text-fg",
+  "flex-col overflow-hidden rounded-sm border border-border bg-surface-1 text-fg",
   "motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0 motion-safe:data-[state=open]:zoom-in-95",
 );
 
 export const dialogHeaderClasses = "flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-4";
 
 export const closeButtonClasses = cn(
-  "inline-flex size-8 cursor-pointer items-center justify-center rounded-md text-fg-muted",
+  "inline-flex size-8 cursor-pointer items-center justify-center rounded-sm text-fg-muted",
   "transition-[color,background-color] hover:bg-surface-2 hover:text-fg",
   focusRing,
 );
 
 export const menuContentClasses = cn(
-  "z-50 min-w-48 rounded-md border border-border bg-surface-1 p-1 text-sm text-fg",
+  "z-50 min-w-48 rounded-sm border border-border bg-surface-1 p-1 text-sm text-fg",
   "motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0",
 );
 
@@ -103,7 +103,7 @@ export function Hint({ label, shortcut, side = "bottom", children }: HintProps) 
         <Tooltip.Content
           side={side}
           sideOffset={6}
-          className="z-50 flex items-center gap-2 rounded-md bg-fg px-2 py-1 text-xs font-medium text-bg motion-safe:animate-in motion-safe:fade-in-0"
+          className="z-50 flex items-center gap-2 rounded-sm bg-fg px-2 py-1 text-xs font-medium text-bg motion-safe:animate-in motion-safe:fade-in-0"
         >
           {label}
           {shortcut ? <span className="font-mono text-[10px] opacity-80">{shortcut}</span> : null}

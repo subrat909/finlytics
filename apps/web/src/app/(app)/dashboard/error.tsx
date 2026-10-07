@@ -8,7 +8,7 @@ import { PageContainer } from "@/components/page";
 export default function DashboardError({ error, retry }: { error: Error & { digest?: string }; retry: () => void }) {
   return (
     <PageContainer>
-      <div className="rounded-md border border-border bg-surface-1">
+      <div className="rounded-sm border border-border bg-surface-1">
         <ErrorState title="The dashboard didn't load" reference={error.digest} onRetry={retry} />
       </div>
     </PageContainer>

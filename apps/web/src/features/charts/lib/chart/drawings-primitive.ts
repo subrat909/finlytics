@@ -13,9 +13,19 @@ import type {
   SeriesAttachedParameter,
 } from "lightweight-charts";
 
-import { fibLevels, hitTest, rangeStats, rayEnd, rectOf } from "../drawings/geometry";
+import {
+  channelOffset,
+  extendedSegment,
+  fibLevels,
+  hitTest,
+  labelBox,
+  rangeStats,
+  rayEnd,
+  rectOf,
+} from "../drawings/geometry";
 import type { PaneSize, ScreenPoint } from "../drawings/geometry";
-import type { AnchorPoint, Drawing } from "../drawings/types";
+import { dashPattern, styleOf } from "../drawings/types";
+import type { AnchorPoint, Drawing, DrawingStyle } from "../drawings/types";
 import { formatNumber, formatPercent } from "../format";
 import type { ChartColors } from "../theme-colors";
 import { withAlpha } from "../theme-colors";
@@ -177,13 +187,18 @@ export class DrawingsPrimitive implements ISeriesPrimitive {
     for (const drawing of draft === null ? visible : [...visible, draft]) {
       const color = colors.palette[drawing.color];
       const selected = drawing.id === selectedId || drawing === draft;
-      const always = drawing.kind === "hline" || drawing.kind === "hray";
+      const style = styleOf(drawing);
+      const always =
+        style.labels && (drawing.kind === "hline" || drawing.kind === "hray" || drawing.kind === "crossline");
       for (const point of drawing.points) {
         if (always || (selected && drawing.kind !== "vline")) {
           const y = this.projection.priceToY(point.price);
           if (y !== null) prices.push(new AxisLabel(y, formatNumber(point.price, precision), color, colors.background));
         }
-        if (drawing.kind === "vline" || (selected && drawing.kind !== "hline")) {
+        if (
+          (style.labels && (drawing.kind === "vline" || drawing.kind === "crossline")) ||
+          (selected && drawing.kind !== "hline")
+        ) {
           const x = this.projection.timeToX(point.time);
           if (x !== null) times.push(new AxisLabel(x, formatBarTime(point.time, intraday), color, colors.background));
         }
@@ -245,14 +260,16 @@ export class DrawingsPrimitive implements ISeriesPrimitive {
     hovered: boolean,
   ): void {
     const { colors, precision, fontFamily } = this.scene;
+    const style = styleOf(drawing);
     const color = colors.palette[drawing.color] || colors.textStrong;
     const points = drawing.points.map((point) => toScreen(this.projection, point));
-    const [a, b] = points;
+    const [a, b, c] = points;
     ctx.save();
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
-    ctx.lineWidth = selected || hovered ? 2 : 1.5;
-    ctx.font = `500 12px ${fontFamily}`;
+    ctx.lineWidth = style.width + (selected || hovered ? 0.5 : 0);
+    ctx.setLineDash(dashPattern(style.dash, style.width));
+    ctx.font = `500 ${String(style.fontSize)}px ${fontFamily}`;
 
     const line = (from: ScreenPoint, to: ScreenPoint) => {
       ctx.beginPath();
@@ -260,13 +277,30 @@ export class DrawingsPrimitive implements ISeriesPrimitive {
       ctx.lineTo(to.x, to.y);
       ctx.stroke();
     };
+    const area = (path: () => void) => {
+      if (!style.fill) return;
+      ctx.save();
+      ctx.fillStyle = withAlpha(color, style.fillOpacity);
+      ctx.beginPath();
+      path();
+      ctx.fill();
+      ctx.restore();
+    };
 
     switch (drawing.kind) {
       case "trend":
-        if (a && b) line(a, b);
+      case "arrow":
+        if (a && b) {
+          const [from, to] = extendedSegment(a, b, size, style.extendLeft, style.extendRight);
+          line(from, to);
+          if (drawing.kind === "arrow") this.arrowHead(ctx, a, b, style);
+        }
         break;
       case "ray":
         if (a && b) line(a, rayEnd(a, b, size));
+        break;
+      case "extended":
+        if (a && b) line(rayEnd(b, a, size), rayEnd(a, b, size));
         break;
       case "hline": {
         const y = this.projection.priceToY(drawing.points[0]?.price ?? Number.NaN);
@@ -279,36 +313,116 @@ export class DrawingsPrimitive implements ISeriesPrimitive {
       case "vline":
         if (a) line({ x: a.x, y: 0 }, { x: a.x, y: size.height });
         break;
+      case "crossline":
+        if (a) {
+          line({ x: 0, y: a.y }, { x: size.width, y: a.y });
+          line({ x: a.x, y: 0 }, { x: a.x, y: size.height });
+        }
+        break;
+      case "channel":
+        if (a && b) {
+          if (c) {
+            const [a2, b2] = channelOffset(a, b, c);
+            area(() => {
+              ctx.moveTo(a.x, a.y);
+              ctx.lineTo(b.x, b.y);
+              ctx.lineTo(b2.x, b2.y);
+              ctx.lineTo(a2.x, a2.y);
+              ctx.closePath();
+            });
+            line(a2, b2);
+            ctx.save();
+            ctx.setLineDash([4, 4]);
+            ctx.lineWidth = 1;
+            line({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, { x: (a2.x + b2.x) / 2, y: (a2.y + b2.y) / 2 });
+            ctx.restore();
+          }
+          line(a, b);
+        }
+        break;
       case "rect":
         if (a && b) {
           const rect = rectOf(a, b);
-          ctx.fillStyle = withAlpha(color, 0.12);
-          ctx.fillRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top);
+          area(() => {
+            ctx.rect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top);
+          });
           ctx.strokeRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top);
         }
         break;
+      case "ellipse":
+        if (a && b) {
+          const rect = rectOf(a, b);
+          const rx = Math.max(1, (rect.right - rect.left) / 2);
+          const ry = Math.max(1, (rect.bottom - rect.top) / 2);
+          const shape = () => {
+            ctx.ellipse(rect.left + rx, rect.top + ry, rx, ry, 0, 0, Math.PI * 2);
+          };
+          area(shape);
+          ctx.beginPath();
+          shape();
+          ctx.stroke();
+        }
+        break;
+      case "triangle":
+        if (a && b) {
+          const third = c ?? b;
+          const shape = () => {
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.lineTo(third.x, third.y);
+            ctx.closePath();
+          };
+          area(shape);
+          ctx.beginPath();
+          shape();
+          ctx.stroke();
+        }
+        break;
       case "fib":
-        if (a && b) this.paintFib(ctx, drawing, a, b, color, precision);
+        if (a && b) this.paintFib(ctx, drawing, a, b, color, precision, style);
         break;
       case "measure":
-        if (a && b) this.paintMeasure(ctx, drawing, a, b, precision);
+      case "daterange":
+      case "datepricerange":
+        if (a && b) this.paintMeasure(ctx, drawing, a, b, precision, style);
         break;
       case "text":
         if (a) {
           const text = drawing.text?.trim() || "Text";
-          ctx.font = `500 13px ${fontFamily}`;
           const width = ctx.measureText(text).width + 12;
+          const height = style.fontSize + 9;
+          ctx.setLineDash([]);
           ctx.fillStyle = withAlpha(colors.background, 0.85);
-          ctx.fillRect(a.x, a.y - 11, width, 22);
-          if (selected || hovered) ctx.strokeRect(a.x, a.y - 11, width, 22);
+          ctx.fillRect(a.x, a.y - height / 2, width, height);
+          if (selected || hovered) ctx.strokeRect(a.x, a.y - height / 2, width, height);
           ctx.fillStyle = color;
           ctx.textBaseline = "middle";
           ctx.fillText(text, a.x + 6, a.y);
         }
         break;
+      case "pricelabel":
+        if (a) {
+          const price = drawing.points[0]?.price ?? 0;
+          const text = drawing.text?.trim() || formatNumber(price, precision);
+          const box = labelBox(a, text, style.fontSize);
+          ctx.setLineDash([]);
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(box.left + 6, box.bottom);
+          ctx.lineTo(box.left + 16, box.bottom);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillRect(box.left, box.top, box.right - box.left, box.bottom - box.top);
+          ctx.fillStyle = colors.background;
+          ctx.textBaseline = "middle";
+          ctx.fillText(text, box.left + 8, (box.top + box.bottom) / 2);
+        }
+        break;
     }
 
     if (selected) {
+      ctx.setLineDash([]);
       ctx.lineWidth = 1.5;
       ctx.strokeStyle = color;
       ctx.fillStyle = colors.background;
@@ -328,6 +442,20 @@ export class DrawingsPrimitive implements ISeriesPrimitive {
     ctx.restore();
   }
 
+  private arrowHead(ctx: CanvasRenderingContext2D, from: ScreenPoint, to: ScreenPoint, style: DrawingStyle): void {
+    const angle = Math.atan2(to.y - from.y, to.x - from.x);
+    const size = 8 + style.width * 2;
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(to.x, to.y);
+    ctx.lineTo(to.x - size * Math.cos(angle - Math.PI / 7), to.y - size * Math.sin(angle - Math.PI / 7));
+    ctx.lineTo(to.x - size * Math.cos(angle + Math.PI / 7), to.y - size * Math.sin(angle + Math.PI / 7));
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
   private paintFib(
     ctx: CanvasRenderingContext2D,
     drawing: Drawing,
@@ -335,19 +463,20 @@ export class DrawingsPrimitive implements ISeriesPrimitive {
     b: ScreenPoint,
     color: string,
     precision: number,
+    style: DrawingStyle,
   ): void {
     const [from, to] = drawing.points;
     if (from === undefined || to === undefined) return;
     const left = Math.min(a.x, b.x);
     const right = Math.max(a.x, b.x);
     let previous: number | null = null;
-    ctx.lineWidth = 1;
+    ctx.lineWidth = style.width;
     ctx.textBaseline = "bottom";
     for (const [index, level] of fibLevels(from, to).entries()) {
       const y = this.projection.priceToY(level.price);
       if (y === null) continue;
-      if (previous !== null && index % 2 === 1) {
-        ctx.fillStyle = withAlpha(color, 0.08);
+      if (style.fill && previous !== null && index % 2 === 1) {
+        ctx.fillStyle = withAlpha(color, style.fillOpacity * 0.7);
         ctx.fillRect(left, Math.min(previous, y), right - left, Math.abs(y - previous));
       }
       ctx.strokeStyle = color;
@@ -356,7 +485,8 @@ export class DrawingsPrimitive implements ISeriesPrimitive {
       ctx.lineTo(right, y);
       ctx.stroke();
       ctx.fillStyle = color;
-      ctx.fillText(`${String(level.level)} (${formatNumber(level.price, precision)})`, left + 4, y - 2);
+      if (style.labels)
+        ctx.fillText(`${String(level.level)} (${formatNumber(level.price, precision)})`, left + 4, y - 2);
       previous = y;
     }
     ctx.setLineDash([4, 4]);
@@ -373,43 +503,56 @@ export class DrawingsPrimitive implements ISeriesPrimitive {
     a: ScreenPoint,
     b: ScreenPoint,
     precision: number,
+    style: DrawingStyle,
   ): void {
     const [from, to] = drawing.points;
     if (from === undefined || to === undefined) return;
     const { colors } = this.scene;
     const stats = rangeStats(from, to, this.projection.barsBetween(from.time, to.time));
-    const tone = stats.change >= 0 ? colors.up : colors.down;
+    const priced = drawing.kind !== "daterange";
+    const dated = drawing.kind !== "measure";
+    const tone =
+      drawing.kind === "daterange" ? colors.palette[drawing.color] : stats.change >= 0 ? colors.up : colors.down;
     const rect = rectOf(a, b);
-    ctx.fillStyle = withAlpha(tone, 0.14);
+    ctx.setLineDash([]);
+    ctx.fillStyle = withAlpha(tone, style.fill ? Math.max(0.06, style.fillOpacity) : 0.06);
     ctx.fillRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top);
-    const middle = (rect.left + rect.right) / 2;
     ctx.strokeStyle = tone;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(middle, a.y);
-    ctx.lineTo(middle, b.y);
-    ctx.stroke();
-    const head = b.y < a.y ? 6 : -6;
-    ctx.beginPath();
-    ctx.moveTo(middle - 5, b.y + head);
-    ctx.lineTo(middle, b.y);
-    ctx.lineTo(middle + 5, b.y + head);
-    ctx.stroke();
+    ctx.lineWidth = style.width;
+    const middleX = (rect.left + rect.right) / 2;
+    const middleY = (rect.top + rect.bottom) / 2;
+    const arrow = (from: ScreenPoint, to: ScreenPoint) => {
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+      const angle = Math.atan2(to.y - from.y, to.x - from.x);
+      ctx.beginPath();
+      ctx.moveTo(to.x - 7 * Math.cos(angle - Math.PI / 6), to.y - 7 * Math.sin(angle - Math.PI / 6));
+      ctx.lineTo(to.x, to.y);
+      ctx.lineTo(to.x - 7 * Math.cos(angle + Math.PI / 6), to.y - 7 * Math.sin(angle + Math.PI / 6));
+      ctx.stroke();
+    };
+    if (priced) arrow({ x: middleX, y: a.y }, { x: middleX, y: b.y });
+    if (dated) arrow({ x: a.x, y: middleY }, { x: b.x, y: middleY });
+    if (!style.labels) return;
 
-    const lines = [
-      `${formatNumber(stats.change, precision, "always")} (${formatPercent(stats.percent)})`,
-      `${String(Math.round(stats.bars))} bars, ${formatDuration(stats.seconds)}`,
-    ];
-    ctx.font = `600 12px ${this.scene.fontFamily}`;
+    const lines: string[] = [];
+    if (priced) lines.push(`${formatNumber(stats.change, precision, "always")} (${formatPercent(stats.percent)})`);
+    lines.push(`${String(Math.round(stats.bars))} bars, ${formatDuration(stats.seconds)}`);
+    ctx.font = `600 ${String(style.fontSize)}px ${this.scene.fontFamily}`;
     const width = Math.max(...lines.map((text) => ctx.measureText(text).width)) + 16;
-    const height = 38;
-    const top = stats.change >= 0 ? rect.top - height - 6 : rect.bottom + 6;
+    const lineHeight = style.fontSize + 4;
+    const height = lines.length * lineHeight + 10;
+    const above = !priced || stats.change >= 0;
+    const top = above ? rect.top - height - 6 : rect.bottom + 6;
     ctx.fillStyle = tone;
-    ctx.fillRect(middle - width / 2, top, width, height);
+    ctx.fillRect(middleX - width / 2, top, width, height);
     ctx.fillStyle = colors.background;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(lines[0] ?? "", middle, top + 11);
-    ctx.fillText(lines[1] ?? "", middle, top + 27);
+    for (const [index, text] of lines.entries()) {
+      ctx.fillText(text, middleX, top + 5 + lineHeight * index + lineHeight / 2);
+    }
   }
 }

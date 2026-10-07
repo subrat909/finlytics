@@ -22,7 +22,7 @@ import { useUiStore } from "@/stores/ui.store";
 import { NAV_GROUPS, isComingSoon } from "./nav-items";
 
 const itemClasses = cn(
-  "flex h-9 cursor-pointer items-center gap-3 rounded-md px-3 text-sm text-fg select-none",
+  "flex h-9 cursor-pointer items-center gap-3 rounded-sm px-3 text-sm text-fg select-none",
   "data-[selected=true]:bg-surface-2 data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50",
   "[&_svg]:size-4 [&_svg]:shrink-0",
 );
@@ -106,13 +106,13 @@ export function CommandPalette() {
         <Dialog.Content
           data-slot="command-palette"
           aria-describedby={undefined}
-          className="fixed top-[12vh] left-1/2 z-50 w-[calc(100vw-2rem)] max-w-xl -translate-x-1/2 overflow-hidden rounded-md border border-border bg-surface-1 motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0 motion-safe:data-[state=open]:zoom-in-95"
+          className="fixed top-[12vh] left-1/2 z-50 w-[calc(100vw-2rem)] max-w-xl -translate-x-1/2 overflow-hidden rounded-sm border border-border bg-surface-1 motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0 motion-safe:data-[state=open]:zoom-in-95"
         >
           <Dialog.Title className="sr-only">Command palette</Dialog.Title>
           <Command label="Command palette" loop filter={paletteFilter}>
             {/* A filled field with the input edge (border-strong); the focus outline is drawn around the field, so the
                 input inside draws none. */}
-            <div className="m-2 flex items-center gap-2 rounded-md border border-border-strong bg-surface-2 px-3 has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-ring has-[input:focus-visible]:outline-solid">
+            <div className="m-2 flex items-center gap-2 rounded-sm border border-border-strong bg-surface-2 px-3 has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-ring has-[input:focus-visible]:outline-solid">
               <Search aria-hidden="true" className="size-4 shrink-0 text-fg-muted" />
               <Command.Input
                 placeholder="Search sections and actions…"

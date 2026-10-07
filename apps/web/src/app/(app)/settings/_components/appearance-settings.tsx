@@ -162,7 +162,7 @@ function AppearancePanel({ children }: { children: React.ReactNode }) {
       id="appearance"
       aria-labelledby="appearance-heading"
       data-slot="appearance-card"
-      className="scroll-mt-4 rounded-md border border-border bg-surface-1"
+      className="scroll-mt-4 rounded-sm border border-border bg-surface-1"
     >
       <div className="flex min-h-10 flex-wrap items-center justify-between gap-x-3 border-b border-border px-4 py-2">
         <h2 id="appearance-heading" className="flex items-center gap-2 text-sm font-semibold text-fg">

@@ -89,7 +89,7 @@ export function IndicatorsDialog() {
                   setQuery(event.target.value);
                 }}
                 className={cn(
-                  "h-10 w-full rounded-md border border-border-strong bg-surface-2 pr-3 pl-9 text-sm text-fg",
+                  "h-10 w-full rounded-sm border border-border-strong bg-surface-2 pr-3 pl-9 text-sm text-fg",
                   "transition-[background-color] placeholder:text-fg-muted hover:bg-surface-3",
                   focusRing,
                 )}
@@ -116,7 +116,7 @@ export function IndicatorsDialog() {
                     const params = describeInputs(instance);
                     const name = `${definition.short}${params === "" ? "" : ` ${params}`}`;
                     return (
-                      <li key={instance.id} className="flex h-10 items-center gap-2 rounded-md px-2 hover:bg-surface-2">
+                      <li key={instance.id} className="flex h-10 items-center gap-2 rounded-sm px-2 hover:bg-surface-2">
                         <span className={cn("min-w-0 flex-1 truncate text-sm", instance.hidden && "text-fg-muted")}>
                           {name}
                         </span>
@@ -186,12 +186,12 @@ export function IndicatorsDialog() {
                               if (added !== undefined) setAnnouncement(`Added ${definition.name}.`);
                             }}
                             className={cn(
-                              "flex w-full cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-left transition-[background-color]",
+                              "flex w-full cursor-pointer items-center gap-3 rounded-sm px-2 py-2 text-left transition-[background-color]",
                               "hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50",
                               focusRing,
                             )}
                           >
-                            <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-surface-2 text-primary">
+                            <span className="flex size-8 shrink-0 items-center justify-center rounded-sm bg-surface-2 text-primary">
                               <Plus aria-hidden="true" className="size-4" />
                             </span>
                             <span className="min-w-0 flex-1">

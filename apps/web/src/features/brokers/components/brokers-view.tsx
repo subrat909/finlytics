@@ -82,7 +82,7 @@ function useCallbackToast(
 
 /** "1 of 2 broker accounts" with a bar; amber at the limit. Nothing while unknown. */
 function PlanUsage({ limits, pending }: { limits: BrokerLimits | undefined; pending: boolean }) {
-  if (pending) return <Skeleton className="h-8 w-44 rounded-md" />;
+  if (pending) return <Skeleton className="h-8 w-44 rounded-sm" />;
   if (limits === undefined) return null;
   const full = atBrokerLimit(limits);
   const usage = brokerUsageText(limits);
@@ -205,7 +205,7 @@ export function BrokersView({ connectedId, connectError, navigate }: BrokersView
         <p
           id="connect-broker-limit"
           data-slot="broker-limit-notice"
-          className="flex items-start gap-2 rounded-md border border-border bg-warning/10 px-3 py-2 text-sm text-fg"
+          className="flex items-start gap-2 rounded-sm border border-border bg-warning/10 px-3 py-2 text-sm text-fg"
         >
           <span aria-hidden="true" className="mt-1.5 size-1.5 shrink-0 rounded-full bg-warning" />
           {reason} Paper accounts don&apos;t count towards it.

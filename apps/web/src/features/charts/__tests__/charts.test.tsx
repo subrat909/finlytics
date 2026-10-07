@@ -386,19 +386,22 @@ describe("the chart workspace", () => {
     expect(primitive.state.drawings.map((drawing) => drawing.kind)).toEqual(["hline"]);
 
     const toolbar = screen.getByRole("toolbar", { name: "Drawing tools" });
-    expect(within(toolbar).getByRole("button", { name: "Crosshair" })).toHaveAttribute("aria-pressed", "true");
-    await actor.click(within(toolbar).getByRole("button", { name: "Horizontal line" }));
+    expect(within(toolbar).getByRole("button", { name: "Cross" })).toHaveAttribute("aria-pressed", "true");
+    // Grouped tools: the corner arrow opens the group's flyout; the pick becomes the group's button.
+    await actor.click(within(toolbar).getByRole("button", { name: "More trend line tools" }));
+    await actor.click(await screen.findByRole("menuitem", { name: /Horizontal line/ }));
     expect(within(toolbar).getByRole("button", { name: "Horizontal line" })).toHaveAttribute("aria-pressed", "true");
     await actor.keyboard("{Alt>}t{/Alt}");
     expect(within(toolbar).getByRole("button", { name: "Trend line" })).toHaveAttribute("aria-pressed", "true");
     await actor.keyboard("{Escape}{Escape}");
-    expect(within(toolbar).getByRole("button", { name: "Crosshair" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(toolbar).getByRole("button", { name: "Cross" })).toHaveAttribute("aria-pressed", "true");
     // Arrow keys move through the toolbar (one tab stop).
-    within(toolbar).getByRole("button", { name: "Crosshair" }).focus();
+    within(toolbar).getByRole("button", { name: "Cross" }).focus();
     await actor.keyboard("{ArrowDown}");
-    expect(within(toolbar).getByRole("button", { name: "Cursor" })).toHaveFocus();
+    expect(within(toolbar).getByRole("button", { name: "More cursors" })).toHaveFocus();
 
-    await actor.click(within(toolbar).getByRole("button", { name: "Remove 1 drawing" }));
+    await actor.click(within(toolbar).getByRole("button", { name: "Remove objects" }));
+    await actor.click(await screen.findByRole("menuitem", { name: "Remove 1 drawing" }));
     expect(localStorage.getItem(`finlytics.chart.drawings:${KEY}`)).toBeNull();
     expect(primitive.state.drawings).toEqual([]);
     expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();

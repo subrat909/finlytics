@@ -37,7 +37,7 @@ function ChartsEmpty({ invalidKey, interval }: { invalidKey: boolean; interval: 
     <div className="flex min-w-0 flex-1 overflow-y-auto bg-bg p-1">
       <section
         aria-labelledby="charts-empty"
-        className="flex min-h-full w-full flex-col items-center rounded-md border border-border bg-surface-1"
+        className="flex min-h-full w-full flex-col items-center rounded-sm border border-border bg-surface-1"
       >
         <h1 className="sr-only">Charts</h1>
         <EmptyState
@@ -69,7 +69,7 @@ function ChartsEmpty({ invalidKey, interval }: { invalidKey: boolean; interval: 
                 <Link
                   href={href(option.key, interval)}
                   className={cn(
-                    "flex items-center justify-between gap-3 rounded-md bg-surface-2 px-3 py-2.5 transition-[background-color] hover:bg-surface-3",
+                    "flex items-center justify-between gap-3 rounded-sm bg-surface-2 px-3 py-2.5 transition-[background-color] hover:bg-surface-3",
                     focusRing,
                   )}
                 >
@@ -114,7 +114,7 @@ export function ChartsView({ instrumentKey, invalidKey, interval, datafeedPath, 
       <div className="flex min-w-0 flex-1 bg-bg p-1">
         <section
           aria-label={`${symbol} chart`}
-          className="relative min-h-0 flex-1 overflow-hidden rounded-md border border-border bg-surface-1"
+          className="relative min-h-0 flex-1 overflow-hidden rounded-sm border border-border bg-surface-1"
         >
           <h1 className="sr-only">{symbol} chart</h1>
           <TradingViewChart

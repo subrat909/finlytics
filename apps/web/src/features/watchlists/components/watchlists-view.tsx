@@ -146,7 +146,7 @@ function WatchlistPanel({
             role="alert"
             data-slot="watchlist-add-error"
             data-code={isApiError(addItem.error) ? addItem.error.code : undefined}
-            className="rounded-md bg-loss/10 px-3 py-2 text-xs text-fg"
+            className="rounded-sm bg-loss/10 px-3 py-2 text-xs text-fg"
           >
             {addError}
           </p>
@@ -458,7 +458,7 @@ export function WatchlistsView() {
       <section
         aria-labelledby="watchlists-title"
         data-slot="watchlist-panel"
-        className="flex min-h-0 w-full flex-col bg-surface-1 lg:w-[360px] lg:shrink-0 lg:rounded-md lg:border lg:border-border"
+        className="flex min-h-0 w-full flex-col bg-surface-1 lg:w-[360px] lg:shrink-0 lg:rounded-sm lg:border lg:border-border"
       >
         <header className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border px-3">
           <h1 id="watchlists-title" className="truncate text-sm font-semibold text-fg">
@@ -484,7 +484,7 @@ export function WatchlistsView() {
       <section
         aria-label="Instrument details"
         data-slot="watchlist-detail"
-        className="hidden min-w-0 flex-1 flex-col overflow-hidden rounded-md border border-border bg-surface-1 lg:flex"
+        className="hidden min-w-0 flex-1 flex-col overflow-hidden rounded-sm border border-border bg-surface-1 lg:flex"
       >
         {detail}
       </section>

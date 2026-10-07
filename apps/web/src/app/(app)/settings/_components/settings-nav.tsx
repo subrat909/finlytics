@@ -17,7 +17,7 @@ export function SettingsNav({ className }: { className?: string | undefined }) {
               href={`#${id}`}
               data-slot="settings-nav-link"
               className={cn(
-                "flex h-8 items-center gap-2.5 rounded-md px-2.5 text-[0.8125rem] font-medium whitespace-nowrap text-fg-muted",
+                "flex h-8 items-center gap-2.5 rounded-sm px-2.5 text-[0.8125rem] font-medium whitespace-nowrap text-fg-muted",
                 "transition-[color,background-color] hover:bg-surface-2 hover:text-fg",
                 "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid",
               )}

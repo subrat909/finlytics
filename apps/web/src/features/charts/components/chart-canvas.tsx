@@ -96,6 +96,7 @@ export default function ChartCanvas(props: ChartCanvasProps) {
         minMove: initial.minMove,
         interval: initial.interval,
         session: initial.session,
+        symbol: initial.instrumentKey.split("|")[1] ?? initial.instrumentKey,
       },
       {
         onNeedOlder: () => {

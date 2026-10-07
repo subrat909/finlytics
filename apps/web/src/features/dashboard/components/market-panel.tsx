@@ -184,7 +184,7 @@ function Movers({ overview }: { overview: MarketOverview }) {
       <div className="px-3 pt-2.5 pb-2">
         <Tabs.List
           aria-label="NIFTY 50 movers"
-          className="flex gap-1 rounded-md border border-border bg-surface-2 p-0.5"
+          className="flex gap-1 rounded-sm border border-border bg-surface-2 p-0.5"
         >
           <Tabs.Trigger value="gainers" className={TAB_TRIGGER}>
             <TrendingUp aria-hidden="true" className="text-profit" />
@@ -262,7 +262,7 @@ function MarketSkeleton() {
         <Skeleton className="h-1.5 w-full rounded-full" />
       </div>
       <div className="px-3 pb-3">
-        <Skeleton className="h-8 w-full rounded-md" />
+        <Skeleton className="h-8 w-full rounded-sm" />
       </div>
     </div>
   );
@@ -273,7 +273,7 @@ function MarketSkeleton() {
  * Prices are labelled "Simulated" whenever the shared feed isn't a live broker.
  */
 export function MarketPanel({ className }: { className?: string | undefined }) {
-  const overview = useMarketOverview();
+  const overview = useMarketOverview({ refetchMs: 15_000 });
   // The navbar and footer share this query and may finish it before this hydrates: render the server's skeleton first.
   const hydrated = useIsClient();
   useSubscribe(DASHBOARD_INDEX_KEYS);

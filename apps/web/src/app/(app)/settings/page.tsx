@@ -35,7 +35,7 @@ export default function SettingsPage() {
           ))}
           <section
             aria-labelledby="brokers-settings-heading"
-            className="flex flex-col gap-3 rounded-md border border-border bg-surface-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+            className="flex flex-col gap-3 rounded-sm border border-border bg-surface-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
           >
             <div className="flex min-w-0 items-start gap-3">
               <Plug aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-orange" />

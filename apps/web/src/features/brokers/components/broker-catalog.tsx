@@ -36,7 +36,7 @@ export function BrokerCatalog({ limits, onConnect }: BrokerCatalogProps) {
             key={code}
             data-slot="broker-catalog-item"
             data-broker={code}
-            className="flex min-w-0 flex-col gap-3 rounded-md border border-border bg-surface-1 p-3"
+            className="flex min-w-0 flex-col gap-3 rounded-sm border border-border bg-surface-1 p-3"
           >
             <div className="flex items-start gap-3">
               <BrokerMonogram broker={code} />

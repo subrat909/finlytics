@@ -14,7 +14,7 @@ export function Logo({ compact = false, className }: LogoProps) {
     <span data-slot="logo" className={cn("flex items-center gap-2.5 font-semibold text-fg", className)}>
       <span
         aria-hidden="true"
-        className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-fg"
+        className="flex size-8 shrink-0 items-center justify-center rounded-sm bg-primary text-primary-fg"
       >
         <TrendingUp className="size-4.5" />
       </span>

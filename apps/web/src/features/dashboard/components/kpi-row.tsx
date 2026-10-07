@@ -40,7 +40,7 @@ function Kpi({ label, icon, pending, failed, value, detail, slot }: KpiProps) {
     <div
       data-slot="kpi"
       data-kpi={slot}
-      className="flex min-w-0 flex-col gap-1.5 rounded-md border border-border bg-surface-1 px-3 py-2.5"
+      className="flex min-w-0 flex-col gap-1.5 rounded-sm border border-border bg-surface-1 px-3 py-2.5"
     >
       <dt className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-fg-muted uppercase">
         <span aria-hidden="true" className="flex [&_svg]:size-3.5">

@@ -82,7 +82,7 @@ export const QuoteStats = memo(function QuoteStats({ instrument, className }: Qu
     <div data-slot="quote-stats" className={cn("space-y-3", className)}>
       <dl
         className={cn(
-          "grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border bg-border",
+          "grid grid-cols-2 gap-px overflow-hidden rounded-sm border border-border bg-border",
           stats.length === 6 ? "@md:grid-cols-3" : "@md:grid-cols-4",
         )}
       >

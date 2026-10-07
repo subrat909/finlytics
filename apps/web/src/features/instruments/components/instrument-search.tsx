@@ -238,7 +238,7 @@ export function InstrumentSearch({
   );
 
   const popupClasses =
-    "absolute top-full right-0 left-0 z-30 mt-1 rounded-md border border-border bg-surface-1 text-fg";
+    "absolute top-full right-0 left-0 z-30 mt-1 rounded-sm border border-border bg-surface-1 text-fg";
 
   return (
     <div data-slot="instrument-search" className={cn("relative w-full", className)}>

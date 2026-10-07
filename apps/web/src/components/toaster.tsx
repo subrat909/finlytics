@@ -34,7 +34,7 @@ export function Toaster() {
             if (!open) toast.dismiss(item.id);
           }}
           className={cn(
-            "flex items-start gap-3 rounded-md bg-surface-1 p-4 text-fg ring-1 ring-surface-3",
+            "flex items-start gap-3 rounded-sm bg-surface-1 p-4 text-fg ring-1 ring-surface-3",
             "motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0 motion-safe:data-[state=open]:slide-in-from-bottom-2",
             "data-[swipe=move]:translate-x-(--radix-toast-swipe-move-x)",
           )}
@@ -48,7 +48,7 @@ export function Toaster() {
           </div>
           <Toast.Close
             aria-label="Dismiss"
-            className="-m-1 inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-fg-muted transition-[color,background-color] hover:bg-surface-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid"
+            className="-m-1 inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-sm text-fg-muted transition-[color,background-color] hover:bg-surface-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid"
           >
             <X aria-hidden="true" className="size-4" />
           </Toast.Close>

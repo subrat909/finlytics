@@ -43,7 +43,7 @@ export function PageHeader({ title, description, icon, actions, badge, className
         {icon ? (
           <span
             aria-hidden="true"
-            className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-surface-1 [&_svg]:size-4.5"
+            className="flex size-9 shrink-0 items-center justify-center rounded-sm border border-border bg-surface-1 [&_svg]:size-4.5"
           >
             {icon}
           </span>
@@ -81,7 +81,7 @@ export interface PanelProps extends Omit<React.ComponentProps<"section">, "title
 }
 
 /**
- * A terminal panel (plan phase-1b "Design language"): `rounded-md border border-border bg-surface-1`, with an optional
+ * A terminal panel (plan phase-1b "Design language"): `rounded-sm border border-border bg-surface-1`, with an optional
  * 40px header row on a 1px rule. Labelled by its title.
  */
 export function Panel({ title, headingLevel = 2, actions, className, children, ...props }: PanelProps) {
@@ -89,7 +89,7 @@ export function Panel({ title, headingLevel = 2, actions, className, children, .
   return (
     <section
       data-slot="panel"
-      className={cn("flex min-w-0 flex-col rounded-md border border-border bg-surface-1", className)}
+      className={cn("flex min-w-0 flex-col rounded-sm border border-border bg-surface-1", className)}
       {...props}
     >
       {title === undefined && actions === undefined ? null : (

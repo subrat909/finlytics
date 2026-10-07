@@ -15,7 +15,7 @@ export default function VerifyPage() {
       <div className="space-y-4">
         <span
           aria-hidden="true"
-          className="flex size-11 items-center justify-center rounded-md border border-border bg-surface-2"
+          className="flex size-11 items-center justify-center rounded-sm border border-border bg-surface-2"
         >
           <MailCheck className="size-5 text-profit" />
         </span>
@@ -27,7 +27,7 @@ export default function VerifyPage() {
           </p>
         </div>
       </div>
-      <p className="rounded-md bg-surface-2 px-3 py-2 text-[0.8125rem] text-fg-muted">
+      <p className="rounded-sm bg-surface-2 px-3 py-2 text-[0.8125rem] text-fg-muted">
         Nothing yet? Check spam, or ask for a new link: the old one stops working.
       </p>
       <Button asChild variant="secondary" className="w-full">

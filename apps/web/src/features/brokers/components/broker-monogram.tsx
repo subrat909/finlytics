@@ -20,7 +20,7 @@ export function BrokerMonogram({
       aria-hidden="true"
       data-slot="broker-monogram"
       className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-md font-semibold",
+        "inline-flex shrink-0 items-center justify-center rounded-sm font-semibold",
         size === "sm" ? "size-7 text-xs" : "size-9 text-sm",
         config.accent,
         className,

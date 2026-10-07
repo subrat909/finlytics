@@ -11,12 +11,12 @@ export const dialogOverlayClasses =
 /** A dialog surface: surface-1 with the 1px border token, no shadow (frontend.md). */
 export const dialogContentClasses = cn(
   "fixed top-1/2 left-1/2 z-50 max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2",
-  "overflow-y-auto rounded-md border border-border bg-surface-1 p-5 text-fg sm:p-6",
+  "overflow-y-auto rounded-sm border border-border bg-surface-1 p-5 text-fg sm:p-6",
   "motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0 motion-safe:data-[state=open]:zoom-in-95",
 );
 
 export const dialogCloseClasses =
-  "absolute top-3 right-3 inline-flex size-8 cursor-pointer items-center justify-center rounded-md text-fg-muted transition-[color,background-color] hover:bg-surface-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid";
+  "absolute top-3 right-3 inline-flex size-8 cursor-pointer items-center justify-center rounded-sm text-fg-muted transition-[color,background-color] hover:bg-surface-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid";
 
 /**
  * Focus return for a dialog opened without a Radix Trigger (from an empty state, a menu, a toolbar): remembers what

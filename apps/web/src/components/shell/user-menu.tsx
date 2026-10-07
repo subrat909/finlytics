@@ -38,7 +38,7 @@ export function UserMenu({ user }: { user: ShellUser }) {
       <DropdownMenuTrigger
         aria-label={`Account menu for ${displayName}`}
         data-slot="user-menu-trigger"
-        className="inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-md transition-[color,background-color] hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid"
+        className="inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-sm transition-[color,background-color] hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid"
       >
         <UserAvatar name={user.name} email={user.email} image={user.image} className="size-7" />
       </DropdownMenuTrigger>

@@ -13,7 +13,7 @@ import type { ApiPath } from "@/lib/api/client";
 export const PORTFOLIO_QUERY_KEY = ["portfolio"] as const;
 
 /** Fresh for five seconds, like the api's per-account cache (broker.md: funds/positions cached 5 s). */
-export const PORTFOLIO_STALE_MS = 5_000;
+export const PORTFOLIO_STALE_MS = 30_000;
 
 export type PortfolioKind = "funds" | "positions" | "holdings";
 

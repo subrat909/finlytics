@@ -11,7 +11,7 @@ export default function AppNotFound() {
   return (
     <PageContainer>
       <h1 className="sr-only">Page not found</h1>
-      <div className="rounded-md border border-border bg-surface-1">
+      <div className="rounded-sm border border-border bg-surface-1">
         <EmptyState
           icon={<Compass className="text-highlight" />}
           title="Nothing here"

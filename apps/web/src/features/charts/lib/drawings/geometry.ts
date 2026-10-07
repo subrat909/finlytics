@@ -47,6 +47,58 @@ export function rayEnd(a: ScreenPoint, b: ScreenPoint, size: PaneSize): ScreenPo
   return Number.isFinite(t) ? { x: a.x + t * dx, y: a.y + t * dy } : b;
 }
 
+/** The segment `a–b` extended past `a` (left) and/or past `b` (right) to the pane's edges. */
+export function extendedSegment(
+  a: ScreenPoint,
+  b: ScreenPoint,
+  size: PaneSize,
+  left: boolean,
+  right: boolean,
+): [ScreenPoint, ScreenPoint] {
+  return [left ? rayEnd(b, a, size) : a, right ? rayEnd(a, b, size) : b];
+}
+
+/** A parallel channel's second line: `a–b` shifted so it passes through `c` (vertically, in pixels). */
+export function channelOffset(a: ScreenPoint, b: ScreenPoint, c: ScreenPoint): [ScreenPoint, ScreenPoint] {
+  const dx = b.x - a.x;
+  const yOnLine = dx === 0 ? a.y : a.y + ((b.y - a.y) * (c.x - a.x)) / dx;
+  const dy = c.y - yOnLine;
+  return [
+    { x: a.x, y: a.y + dy },
+    { x: b.x, y: b.y + dy },
+  ];
+}
+
+/** Whether `p` is inside the triangle `a b c`. */
+export function insideTriangle(p: ScreenPoint, a: ScreenPoint, b: ScreenPoint, c: ScreenPoint): boolean {
+  const sign = (p1: ScreenPoint, p2: ScreenPoint, p3: ScreenPoint) =>
+    (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
+  const d1 = sign(p, a, b);
+  const d2 = sign(p, b, c);
+  const d3 = sign(p, c, a);
+  const negative = d1 < 0 || d2 < 0 || d3 < 0;
+  const positive = d1 > 0 || d2 > 0 || d3 > 0;
+  return !(negative && positive);
+}
+
+/** Distance from `p` to the ellipse inscribed in `rect` (0 inside when `filled`). */
+export function distanceToEllipse(p: ScreenPoint, rect: Rect, filled: boolean): number {
+  const rx = Math.max(1, (rect.right - rect.left) / 2);
+  const ry = Math.max(1, (rect.bottom - rect.top) / 2);
+  const cx = rect.left + rx;
+  const cy = rect.top + ry;
+  const k = Math.hypot((p.x - cx) / rx, (p.y - cy) / ry);
+  if (filled && k <= 1) return 0;
+  return Math.abs(k - 1) * Math.min(rx, ry);
+}
+
+/** A price label's box: a callout to the right of its anchor. */
+export function labelBox(anchor: ScreenPoint, text: string, fontSize = 12): Rect {
+  const width = Math.max(40, text.length * fontSize * 0.6 + 16);
+  const height = fontSize + 12;
+  return { left: anchor.x + 8, right: anchor.x + 8 + width, top: anchor.y - height - 6, bottom: anchor.y - 6 };
+}
+
 export interface Rect {
   left: number;
   top: number;
@@ -115,13 +167,13 @@ export interface HitResult {
  * the body. Horizontal lines and rays need only the price; vertical lines only the time.
  */
 export function hitTest(
-  drawing: Pick<Drawing, "kind" | "text">,
+  drawing: Pick<Drawing, "kind" | "text"> & Partial<Pick<Drawing, "fill" | "extendLeft" | "extendRight" | "fontSize">>,
   points: readonly (ScreenPoint | null)[],
   p: ScreenPoint,
   size: PaneSize,
   tolerance = HIT_TOLERANCE,
 ): HitResult | null {
-  const [a, b] = points;
+  const [a, b, c] = points;
   for (const [index, point] of points.entries()) {
     if (point !== null && distance(point, p) <= HANDLE_RADIUS + 2) return { handle: index, distance: 0 };
   }
@@ -136,15 +188,46 @@ export function hitTest(
     case "vline":
       if (a) gap = Math.abs(p.x - a.x);
       break;
+    case "crossline":
+      if (a) gap = Math.min(Math.abs(p.x - a.x), Math.abs(p.y - a.y));
+      break;
     case "trend":
-      if (a && b) gap = distanceToSegment(p, a, b);
+    case "arrow":
+      if (a && b) {
+        const [from, to] = extendedSegment(a, b, size, drawing.extendLeft ?? false, drawing.extendRight ?? false);
+        gap = distanceToSegment(p, from, to);
+      }
       break;
     case "ray":
       if (a && b) gap = distanceToSegment(p, a, rayEnd(a, b, size));
       break;
+    case "extended":
+      if (a && b) gap = distanceToSegment(p, rayEnd(b, a, size), rayEnd(a, b, size));
+      break;
+    case "channel":
+      if (a && b) {
+        gap = distanceToSegment(p, a, b);
+        if (c) {
+          const [a2, b2] = channelOffset(a, b, c);
+          gap = Math.min(gap, distanceToSegment(p, a2, b2));
+          if (insideTriangle(p, a, b, b2) || insideTriangle(p, a, b2, a2)) gap = 0;
+        }
+      }
+      break;
     case "rect":
     case "measure":
+    case "daterange":
+    case "datepricerange":
       if (a && b && inside(p, rectOf(a, b), tolerance)) gap = 0;
+      break;
+    case "ellipse":
+      if (a && b) gap = distanceToEllipse(p, rectOf(a, b), drawing.fill ?? true);
+      break;
+    case "triangle":
+      if (a && b && c) {
+        gap = Math.min(distanceToSegment(p, a, b), distanceToSegment(p, b, c), distanceToSegment(p, c, a));
+        if (insideTriangle(p, a, b, c)) gap = 0;
+      } else if (a && b) gap = distanceToSegment(p, a, b);
       break;
     case "fib":
       if (a && b) {
@@ -158,7 +241,10 @@ export function hitTest(
       }
       break;
     case "text":
-      if (a && inside(p, textBox(a, drawing.text ?? ""), 2)) gap = 0;
+      if (a && inside(p, textBox(a, drawing.text ?? "", ((drawing.fontSize ?? 14) / 13) * 7.2), 2)) gap = 0;
+      break;
+    case "pricelabel":
+      if (a && inside(p, labelBox(a, drawing.text ?? "000000.00", drawing.fontSize ?? 12), 2)) gap = 0;
       break;
   }
   return gap <= tolerance ? { handle: null, distance: gap } : null;

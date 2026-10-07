@@ -40,6 +40,8 @@ import ChartCanvas from "./chart-canvas";
 import { ChartControllerContext, ChartInfoContext } from "./chart-context";
 import type { ChartInfo } from "./chart-context";
 import { ChartLegend } from "./chart-legend";
+import { DrawingSettingsDialog } from "./drawing-settings-dialog";
+import { DrawingStyleBar } from "./drawing-style-bar";
 import { DrawingToolbar } from "./drawing-toolbar";
 import { IndicatorSettingsDialog } from "./indicator-settings-dialog";
 import { IndicatorsDialog } from "./indicators-dialog";
@@ -70,6 +72,8 @@ const SHORTCUT_TOOLS: Readonly<Record<string, DrawingTool>> = {
   KeyH: "hline",
   KeyV: "vline",
   KeyF: "fib",
+  KeyC: "crossline",
+  KeyR: "rect",
 };
 
 export interface ChartWorkspaceProps {
@@ -397,9 +401,10 @@ function Workspace({ instrumentKey, userId }: { instrumentKey: string; userId: s
                 <section
                   aria-label={`${symbol} chart`}
                   data-slot="chart-area"
-                  className="relative min-h-60 flex-1 overflow-hidden rounded-md border border-border bg-surface-1"
+                  className="relative min-h-60 flex-1 overflow-hidden rounded-sm border border-border bg-surface-1"
                 >
                   {chartBody}
+                  <DrawingStyleBar />
                 </section>
                 <BottomBar onRange={onRange} />
               </div>
@@ -420,6 +425,7 @@ function Workspace({ instrumentKey, userId }: { instrumentKey: string; userId: s
             <IndicatorSettingsDialog />
             <ChartSettingsDialog />
             <TextNoteDialog />
+            <DrawingSettingsDialog />
             <p aria-live="polite" className="sr-only" data-slot="chart-announcer">
               {message}
             </p>

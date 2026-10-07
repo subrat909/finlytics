@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,36 +11,10 @@ import { renderWithProviders } from "@/test/render";
 
 import { ANNOUNCE_EVERY_MS, InstrumentDetail } from "../components/instrument-detail";
 import { MarketDepth } from "../components/market-depth";
-import MiniChart from "../components/mini-chart";
-import { IST_OFFSET_S } from "../lib/intraday";
+import { pctChange, rangePosition } from "../components/session-insights";
 
 import { NIFTY_CE, instrument } from "./fixtures";
 
-const chartMocks = vi.hoisted(() => {
-  const priceLine = { applyOptions: vi.fn() };
-  const series = {
-    setData: vi.fn(),
-    update: vi.fn(),
-    applyOptions: vi.fn(),
-    createPriceLine: vi.fn(() => priceLine),
-  };
-  const timeScale = { fitContent: vi.fn() };
-  const chart = {
-    addSeries: vi.fn(() => series),
-    applyOptions: vi.fn(),
-    remove: vi.fn(),
-    timeScale: vi.fn(() => timeScale),
-  };
-  return { chart, series, priceLine, createChart: vi.fn(() => chart) };
-});
-
-vi.mock("lightweight-charts", () => ({
-  createChart: chartMocks.createChart,
-  BaselineSeries: "Baseline",
-  ColorType: { Solid: "solid" },
-  CrosshairMode: { Magnet: 1 },
-  LineStyle: { Dashed: 2 },
-}));
 vi.mock("next/navigation", () => nextNavigationMock);
 
 const NIFTY_INDEX = instrument("NIFTY 50", {
@@ -51,11 +25,6 @@ const NIFTY_INDEX = instrument("NIFTY 50", {
 });
 /** 2026-10-06 09:15 IST, as epoch ms. */
 const SESSION_MS = Date.UTC(2026, 9, 6, 3, 45);
-const CANDLES = [
-  { ts: SESSION_MS - 86_400_000, open: "1", high: "1", low: "1", close: "1", volume: 0 },
-  { ts: SESSION_MS, open: "100", high: "101", low: "99", close: "100.5", volume: 10 },
-  { ts: SESSION_MS + 300_000, open: "100.5", high: "102", low: "100", close: "101.5", volume: 12 },
-];
 
 function tick(overrides: Partial<Tick> = {}): Tick {
   return {
@@ -84,8 +53,6 @@ function push(key: string, next: Tick) {
 beforeEach(() => {
   marketActions.reset();
   vi.clearAllMocks();
-  document.documentElement.style.setProperty("--profit", "#047857");
-  document.documentElement.style.setProperty("--loss", "#be123c");
 });
 
 afterEach(() => {
@@ -93,9 +60,8 @@ afterEach(() => {
 });
 
 describe("InstrumentDetail", () => {
-  it("shows an option's quote, statistics, depth and intraday chart", async () => {
-    mockApi([
-      { path: /^\/v1\/candles\?/, respond: () => Response.json(CANDLES) },
+  it("shows an option's quote, statistics, depth and live session insights (no chart)", async () => {
+    const calls = mockApi([
       {
         path: /^\/v1\/quotes\/depth/,
         respond: () =>
@@ -136,50 +102,39 @@ describe("InstrumentDetail", () => {
     expect(table).toHaveTextContent("1,500");
     expect(within(detail).getByText("Buy 33.3%")).toBeInTheDocument();
 
-    // The chart: the latest session only, around the previous close.
-    await waitFor(() => {
-      expect(chartMocks.series.setData).toHaveBeenCalledWith([
-        { time: SESSION_MS / 1_000 + IST_OFFSET_S, value: 100.5 },
-        { time: SESSION_MS / 1_000 + 300 + IST_OFFSET_S, value: 101.5 },
-      ]);
-    });
-    expect(chartMocks.chart.addSeries).toHaveBeenCalledWith(
-      "Baseline",
-      expect.objectContaining({ baseValue: { type: "price", price: 100 }, topLineColor: "#047857" }),
+    // Session insights instead of a chart: nothing fetches candles, nothing draws on a canvas.
+    const insights = within(detail).getByText("Session insights").closest("section");
+    expect(insights).not.toBeNull();
+    expect(insights).toHaveTextContent("vs previous close");
+    expect(insights).toHaveTextContent("vs today's open");
+    expect(within(insights as HTMLElement).getByRole("meter", { name: "Price within today's range" })).toHaveAttribute(
+      "aria-valuenow",
+      "92",
     );
-    expect(screen.getByRole("img", { name: /NIFTY 24000 CE intraday chart, 5-minute closes: 2 points/ })).toBeVisible();
+    expect(calls.some((call) => call.path.startsWith("/v1/candles"))).toBe(false);
+    expect(container.querySelector("canvas")).toBeNull();
     await expectNoAxeViolations(container);
   });
 
-  it("explains that an index has no order book and asks for no depth", async () => {
-    const calls = mockApi([{ path: /^\/v1\/candles\?/, respond: () => Response.json([]) }]);
+  it("explains that an index has no order book and asks for no depth", () => {
+    const calls = mockApi([]);
     renderWithProviders(<InstrumentDetail instrument={NIFTY_INDEX} />);
     expect(screen.getByText(/Indices aren't traded, so they have no order book/)).toBeInTheDocument();
     expect(screen.queryByText("ATP")).toBeNull();
     expect(screen.getByText("Waiting for the first price")).toBeInTheDocument();
-    expect(await screen.findByText(/No intraday candles yet/)).toBeInTheDocument();
+    expect(screen.queryByText("Order flow")).toBeNull();
     expect(calls.some((call) => call.path.startsWith("/v1/quotes/depth"))).toBe(false);
   });
 
-  it("offers a retry when the candles fail, and remove and close actions when given", async () => {
+  it("says when there's no depth yet, and offers remove and close actions when given", async () => {
     const actor = userEvent.setup();
-    let fail = true;
-    mockApi([
-      { path: /^\/v1\/candles\?/, respond: () => (fail ? problem(500, "INTERNAL") : Response.json(CANDLES)) },
-      { path: /^\/v1\/quotes\/depth/, respond: () => problem(404, "NOT_FOUND") },
-    ]);
+    mockApi([{ path: /^\/v1\/quotes\/depth/, respond: () => problem(404, "NOT_FOUND") }]);
     const onRemove = vi.fn();
     const onClose = vi.fn();
     renderWithProviders(
       <InstrumentDetail instrument={NIFTY_CE} onRemove={onRemove} removeLabel="Remove it" onClose={onClose} />,
     );
-    expect(await screen.findByText("The intraday chart didn't load.")).toBeInTheDocument();
     expect(await screen.findByText(/No market depth yet/)).toBeInTheDocument();
-    fail = false;
-    await actor.click(screen.getByRole("button", { name: "Try again" }));
-    await waitFor(() => {
-      expect(chartMocks.createChart).toHaveBeenCalled();
-    });
     await actor.click(screen.getByRole("button", { name: "Remove it" }));
     await actor.click(screen.getByRole("button", { name: "Close details" }));
     expect(onRemove).toHaveBeenCalledTimes(1);
@@ -227,47 +182,13 @@ describe("MarketDepth", () => {
   });
 });
 
-describe("MiniChart", () => {
-  const POINTS = [
-    { time: SESSION_MS / 1_000 + IST_OFFSET_S, value: 100 },
-    { time: SESSION_MS / 1_000 + 300 + IST_OFFSET_S, value: 101 },
-  ];
-
-  it("moves the last point with live ticks, follows the theme and the baseline, and is removed on unmount", () => {
-    const { rerender, unmount } = render(
-      <MiniChart instrumentKey={NIFTY_CE.key} points={POINTS} baseline={99} summary="Chart" />,
-    );
-    expect(chartMocks.series.createPriceLine).toHaveBeenCalledWith(expect.objectContaining({ price: 99 }));
-    expect(chartMocks.chart.timeScale().fitContent).toHaveBeenCalled();
-
-    push(NIFTY_CE.key, tick({ ltp: 101.25, ts: SESSION_MS + 360_000 }));
-    expect(chartMocks.series.update).toHaveBeenLastCalledWith({
-      time: SESSION_MS / 1_000 + 300 + IST_OFFSET_S,
-      value: 101.25,
-    });
-    push(NIFTY_CE.key, tick({ ltp: 102, ts: SESSION_MS + 600_000 }));
-    expect(chartMocks.series.update).toHaveBeenLastCalledWith({
-      time: SESSION_MS / 1_000 + 600 + IST_OFFSET_S,
-      value: 102,
-    });
-    // Older, or a later day: not this session's line.
-    push(NIFTY_CE.key, tick({ ltp: 50, ts: SESSION_MS }));
-    push(NIFTY_CE.key, tick({ ltp: 60, ts: SESSION_MS + 86_400_000 }));
-    expect(chartMocks.series.update).toHaveBeenCalledTimes(2);
-
-    rerender(<MiniChart instrumentKey={NIFTY_CE.key} points={POINTS} baseline={100.5} summary="Chart" />);
-    expect(chartMocks.priceLine.applyOptions).toHaveBeenCalledWith({ price: 100.5 });
-
-    act(() => {
-      document.documentElement.setAttribute("data-theme", "dark");
-    });
-    return waitFor(() => {
-      expect(chartMocks.chart.applyOptions).toHaveBeenCalled();
-    }).then(() => {
-      unmount();
-      expect(chartMocks.chart.remove).toHaveBeenCalledTimes(1);
-      push(NIFTY_CE.key, tick({ ltp: 103, ts: SESSION_MS + 900_000 }));
-      expect(chartMocks.series.update).toHaveBeenCalledTimes(2);
-    });
+describe("session insight maths", () => {
+  it("computes percentage changes and the position in the day's range", () => {
+    expect(pctChange(101, 100)).toBeCloseTo(1);
+    expect(pctChange(99, 0)).toBeNull();
+    expect(pctChange(null, 100)).toBeNull();
+    expect(rangePosition(101.75, 99, 102)).toBeCloseTo(91.67, 1);
+    expect(rangePosition(105, 99, 102)).toBe(100);
+    expect(rangePosition(100, 102, 102)).toBeNull();
   });
 });

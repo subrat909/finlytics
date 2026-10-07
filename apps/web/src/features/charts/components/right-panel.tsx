@@ -157,7 +157,7 @@ const WatchRow = memo(function WatchRow({ instrumentKey, symbol, exchange, activ
       aria-current={active ? "page" : undefined}
       data-slot="chart-watchlist-row"
       className={cn(
-        "grid h-9 grid-cols-[minmax(0,1fr)_auto_4.25rem] items-center gap-2 rounded-md px-2 text-[13px] transition-[background-color]",
+        "grid h-9 grid-cols-[minmax(0,1fr)_auto_4.25rem] items-center gap-2 rounded-sm px-2 text-[13px] transition-[background-color]",
         "hover:bg-surface-2 aria-[current=page]:bg-primary/10",
         focusRing,
       )}
@@ -235,7 +235,7 @@ function WatchlistSection({ hrefFor }: { hrefFor: (key: string) => Route }) {
           <Link
             href={"/watchlists"}
             className={cn(
-              "inline-flex h-8 items-center rounded-md bg-primary px-3 text-sm font-medium text-primary-fg hover:bg-primary/90",
+              "inline-flex h-8 items-center rounded-sm bg-primary px-3 text-sm font-medium text-primary-fg hover:bg-primary/90",
               focusRing,
             )}
           >
@@ -297,7 +297,7 @@ function WatchlistSection({ hrefFor }: { hrefFor: (key: string) => Route }) {
                 setChosen(event.target.value);
               }}
               className={cn(
-                "h-7 max-w-36 rounded-md border border-border-strong bg-surface-2 px-1.5 text-xs text-fg hover:bg-surface-3",
+                "h-7 max-w-36 rounded-sm border border-border-strong bg-surface-2 px-1.5 text-xs text-fg hover:bg-surface-3",
                 focusRing,
               )}
             >
@@ -336,7 +336,7 @@ export function RightPanel({ simulated, hrefFor }: RightPanelProps) {
     <section
       aria-label="Quote and watchlist"
       data-slot="chart-side-panel"
-      className="hidden w-72 shrink-0 flex-col overflow-hidden rounded-md border border-border bg-surface-1 xl:flex"
+      className="hidden w-72 shrink-0 flex-col overflow-hidden rounded-sm border border-border bg-surface-1 xl:flex"
     >
       <QuoteDetails simulated={simulated} />
       <WatchlistSection hrefFor={hrefFor} />

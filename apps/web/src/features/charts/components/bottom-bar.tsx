@@ -46,7 +46,7 @@ export function BottomBar({ onRange }: BottomBarProps) {
   return (
     <div
       data-slot="chart-bottom-bar"
-      className="flex h-9 shrink-0 items-center gap-1 rounded-md border border-border bg-surface-1 px-1.5"
+      className="flex h-9 shrink-0 items-center gap-1 rounded-sm border border-border bg-surface-1 px-1.5"
     >
       <div
         role="group"

@@ -7,6 +7,8 @@ import { CANDLE_TIMEFRAME_MS, MAX_CANDLES_PER_REQUEST } from "@finlytics/shared"
 import type { CandleTimeframe } from "@finlytics/shared";
 import { z } from "zod";
 
+import { ColorTokenSchema } from "./lib/indicators/registry";
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Intervals
 
@@ -115,6 +117,24 @@ export const ChartSettingsSchema = z.object({
   priceLine: z.boolean(),
   /** A vertical line at each new trading day on intraday charts. */
   sessionBreaks: z.boolean(),
+  // Symbol (TradingView "Symbol" tab): candle and bar colours, bodies' borders and wicks.
+  upColor: ColorTokenSchema,
+  downColor: ColorTokenSchema,
+  candleBorders: z.boolean(),
+  candleWicks: z.boolean(),
+  // Status line (the legend).
+  legendOhlc: z.boolean(),
+  legendChange: z.boolean(),
+  legendVolume: z.boolean(),
+  legendIndicators: z.boolean(),
+  // Scales.
+  priceScale: z.enum(["right", "left"]),
+  /** The last value's label on each indicator's scale. */
+  indicatorLabels: z.boolean(),
+  // Canvas.
+  crosshairStyle: z.enum(["dashed", "dotted", "solid"]),
+  /** The symbol, large and faint, behind the bars. */
+  watermark: z.boolean(),
 });
 export type ChartSettings = z.infer<typeof ChartSettingsSchema>;
 
@@ -124,4 +144,16 @@ export const DEFAULT_SETTINGS: ChartSettings = Object.freeze({
   crosshair: "normal",
   priceLine: true,
   sessionBreaks: false,
+  upColor: "profit",
+  downColor: "loss",
+  candleBorders: false,
+  candleWicks: true,
+  legendOhlc: true,
+  legendChange: true,
+  legendVolume: true,
+  legendIndicators: true,
+  priceScale: "right",
+  indicatorLabels: true,
+  crosshairStyle: "dashed",
+  watermark: false,
 });

@@ -16,7 +16,7 @@ export function ChartWorkspaceSkeleton({ label = "Loading chart" }: { label?: st
       className="flex min-w-0 flex-1 flex-col gap-1 bg-bg p-1"
     >
       <span className="sr-only">{label}…</span>
-      <div className="flex h-11 shrink-0 items-center gap-2 rounded-md border border-border bg-surface-1 px-2">
+      <div className="flex h-11 shrink-0 items-center gap-2 rounded-sm border border-border bg-surface-1 px-2">
         <Skeleton className="h-7 w-32" />
         <Skeleton className="hidden h-7 w-72 sm:block" />
         <Skeleton className="h-7 w-8" />
@@ -25,13 +25,13 @@ export function ChartWorkspaceSkeleton({ label = "Loading chart" }: { label?: st
         <Skeleton className="h-7 w-24" />
       </div>
       <div className="flex min-h-0 flex-1 gap-1">
-        <div className="hidden w-11 shrink-0 flex-col items-center gap-2 rounded-md border border-border bg-surface-1 py-2 sm:flex">
+        <div className="hidden w-11 shrink-0 flex-col items-center gap-2 rounded-sm border border-border bg-surface-1 py-2 sm:flex">
           {Array.from({ length: 9 }, (_, index) => (
             <Skeleton key={index} className="size-7" />
           ))}
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <div className="relative flex min-h-0 flex-1 flex-col rounded-md border border-border bg-surface-1 p-3">
+          <div className="relative flex min-h-0 flex-1 flex-col rounded-sm border border-border bg-surface-1 p-3">
             <div className="space-y-2">
               <Skeleton className="h-4 w-64 max-w-full" />
               <Skeleton className="h-3 w-40" />
@@ -45,13 +45,13 @@ export function ChartWorkspaceSkeleton({ label = "Loading chart" }: { label?: st
               ))}
             </div>
           </div>
-          <div className="flex h-9 shrink-0 items-center gap-2 rounded-md border border-border bg-surface-1 px-2">
+          <div className="flex h-9 shrink-0 items-center gap-2 rounded-sm border border-border bg-surface-1 px-2">
             <Skeleton className="h-6 w-56 max-w-[60%]" />
             <span className="flex-1" />
             <Skeleton className="h-6 w-24" />
           </div>
         </div>
-        <div className="hidden w-72 shrink-0 flex-col gap-3 rounded-md border border-border bg-surface-1 p-3 xl:flex">
+        <div className="hidden w-72 shrink-0 flex-col gap-3 rounded-sm border border-border bg-surface-1 p-3 xl:flex">
           <Skeleton className="h-5 w-28" />
           <Skeleton className="h-8 w-40" />
           <Skeleton shape="block" className="h-28" />

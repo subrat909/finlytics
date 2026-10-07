@@ -16,7 +16,7 @@ interface WatchlistsErrorProps {
 export default function WatchlistsError({ error, retry, reset }: WatchlistsErrorProps) {
   return (
     <TerminalPage className="lg:p-2">
-      <div className="flex min-w-0 flex-1 items-center justify-center bg-surface-1 lg:rounded-md lg:border lg:border-border">
+      <div className="flex min-w-0 flex-1 items-center justify-center bg-surface-1 lg:rounded-sm lg:border lg:border-border">
         <ErrorState title="Watchlists didn't load" reference={error.digest} onRetry={retry ?? reset} />
       </div>
     </TerminalPage>

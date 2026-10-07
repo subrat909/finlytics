@@ -31,6 +31,13 @@ test("signs in with a magic link, uses the shell, and signs out", async ({ page,
   await expect(page.getByRole("button", { name: `Account menu for ${normalised}` })).toBeVisible();
   await expect(page.getByRole("heading", { name: /Connect a broker to see your portfolio/ })).toBeVisible();
   await expect(page.getByRole("contentinfo", { name: "Status bar" })).toBeVisible();
+  // The navbar: market status and the notifications bell; no live ticker.
+  await expect(page.locator('[data-slot="market-status"]')).toBeVisible();
+  await page.getByRole("button", { name: /^Notifications/ }).click();
+  const bell = page.getByRole("dialog", { name: "Notifications" });
+  await expect(bell).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(bell).toBeHidden();
 
   // The session cookie follows the contract (docs/06): HttpOnly, SameSite=Lax, Path=/, no Domain attribute.
   const cookie = (await context.cookies()).find((candidate) => candidate.name === SESSION_COOKIE);

@@ -37,7 +37,7 @@ import type { ChartInterval, ChartType } from "../schemas";
 import { useWorkspace } from "../store/workspace-store";
 
 import { useChartInfo } from "./chart-context";
-import { TOOL_GROUPS } from "./drawing-toolbar";
+import { ALL_TOOLS } from "./drawing-toolbar";
 import {
   Divider,
   Hint,
@@ -220,11 +220,11 @@ function DrawMenu() {
           <DropdownMenu.RadioGroup
             value={tool}
             onValueChange={(next) => {
-              const spec = TOOL_GROUPS.flat().find((candidate) => candidate.tool === next);
+              const spec = ALL_TOOLS.find((candidate) => candidate.tool === next);
               if (spec) setTool(spec.tool);
             }}
           >
-            {TOOL_GROUPS.flat().map((spec) => (
+            {ALL_TOOLS.map((spec) => (
               <DropdownMenu.RadioItem key={spec.tool} value={spec.tool} className={menuItemClasses}>
                 {spec.icon}
                 <span className="flex-1">{TOOL_LABELS[spec.tool]}</span>
@@ -276,7 +276,7 @@ export function TopToolbar({ simulated, fullscreen, onToggleFullscreen, onScreen
       role="group"
       aria-label="Chart toolbar"
       data-slot="chart-toolbar"
-      className="flex h-11 shrink-0 items-center gap-0.5 overflow-x-auto rounded-md border border-border bg-surface-1 px-1.5 [scrollbar-width:none]"
+      className="flex h-11 shrink-0 items-center gap-0.5 overflow-x-auto rounded-sm border border-border bg-surface-1 px-1.5 [scrollbar-width:none]"
     >
       <Hint label="Symbol search" shortcut="Type a symbol">
         <button
@@ -287,7 +287,7 @@ export function TopToolbar({ simulated, fullscreen, onToggleFullscreen, onScreen
             openDialog("symbol");
           }}
           className={cn(
-            "inline-flex h-8 max-w-44 shrink-0 cursor-pointer items-center gap-2 rounded-md px-2 text-sm font-semibold text-fg",
+            "inline-flex h-8 max-w-44 shrink-0 cursor-pointer items-center gap-2 rounded-sm px-2 text-sm font-semibold text-fg",
             "transition-[color,background-color] hover:bg-surface-2",
             focusRing,
           )}

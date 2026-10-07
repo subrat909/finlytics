@@ -48,6 +48,8 @@ export class DrawingInteraction {
   private tool: DrawingTool = "crosshair";
   private magnet = false;
   private draft: Drawing | null = null;
+  /** How many of the draft's points are placed (the last one follows the pointer). */
+  private fixed = 0;
   private pressStart: ScreenPoint | null = null;
   private drag: Drag | null = null;
   private readonly disposers: (() => void)[] = [];
@@ -110,6 +112,7 @@ export class DrawingInteraction {
       });
     }
     this.draft = null;
+    this.fixed = 0;
     this.drag = null;
     this.pressStart = null;
     this.primitive.update({ draft: null });
@@ -135,7 +138,7 @@ export class DrawingInteraction {
     if (isDrawingKind(tool)) {
       this.host.setChartInteractive(false);
       if (this.draft !== null) {
-        this.finishDraft(point);
+        this.placePoint(point);
         return;
       }
       const anchor = this.anchor(point);
@@ -157,6 +160,7 @@ export class DrawingInteraction {
         return;
       }
       this.draft = drawing;
+      this.fixed = 1;
       this.pressStart = point;
       this.primitive.update({ draft: drawing });
       return;
@@ -171,7 +175,7 @@ export class DrawingInteraction {
     }
     if (hit.id !== selectedId) this.callbacks.onSelect(hit.id);
     const original = drawings.find((drawing) => drawing.id === hit.id);
-    if (locked || original === undefined) return;
+    if (locked || original === undefined || original.locked === true) return;
     this.host.setChartInteractive(false);
     this.drag = {
       id: hit.id,
@@ -192,9 +196,7 @@ export class DrawingInteraction {
       const point = this.host.local(event, true);
       const anchor = point === null ? null : this.anchor(point);
       if (anchor === null) return;
-      const [first] = this.draft.points;
-      if (first === undefined) return;
-      this.draft = { ...this.draft, points: [first, anchor] };
+      this.draft = { ...this.draft, points: [...this.draft.points.slice(0, this.fixed), anchor] };
       this.primitive.update({ draft: this.draft });
       return;
     }
@@ -243,9 +245,9 @@ export class DrawingInteraction {
       const point = this.host.local(event, true);
       const dragged = point !== null && distance(point, this.pressStart) > CLICK_SLOP;
       this.pressStart = null;
-      // Press, drag, release: done. A click leaves the second point following the pointer until the next click.
-      if (dragged) this.finishDraft(point);
-      this.host.setChartInteractive(true);
+      // Press, drag, release: places the point. A click leaves the next point following the pointer until the next click.
+      if (dragged) this.placePoint(point);
+      if (!this.hasDraft()) this.host.setChartInteractive(true);
       return;
     }
     if (this.drag !== null) {
@@ -257,15 +259,28 @@ export class DrawingInteraction {
     this.host.setChartInteractive(true);
   }
 
-  private finishDraft(point: ScreenPoint): void {
+  private hasDraft(): boolean {
+    return this.draft !== null;
+  }
+
+  /** Places the draft's moving point; the last one finishes the drawing, earlier ones start the next point. */
+  private placePoint(point: ScreenPoint): void {
     const draft = this.draft;
     const anchor = this.anchor(point);
+    if (draft === null || anchor === null) return;
+    const placed = [...draft.points.slice(0, this.fixed), anchor];
+    if (placed.length < POINT_COUNT[draft.kind]) {
+      this.fixed = placed.length;
+      this.draft = { ...draft, points: [...placed, anchor] };
+      this.primitive.update({ draft: this.draft });
+      return;
+    }
     this.draft = null;
+    this.fixed = 0;
     this.pressStart = null;
     this.primitive.update({ draft: null });
-    const [first] = draft?.points ?? [];
-    if (draft === null || anchor === null || first === undefined) return;
-    const drawing: Drawing = { ...draft, points: [first, anchor] };
+    this.host.setChartInteractive(true);
+    const drawing: Drawing = { ...draft, points: placed };
     this.callbacks.onCommit([...this.primitive.state.drawings, drawing], drawing.id);
     this.callbacks.onPlaced(drawing.kind);
   }
@@ -276,6 +291,6 @@ export class DrawingInteraction {
     if (point === null) return;
     const hit = findHit(this.primitive.state.drawings, this.projection, point, this.primitive.state.selectedId);
     const drawing = hit === null ? undefined : this.primitive.state.drawings.find((item) => item.id === hit.id);
-    if (drawing?.kind === "text") this.callbacks.onTextRequest({ id: drawing.id });
+    if (drawing?.kind === "text" || drawing?.kind === "pricelabel") this.callbacks.onTextRequest({ id: drawing.id });
   }
 }

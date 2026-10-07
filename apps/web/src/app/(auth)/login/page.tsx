@@ -38,7 +38,7 @@ export default async function LoginPage({
         <p className="text-sm text-fg-muted">New here? Signing in creates your account.</p>
       </div>
       {error ? (
-        <p role="alert" className="rounded-md border border-loss/30 bg-loss/10 px-3 py-2 text-sm text-fg">
+        <p role="alert" className="rounded-sm border border-loss/30 bg-loss/10 px-3 py-2 text-sm text-fg">
           {error}
         </p>
       ) : null}

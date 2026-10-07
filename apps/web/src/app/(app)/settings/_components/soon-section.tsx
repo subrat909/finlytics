@@ -11,7 +11,7 @@ export function SoonSection({ section }: { section: SettingsSection }) {
       id={id}
       aria-labelledby={headingId}
       data-slot="settings-soon-section"
-      className="scroll-mt-4 rounded-md border border-border bg-surface-1"
+      className="scroll-mt-4 rounded-sm border border-border bg-surface-1"
     >
       <div className="flex h-10 items-center justify-between gap-2 border-b border-border px-4">
         <h2 id={headingId} className="flex items-center gap-2 text-sm font-semibold text-fg">

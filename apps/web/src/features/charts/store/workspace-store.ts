@@ -8,7 +8,7 @@ import type { StoreApi } from "zustand/vanilla";
 import { commit, initHistory, redo, undo } from "../lib/drawings/history";
 import type { DrawingHistory } from "../lib/drawings/history";
 import { MAX_NOTE_LENGTH } from "../lib/drawings/types";
-import type { AnchorPoint, Drawing, DrawingTool } from "../lib/drawings/types";
+import type { AnchorPoint, Drawing, DrawingPatch, DrawingTool } from "../lib/drawings/types";
 import { MAX_INDICATORS, createInstance, newId, sanitizeInputs } from "../lib/indicators/registry";
 import type { IndicatorInstance, IndicatorKind, InputValue, PlotStyleValue } from "../lib/indicators/registry";
 import type { ChartLayout } from "../lib/storage";
@@ -17,7 +17,7 @@ import type { ChartInterval, ChartSettings, ChartType, ScaleMode } from "../sche
 /** A text note waiting for its text: a new one at `point`, or an existing one. */
 export type TextRequest = { point: AnchorPoint } | { id: string };
 
-export type WorkspaceDialog = "symbol" | "indicators" | "settings" | null;
+export type WorkspaceDialog = "symbol" | "indicators" | "settings" | "drawing" | null;
 
 export interface WorkspaceState extends ChartLayout {
   tool: DrawingTool;
@@ -57,6 +57,15 @@ export interface WorkspaceState extends ChartLayout {
   selectDrawing: (id: string | null) => void;
   deleteSelected: () => boolean;
   removeAllDrawings: () => void;
+  /** Restyles or moves one drawing (one undo step). */
+  updateDrawing: (id: string, patch: DrawingPatch) => void;
+  /** A copy of the drawing, nudged right, selected. */
+  cloneDrawing: (id: string) => void;
+  /** Removes every indicator (the toolbar's remove menu). */
+  removeAllIndicators: () => void;
+  /** The tool each toolbar group shows (its last pick). */
+  groupTools: Readonly<Record<string, DrawingTool>>;
+  setGroupTool: (group: string, tool: DrawingTool) => void;
   undo: () => void;
   redo: () => void;
   requestText: (request: TextRequest | null) => void;
@@ -76,6 +85,7 @@ export function createWorkspaceStore(layout: ChartLayout, drawings: readonly Dra
     dialog: null,
     symbolQuery: "",
     editingIndicator: null,
+    groupTools: {},
 
     setInterval: (interval) => {
       set({ interval });
@@ -173,6 +183,37 @@ export function createWorkspaceStore(layout: ChartLayout, drawings: readonly Dra
       if (history.present.length === 0) return;
       set({ history: commit(history, []), selectedId: null });
     },
+    updateDrawing: (id, patch) => {
+      const { history } = get();
+      if (!history.present.some((drawing) => drawing.id === id)) return;
+      set({
+        history: commit(
+          history,
+          history.present.map((drawing) => (drawing.id === id ? { ...drawing, ...patch } : drawing)),
+        ),
+      });
+    },
+    cloneDrawing: (id) => {
+      const { history } = get();
+      const original = history.present.find((drawing) => drawing.id === id);
+      if (original === undefined) return;
+      const span =
+        original.points.length > 1 ? Math.abs((original.points[1]?.time ?? 0) - (original.points[0]?.time ?? 0)) : 0;
+      const shift = Math.max(60, Math.round(span * 0.15));
+      const copy: Drawing = {
+        ...original,
+        id: newId("drawing"),
+        locked: false,
+        points: original.points.map((point) => ({ ...point, time: point.time + shift })),
+      };
+      set({ history: commit(history, [...history.present, copy]), selectedId: copy.id });
+    },
+    removeAllIndicators: () => {
+      set({ indicators: [], editingIndicator: null });
+    },
+    setGroupTool: (group, tool) => {
+      set({ groupTools: { ...get().groupTools, [group]: tool } });
+    },
     undo: () => {
       set({ history: undo(get().history), selectedId: null });
     },
@@ -187,8 +228,9 @@ export function createWorkspaceStore(layout: ChartLayout, drawings: readonly Dra
       const value = text.trim().slice(0, MAX_NOTE_LENGTH);
       if (textRequest === null) return;
       if ("id" in textRequest) {
+        const target = history.present.find((drawing) => drawing.id === textRequest.id);
         const next =
-          value === ""
+          value === "" && target?.kind !== "pricelabel"
             ? history.present.filter((drawing) => drawing.id !== textRequest.id)
             : history.present.map((drawing) => (drawing.id === textRequest.id ? { ...drawing, text: value } : drawing));
         set({ history: commit(history, next), textRequest: null });

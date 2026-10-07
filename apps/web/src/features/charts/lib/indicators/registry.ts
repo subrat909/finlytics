@@ -408,9 +408,16 @@ export const INDICATOR_LIST: readonly IndicatorDefinition[] = INDICATOR_KINDS.ma
 export const LINE_WIDTHS = Object.freeze([1, 2, 3, 4] as const);
 export type LineWidth = (typeof LINE_WIDTHS)[number];
 
+export const PLOT_DASHES = Object.freeze(["solid", "dashed", "dotted"] as const);
+export type PlotDash = (typeof PLOT_DASHES)[number];
+
 export interface PlotStyleValue {
   color: ColorToken;
   width: LineWidth;
+  /** Line style (lines only); solid when absent. */
+  dash?: PlotDash | undefined;
+  /** False hides this plot alone (the indicator stays); visible when absent. */
+  visible?: boolean | undefined;
 }
 
 export interface IndicatorInstance {
@@ -429,7 +436,15 @@ export const IndicatorInstanceSchema = z.object({
   id: z.string().min(1).max(64),
   kind: IndicatorKindSchema,
   inputs: z.record(z.string(), z.union([z.number(), z.string().max(16), z.boolean()])),
-  styles: z.record(z.string(), z.object({ color: ColorTokenSchema, width: z.number() })),
+  styles: z.record(
+    z.string(),
+    z.object({
+      color: ColorTokenSchema,
+      width: z.number(),
+      dash: z.enum(PLOT_DASHES).optional(),
+      visible: z.boolean().optional(),
+    }),
+  ),
   hidden: z.boolean(),
 });
 
@@ -462,7 +477,12 @@ export function defaultStyles(kind: IndicatorKind): Record<string, PlotStyleValu
   );
 }
 
-function sanitizeStyles(kind: IndicatorKind, styles: Readonly<Record<string, { color: ColorToken; width: number }>>) {
+function sanitizeStyles(
+  kind: IndicatorKind,
+  styles: Readonly<
+    Record<string, { color: ColorToken; width: number; dash?: PlotDash | undefined; visible?: boolean | undefined }>
+  >,
+) {
   const defaults = defaultStyles(kind);
   for (const [key, style] of Object.entries(styles)) {
     const fallback = defaults[key];
@@ -470,7 +490,12 @@ function sanitizeStyles(kind: IndicatorKind, styles: Readonly<Record<string, { c
     const width = (LINE_WIDTHS as readonly number[]).includes(style.width)
       ? (style.width as LineWidth)
       : fallback.width;
-    defaults[key] = { color: style.color, width };
+    defaults[key] = {
+      color: style.color,
+      width,
+      ...(style.dash === undefined ? {} : { dash: style.dash }),
+      ...(style.visible === undefined ? {} : { visible: style.visible }),
+    };
   }
   return defaults;
 }

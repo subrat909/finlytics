@@ -194,6 +194,7 @@ export function ChartLegend({ simulated }: ChartLegendProps) {
   const info = useChartInfo();
   const interval = useWorkspace((state) => state.interval);
   const instances = useWorkspace((state) => state.indicators);
+  const settings = useWorkspace((state) => state.settings);
   const legend = useLegend();
   const panes = usePanes();
   const { bar, previousClose } = legend;
@@ -204,7 +205,12 @@ export function ChartLegend({ simulated }: ChartLegendProps) {
   const direction = directionOf(change);
   const barUp = bar === null || bar.close >= bar.open;
   const tone = barUp ? "text-profit" : "text-loss";
-  const priceRows = instances.filter((instance) => placementOf(instance) !== "pane");
+  // Settings → Status line decides what the legend shows.
+  const priceRows = instances.filter((instance) => {
+    const placement = placementOf(instance);
+    if (placement === "pane") return false;
+    return placement === "volume" ? settings.legendVolume : settings.legendIndicators;
+  });
   const paneRows = instances.filter((instance) => placementOf(instance) === "pane");
 
   return (
@@ -225,45 +231,52 @@ export function ChartLegend({ simulated }: ChartLegendProps) {
           <span className="text-fg-muted">{info.exchange}</span>
           {simulated ? <SimulatedBadge /> : null}
         </div>
-        <dl
-          data-slot="legend-ohlc"
-          data-hovering={legend.hovering}
-          className="flex w-fit max-w-full flex-wrap items-center gap-x-2.5 rounded-sm bg-surface-1/80 px-1 text-xs"
-        >
-          {(
-            [
-              ["O", "Open", bar?.open],
-              ["H", "High", bar?.high],
-              ["L", "Low", bar?.low],
-              ["C", "Close", bar?.close],
-            ] as const
-          ).map(([short, long, value]) => (
-            <div key={short} className="flex items-center gap-1">
-              <dt className="text-fg-muted">
-                <abbr title={long} className="no-underline">
-                  {short}
-                </abbr>
-              </dt>
-              <dd className={cn("tabular", bar === null ? "text-fg-muted" : tone)}>{formatNumber(value, precision)}</dd>
-            </div>
-          ))}
-          <div className="flex items-center gap-1">
-            <dt className="sr-only">Change</dt>
-            <dd
-              className={cn(
-                "tabular",
-                direction === "up" ? "text-profit" : direction === "down" ? "text-loss" : "text-fg-muted",
-              )}
-            >
-              {direction === "flat" ? null : (
-                <span aria-hidden="true" className="mr-0.5 text-[0.7em]">
-                  {GLYPH[direction]}
-                </span>
-              )}
-              {formatNumber(change, precision, "always")} ({formatPercent(percent)})
-            </dd>
-          </div>
-        </dl>
+        {settings.legendOhlc || settings.legendChange ? (
+          <dl
+            data-slot="legend-ohlc"
+            data-hovering={legend.hovering}
+            className="flex w-fit max-w-full flex-wrap items-center gap-x-2.5 rounded-sm bg-surface-1/80 px-1 text-xs"
+          >
+            {(settings.legendOhlc
+              ? ([
+                  ["O", "Open", bar?.open],
+                  ["H", "High", bar?.high],
+                  ["L", "Low", bar?.low],
+                  ["C", "Close", bar?.close],
+                ] as const)
+              : []
+            ).map(([short, long, value]) => (
+              <div key={short} className="flex items-center gap-1">
+                <dt className="text-fg-muted">
+                  <abbr title={long} className="no-underline">
+                    {short}
+                  </abbr>
+                </dt>
+                <dd className={cn("tabular", bar === null ? "text-fg-muted" : tone)}>
+                  {formatNumber(value, precision)}
+                </dd>
+              </div>
+            ))}
+            {settings.legendChange ? (
+              <div className="flex items-center gap-1">
+                <dt className="sr-only">Change</dt>
+                <dd
+                  className={cn(
+                    "tabular",
+                    direction === "up" ? "text-profit" : direction === "down" ? "text-loss" : "text-fg-muted",
+                  )}
+                >
+                  {direction === "flat" ? null : (
+                    <span aria-hidden="true" className="mr-0.5 text-[0.7em]">
+                      {GLYPH[direction]}
+                    </span>
+                  )}
+                  {formatNumber(change, precision, "always")} ({formatPercent(percent)})
+                </dd>
+              </div>
+            ) : null}
+          </dl>
+        ) : null}
         {priceRows.length > 0 ? (
           <ul aria-label="Indicators on the price chart" className="flex flex-col gap-0.5">
             {priceRows.map((instance) => (
@@ -280,7 +293,7 @@ export function ChartLegend({ simulated }: ChartLegendProps) {
       </div>
       {paneRows.map((instance, index) => {
         const pane = panes[index + 1];
-        if (pane === undefined) return null;
+        if (pane === undefined || !settings.legendIndicators) return null;
         return (
           <PaneLegend key={instance.id} top={pane.top}>
             <IndicatorRow instance={instance} values={legend.values[instance.id]} precision={precision} barUp={barUp} />

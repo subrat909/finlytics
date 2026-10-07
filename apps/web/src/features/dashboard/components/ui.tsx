@@ -12,7 +12,7 @@ export function Panel({ className, ...props }: React.ComponentProps<"section">) 
   return (
     <section
       data-slot="panel"
-      className={cn("flex min-w-0 flex-col rounded-md border border-border bg-surface-1", className)}
+      className={cn("flex min-w-0 flex-col rounded-sm border border-border bg-surface-1", className)}
       {...props}
     />
   );

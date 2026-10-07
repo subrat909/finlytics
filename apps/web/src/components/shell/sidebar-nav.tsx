@@ -26,7 +26,7 @@ export interface SidebarNavProps {
  * bar at the sidebar's edge (`::before`). A link, not a button: no border, no shadow; the focus outline is the ring.
  */
 const linkClasses = cn(
-  "relative flex h-8 items-center gap-3 rounded-md px-2.75 text-[0.8125rem] font-medium whitespace-nowrap text-fg-muted",
+  "relative flex h-8 items-center gap-3 rounded-sm px-2.75 text-[0.8125rem] font-medium whitespace-nowrap text-fg-muted",
   "transition-[color,background-color] hover:bg-surface-2 hover:text-fg",
   "aria-[current=page]:bg-surface-2 aria-[current=page]:text-fg",
   "before:absolute before:inset-y-1.5 before:-left-3 before:w-0.5 before:rounded-r-full before:bg-transparent",

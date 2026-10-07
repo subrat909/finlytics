@@ -38,7 +38,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
         <Link
           href="/dashboard"
           aria-label="Finlytics, go to the dashboard"
-          className="rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid"
+          className="rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid"
         >
           <Logo compact={collapsed} />
         </Link>
