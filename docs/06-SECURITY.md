@@ -225,7 +225,10 @@ signed-in session. The redirect URI is exactly `${API_PUBLIC_URL}/v1/brokers/ups
 1. **App login**: Auth.js OAuth (Google/GitHub) or email magic link → DB session (token stored hashed; email
    normalised; no provider tokens kept) → optional TOTP.
 2. **Broker connect (Upstox)**: `POST /broker-accounts` → redirect to Upstox authorize (state = signed nonce) → callback → exchange code server-side using **our** app key/secret (user never types keys) → encrypt token → `ACTIVE`. Daily re-login: at 08:30 IST notify; one click repeats step (session already logged into Upstox in browser → instant).
-3. **Broker connect (Dhan)**: user pastes access token once (Dhan has no OAuth) → encrypted → renewal reminder.
+3. **Broker connect (Dhan)**: user pastes the access token once (Dhan has no OAuth; tokens last 24 hours) → checked
+   with `getProfile` → encrypted. The `broker-token-renew` job (every 30 min) renews tokens expiring within 3 h through
+   RenewToken and seals the new one with the row's data key and a fresh IV (same AAD); the job's payload carries no
+   ids or secrets. A refused renewal or an expired token → `NEEDS_RELOGIN` (our own `lastError`), audited as the system.
 4. **Service auth**: api → ai-engine RS256 JWT (5 min), ai-engine → api callback with same.
 
 ## Compliance notes (India)

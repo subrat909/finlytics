@@ -2,14 +2,17 @@
 
 ## Layout
 ```
-┌─ Sidebar (w-64 ⇄ w-16, smooth) ─┬─ Topbar: ◧ toggle │      [ 🔍 search ⌘K (centred) ]      │ market · broker · 🔔 · avatar ─┐
-│ 🏠 Dashboard                      ├──────────────────────────────────────────────────────────────────────────────────┤
-│ ⭐ Watchlists                     │ [shell banner slot: NEEDS_RELOGIN …]                                               │
-│ 📈 Charts                         │                                                                                   │
-│ 🔌 Brokers                        │   <page content, full width: RSC shell → client features>                         │
-│ ⚙ Settings                        │                                                                                   │
-│ (later sections join as they ship)│                                                                                   │
-└──────────────────────────────────┴───────────────────────────────────────────────────────────────────────────────────┘
+┌─ Sidebar (w-64 ⇄ w-16, fixed) ─┬─ Navbar: ◧ toggle │   [ 🔍 search ⌘K (centred) ]   │ NIFTY · BANKNIFTY · SENSEX · VIX │ avatar ─┐
+│ OVERVIEW  Dashboard             ├───────────────────────────────────────────────────────────────────────────────────────┤
+│ MARKETS   Watchlists, Charts,   │ [shell banner slot: NEEDS_RELOGIN …]                                                    │
+│           Option Chain·Soon,    │                                                                                         │
+│           Markets·Soon          │   <main>: the only scroll container, full width                                         │
+│ TRADING   Orders·Soon, …        │     standard pages: PageContainer + PageHeader                                          │
+│ ALGO      Strategies·Soon, …    │     terminal pages (watchlists, charts): TerminalPage fills to the status bar           │
+│ ACCOUNT   Brokers, Settings     │                                                                                         │
+│ [Paper trading]                 ├───────────────────────────────────────────────────────────────────────────────────────┤
+│                                 │ Status bar: NSE ● BSE ● MCX ● · Live · Upstox / Simulated · socket · SEBI line · v · IST │
+└─────────────────────────────────┴───────────────────────────────────────────────────────────────────────────────────────┘
 Bottom bar (mobile): Dashboard · Charts · Chain · Orders · More
 ```
 
@@ -51,6 +54,14 @@ Available since 0.4, each from its own module (no barrel): `import { Button } fr
 | `components/segmented-control` | `SegmentedControl` (`options`, `value`, `onValueChange`, `size`: sm, md, `label`, `disabled`): one choice out of a few (density, a chart's timeframe) | client |
 | `components/theme-provider` | `ThemeProvider` (`defaultTheme`, `nonce`, `density`), `useThemePreference`, `useDensityPreference`; re-exports the `lib/theme` names for client code | client |
 | `components/theme-toggle` | `ThemeToggle` (`onThemeChange`, `size`: sm, md), built on SegmentedControl | client |
+| `components/badge` | `Badge` (`tone`: neutral, primary, profit, loss, warning, info…; `size`; `dot`; `asChild`), `badgeVariants`: "Soon", "Simulated", status chips | yes |
+| `components/tabs` | `Tabs`, `TabsList`, `TabsTrigger`, `TabsContent` (Radix; `variant`) | client |
+| `components/tooltip` | `Tooltip` (`content`, `enabled`, `side`), `TooltipProvider`, `TooltipRoot`/`TooltipTrigger`/`TooltipContent`: opens only on hover or keyboard focus, never from state kept while disabled | client |
+| `components/dropdown-menu` | `DropdownMenu` and its parts (items, checkbox/radio items, label, separator, shortcut, sub-menus) | client |
+| `components/popover` | `Popover`, `PopoverTrigger`, `PopoverAnchor`, `PopoverClose`, `PopoverContent` | client |
+| `components/separator` | `Separator` | yes |
+| `components/kbd` | `Kbd`, `KbdGroup` | yes |
+| `components/table` | `Table`, `TableHeader`, `TableBody`, `TableFooter`, `TableRow`, `TableHead`, `TableCell`, `TableCaption`: dense terminal tables (13 px, `h-9` rows, mono right-aligned numbers) | yes |
 | `lib/theme` | `THEME_PREFERENCES`, `THEME_STORAGE_KEY`, `isThemePreference`, `DENSITY_PREFERENCES`, `DENSITY_ATTRIBUTE`, `isDensityPreference`, types `ThemePreference`, `ResolvedTheme`, `DensityPreference` | yes (no directive: Server Components get the values, not client references) |
 | `lib/utils` | `cn` | yes |
 
@@ -64,36 +75,46 @@ Available since 0.4, each from its own module (no barrel): `import { Button } fr
 
 New primitives go through the shadcn porting checklist in `packages/ui/README.md` (never `shadcn init`).
 
-## App shell (0.6, `apps/web`)
-Plan: `docs/plans/phase-0-web-bootstrap.md`. Code: `apps/web/src/components/shell/`.
+## App shell (0.6, redesigned in 1b, `apps/web`)
+Plans: `docs/plans/phase-0-web-bootstrap.md`, `docs/plans/phase-1b-terminal-ui-live-data.md`. Code:
+`apps/web/src/components/shell/`, `apps/web/src/features/market/`.
+- **Frame.** The content column is one viewport high (`h-dvh`): navbar (h-14), optional banner, `<main>` (the only
+  scroll container, no padding) and the status bar (h-8). Navbar, sidebar and status bar never move.
 - **Sidebar.** Fixed, `bg-surface-1` with a 1px right `border`, `w-64 ↔ w-16` (`transition-[width] duration-200
   ease-out`), the content column moves with `transition-[margin]`; labels fade (`opacity`) and keep their accessible
-  names; collapsed links get Radix tooltips. Entries: Dashboard, Watchlists, Charts, Brokers, Settings; later sections
-  join as they ship (until then `UPCOMING_SECTIONS` in `nav-items.ts` keeps their addresses on a coming-soon page).
-  State: `useUiStore.sidebarCollapsed`, persisted in localStorage (`finlytics-ui`) and mirrored to the
-  `finlytics-sidebar` cookie, so the server renders the right width (no flash). `[` toggles it (never while typing).
-  `<main id="main-content">` is rendered once and never re-mounted (the e2e suite checks the DOM node).
+  names. Groups: Overview · Markets · Trading · Algo · Account; sections still to come carry a "Soon" badge and lead
+  to their coming-soon page (`(app)/[section]`). The current page gets a primary indicator bar; collapsed groups show
+  a 1px rule. Collapsed links get the ui `Tooltip`, which opens only on hover or keyboard focus (it never keeps an
+  open state while disabled, so collapsing can't pop stale tooltips). The foot row shows the trading mode
+  ("Paper trading"). State: `useUiStore.sidebarCollapsed`, persisted in localStorage (`finlytics-ui`) and mirrored to
+  the `finlytics-sidebar` cookie, so the server renders the right width (no flash). `[` toggles it (never while
+  typing). `<main id="main-content">` is rendered once and never re-mounted (the e2e suite checks the DOM node).
 - **Below 1024 px** the sidebar is a Radix Dialog sheet from the left (focus trap, Escape, focus return).
-- **Top bar.** The same `bg-surface-1` as the sidebar with a 1px bottom `border` (the sidebar's logo row has the same
-  height and edge, so they read as one line). Three grid columns, the outer two equal: the sidebar toggle on the left
-  (`SidebarToggle`, ≥ 1024 px; the sheet's menu button below), the search in the centre (a field-shaped button that
-  opens ⌘K, which will search instruments too), the account menu (Settings, Sign out) on the right. No theme switch:
-  that's on `/settings`.
+- **Navbar.** `bg-surface-1` with a 1px bottom `border`: the sidebar toggle (`SidebarToggle`, ≥ 1024 px; the sheet's
+  menu button below), the search in the centre (opens ⌘K), the index ticker (`TICKER_INDEX_IDS`: live LTP, change and
+  change % with ▲/▼, an amber "Simulated" badge when the feed isn't live; ≥ 1280 px only, so smaller screens open no
+  socket for it) and the account menu (Brokers, Settings, Sign out). No theme switch: that's on `/settings`.
+- **Status bar** (`status-bar.tsx`, `contentinfo` "Status bar"): NSE/BSE/MCX session dots with the next open or close
+  in IST (`GET /v1/market/overview`), the feed source ("Live · Upstox", or an amber "Simulated prices" link to
+  /brokers with the reason in a tooltip), the realtime socket state with Retry, the SEBI risk line, the app version
+  and an isolated 1 s IST clock. Below 640 px: NSE, the feed and the clock.
 - **Banner slot.** `AppShell`'s `banner` prop (set in `(app)/layout.tsx`) renders full width between the top bar and
   the page, for the broker NEEDS_RELOGIN banner; it comes and goes without re-mounting the page.
-- **Full width.** Pages have no max-width container: `<main>` pads `px-4 sm:px-6 lg:px-8` and the content reflows as
-  the sidebar's margin transitions (like the shadcn admin layout). Use grids to arrange cards on wide screens.
+- **Full width.** Pages have no max-width container and the content reflows as the sidebar's margin transitions (like
+  the shadcn admin layout). `@/components/page`: `PageContainer` (the page padding), `PageHeader` (icon tile, h1,
+  optional badge, description, actions), `Panel` (bordered panel with a 40 px header row) and `TerminalPage` (a
+  full-bleed workspace that fills `<main>`, for watchlists and charts).
 - **Settings (`/settings`).** Appearance: theme (the ui `ThemeToggle`; this device's stored choice wins, the account's
   is the default for new devices) and density (`SegmentedControl`; the account's value, applied through ThemeProvider
   as `<html data-density>` and mirrored to the `finlytics-density` cookie so the root layout server-renders it). Both
-  save with `PATCH /v1/me/settings` and show the save state in a polite live region. Loading skeleton, error state
-  with retry, and an empty state for the sections still to come.
+  save with `PATCH /v1/me/settings` and show the save state in a polite live region. A section nav lists Profile,
+  Security, Trading and Notifications as "Soon" sections. Loading skeleton and error state with retry.
 - **⌘K / Ctrl+K.** A Radix Dialog around cmdk: go to any section, toggle the sidebar, switch the theme, sign out.
 - **States.** `(app)/loading.tsx` renders `PageLoader` plus `AnnounceLoading`, which speaks through the shell's
   persistent live region; `error.tsx` renders `ErrorState` (digest as the reference); sections that later phases build
   render a coming-soon `EmptyState` (`(app)/[section]`).
-- **Primitives.** Tooltip, sheet, dropdown menu, avatar, command palette and the Google/GitHub marks are app-local in
-  0.6 (tokens only, no borders or shadows on buttons, a 1px `border` on menus and sheets, unit + axe tests). Promote
+- **Primitives.** Tooltip, Badge, Tabs, DropdownMenu, Popover, Separator, Kbd and Table live in `packages/ui` since
+  1b. The sheet, avatar, command palette and the Google/GitHub marks are still app-local (tokens only, no borders or shadows on buttons, a 1px `border` on menus and sheets, unit + axe tests). Promote
   them to `packages/ui` through the D8
   checklist, with stories and CI-made baselines.
 - **CSP.** `src/proxy.ts` sets a per-request nonce: scripts `'nonce-…' 'strict-dynamic'`, `<style>` elements by nonce

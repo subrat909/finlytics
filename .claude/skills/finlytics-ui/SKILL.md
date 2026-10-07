@@ -10,21 +10,23 @@ description: How to build any Finlytics UI component or page — tokens, palette
 |------------------|------------|------------|--------------------------------------|
 | `--primary`      | #4F46E5    | #818CF8    | brand, primary buttons, active nav   |
 | `--primary-fg`   | #FFFFFF    | #0B0F19    | text on primary                      |
-| `--highlight`    | #0E7490    | #22D3EE    | highlights, links, chips (was `--accent`; shadcn's `accent` is the hover surface) |
-| `--profit`       | #047857    | #34D399    | positive P&L, buy                    |
+| `--highlight`    | #0B6B85    | #22D3EE    | highlights, links, chips (was `--accent`; shadcn's `accent` is the hover surface) |
+| `--profit`       | #047052    | #34D399    | positive P&L, buy                    |
 | `--profit-fg`    | #FFFFFF    | #0B0F19    | text on Buy (profit fill)            |
 | `--loss`         | #BE123C    | #FB7185    | negative P&L, sell                   |
 | `--loss-fg`      | #FFFFFF    | #0B0F19    | text on Sell (loss fill)             |
-| `--warning`      | #B45309    | #FBBF24    | risk, expiring tokens                |
+| `--warning`      | #A24A06    | #FBBF24    | risk, expiring tokens                |
 | `--info`         | #0369A1    | #38BDF8    | informational                        |
-| `--violet`       | #7C3AED    | #A78BFA    | AI agents                            |
-| `--orange`       | #C2410C    | #FB923C    | brokers                              |
-| `--bg`           | #F8FAFC    | #0B0F19    | page background                      |
-| `--surface-1`    | #FFFFFF    | #111827    | cards                                |
-| `--surface-2`    | #F1F5F9    | #1F2937    | inputs, secondary buttons            |
-| `--surface-3`    | #E2E8F0    | #374151    | hover state                          |
-| `--fg`           | #0F172A    | #F1F5F9    | primary text                         |
-| `--fg-muted`     | #56657A    | #AAB3C0    | secondary text                       |
+| `--violet`       | #7334E0    | #A78BFA    | AI agents                            |
+| `--orange`       | #B13C0A    | #FB923C    | brokers                              |
+| `--bg`           | #F5F7FA    | #090C12    | page background                      |
+| `--surface-1`    | #FFFFFF    | #0F141C    | panels: cards, navbar, sidebar, status bar |
+| `--surface-2`    | #F1F4F8    | #171E29    | inputs, secondary buttons            |
+| `--surface-3`    | #E4E9F0    | #232C3A    | hover state                          |
+| `--fg`           | #0F172A    | #EEF2F6    | primary text                         |
+| `--fg-muted`     | #536175    | #A7B1BF    | secondary text                       |
+| `--border`       | #D9DFE8    | #283242    | 1px edges of cards, panels, menus    |
+| `--border-strong` | #7A8699   | #687589    | input edges (≥ 3:1)                  |
 | `--ring`         | primary    | primary    | focus outline (solid, 2px)           |
 
 Category accents for icons/chips: indigo (strategies), cyan (watchlist), emerald (P&L), amber (alerts), rose (risk), violet (AI agents), sky (option chain), orange (brokers).

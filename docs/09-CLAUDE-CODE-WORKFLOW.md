@@ -82,4 +82,4 @@ Lightweight Charts automatically (`CHARTS_ENGINE=lightweight`).
 
 ## 7. Broker developer accounts
 - Upstox: https://account.upstox.com/developer/apps → create app, set redirect URI from `.env.example`, copy key/secret into `.env`.
-- Dhan: https://dhanhq.co → DhanHQ Trading APIs → generate access token (30 days); you paste it in the Brokers page, not in `.env`.
+- Dhan: https://dhanhq.co → DhanHQ Trading APIs → generate access token (valid 24 hours; Finlytics renews it automatically); you paste it in the Brokers page, not in `.env`.

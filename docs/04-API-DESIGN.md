@@ -13,13 +13,13 @@
 |---|---|
 | Auth (Auth.js handles OAuth in web) | `POST /v1/auth/2fa/setup` `POST /v1/auth/2fa/verify` `POST /v1/auth/sessions/revoke` |
 | Users/Settings | `GET/PATCH /v1/me` `GET/PATCH /v1/me/settings` (JSONB: appearance, trading defaults, notifications; see below) `GET /v1/me/export` `DELETE /v1/me` |
-| Brokers (1.2) | `GET /v1/brokers` (the user's accounts; never credentials or the client id) `POST /v1/brokers/upstox` `{label, apiKey, apiSecret}` → PENDING + `{account, authUrl}` `GET /v1/brokers/upstox/callback?code&state` (public; signed single-use state bound to the session; 302 to `/brokers?connected=<id>` or `?error=`) `POST /v1/brokers/dhan` `{label, clientId, accessToken}` (checked with `getProfile`; same label = new token) `POST /v1/brokers/paper` `{label}` `POST /v1/brokers/:id/relogin` → `{account, authUrl}` (Upstox; 422 for Dhan/paper) `PATCH /v1/brokers/:id` `{label?, isDefault?}` `DELETE /v1/brokers/:id`. Over `Plan.maxBrokerAccounts`: 403 |
-| Market data | `GET /v1/instruments?q=&exchange=&segment=&limit=` (trigram + prefix boost, option terms like `nifty 25000 ce`) `GET /v1/instruments/:key` (URL-encoded key) `POST /v1/admin/instruments/sync` `{broker?}` (ADMIN, 202) `GET /v1/quotes?keys=a,b` (≤ 50, from Redis `quote:*`) `GET /v1/candles?key&tf&from&to` `GET /v1/market/status` `GET /v1/market/indices` |
+| Brokers (1.2) | `GET /v1/brokers` (the user's accounts; never credentials or the client id) `POST /v1/brokers/upstox` `{label, apiKey, apiSecret}` → PENDING + `{account, authUrl}` `GET /v1/brokers/upstox/callback?code&state` (public; signed single-use state bound to the session; 302 to `/brokers?connected=<id>` or `?error=`) `POST /v1/brokers/dhan` `{label, clientId?, accessToken}` (checked with `getProfile`; the client id may be left out and is read from the token and profile; the token is accepted as pasted and cleaned by the adapter; same label = new token; valid 24 h, renewed by `broker-token-renew`) `POST /v1/brokers/paper` `{label}` `POST /v1/brokers/:id/relogin` → `{account, authUrl}` (Upstox; 422 for Dhan/paper) `PATCH /v1/brokers/:id` `{label?, isDefault?}` `DELETE /v1/brokers/:id` `GET /v1/brokers/limits` → `{maxBrokerAccounts, brokerAccounts, maxPaperAccounts, paperAccounts}` (1b). Over `Plan.maxBrokerAccounts` (free 2, pro 3, elite 5; paper accounts don't count, at most 3 of them): 403 `FORBIDDEN` "Your plan allows N broker accounts. Remove one or upgrade your plan to connect another." |
+| Market data | `GET /v1/instruments?q=&exchange=&segment=&limit=` (trigram + prefix boost, option terms like `nifty 25000 ce`) `GET /v1/instruments/:key` (URL-encoded key) `POST /v1/admin/instruments/sync` `{broker?}` (ADMIN, 202) `GET /v1/quotes?keys=a,b` (≤ 50, from Redis `quote:*`; `ltp, close, chg, chgPct, vol, oi, bid, ask, open, high, low, atp, bidQty, askQty, ltq, ts`, each optional but `ltp`/`ts`) `GET /v1/quotes/depth?key=` (1b: the latest `RtDepth` book from `depth:<key>`; a known active instrument without one yet answers an empty book `{k, t: 0, bids: [], asks: [], tbq: null, tsq: null}`; unknown key: 404) `GET /v1/candles?key&tf&from&to` (backfilled from the user's account, else the live feed's account; synthetic paper bars only while the simulator drives the feed, served on the fly and never stored) `GET /v1/market/overview` (1b: `MarketOverviewSchema`: NSE/BSE/MCX phases in IST with `MarketHoliday`, the feed `{state, source, live, lastTickAt, reason}`, every `MARKET_INDEX_KEYS` index in order, NIFTY 50 gainers/losers/most active (5 each) and breadth; cached ≤ 1 s) |
 | TradingView UDF | `GET /v1/tv/config` `/v1/tv/symbols` `/v1/tv/search` `/v1/tv/history` `/v1/tv/marks` `/v1/tv/time` |
 | Option chain | `GET /v1/option-chain?underlying&expiry` (chain + greeks, cached 1 s) `GET /v1/option-chain/expiries?underlying` `GET /v1/option-chain/analytics` (PCR, max pain, OI buildup) |
 | Watchlists (1.2) | `GET/POST /v1/watchlists` `PATCH /v1/watchlists/:id` `{name?, position?}` `DELETE /v1/watchlists/:id` `POST /v1/watchlists/:id/items` `{instrumentKey}` `DELETE /v1/watchlists/:id/items/:itemId` `PUT /v1/watchlists/:id/items/order` `{itemIds}`. Over `Plan.maxWatchlists` / `maxWatchlistItems`: 403; duplicates: 409 |
 | Orders | `POST /v1/orders` `PATCH /v1/orders/:id` `DELETE /v1/orders/:id` `GET /v1/orders?status&from&to` `GET /v1/orders/:id` `POST /v1/orders/basket` |
-| Portfolio | `GET /v1/positions` `GET /v1/holdings` `GET /v1/funds` `POST /v1/positions/:key/exit` `POST /v1/positions/exit-all` |
+| Portfolio | (1b) `GET /v1/portfolio/funds` `GET /v1/portfolio/positions` (open first) `GET /v1/portfolio/holdings` (largest value first), each `?accountId=`: the user's account (another user's: 404), else the default ACTIVE one, else the latest ACTIVE one; none: 404 `NOT_FOUND` "Connect a broker…", or 409 `NEEDS_RELOGIN` when an account only needs a new login. Through BrokerGateway, cached 5 s per account and kind (single-flight); rows enriched from `Instrument` and `quote:*`; a refused token marks the account NEEDS_RELOGIN (409); broker down: 503 `BROKER_UNAVAILABLE`. Later: `POST /v1/positions/:key/exit` `POST /v1/positions/exit-all` |
 | P&L | `GET /v1/pnl/live` `GET /v1/pnl/calendar?month=` `GET /v1/pnl/trades?from&to` `GET /v1/pnl/summary` |
 | Strategies | `GET/POST /v1/strategies` `GET/PATCH/DELETE /v1/strategies/:id` `POST /v1/strategies/:id/validate` `POST /v1/strategies/:id/deploy` `POST /v1/strategies/:id/stop` `GET /v1/strategies/:id/runs` `GET /v1/strategies/templates` |
 | Backtests | `POST /v1/backtests` (async → job) `GET /v1/backtests/:id` `GET /v1/backtests?strategyId` `DELETE /v1/backtests/:id` |
@@ -78,6 +78,39 @@ alert { id, title, body, severity }   agent { runId, type, payload }
 feed  { broker, status: "up"|"degraded"|"down" }
 ```
 Handshake: cookie session → `userId`; join `user:<id>`. Server enforces ≤ 300 keys per connection (plan-based).
+
+**As built (1.4, 1b; `packages/shared/src/schemas/realtime.ts` is the contract):**
+- `sub {keys}` → ack `{ok, rejected: [{key, reason}]}`; `unsub {keys}` → ack `{ok}`. At most `Plan.maxRtSubscriptions`
+  keys per socket; `sub`, `unsub`, `dsub` and `dunsub` together at most 10 messages a second per socket.
+- `q {t, d}`: rows `[key, ltp, chg, chgPct, vol, ts, open, high, low, close, oi, atp]` (the last six null until the feed
+  has them), coalesced every 100 ms, each key at most 10 times a second; the stored quote is sent right after a `sub`.
+- `status {feed: "up"|"down"|"stale", source: BrokerCode, live}` on connect and on every change: `source` is the broker
+  whose feed drives every quote (`PAPER` = the simulator, `live` false: the UI labels prices "Simulated").
+- `dsub {key}` → ack `{ok, reason?}` streams `depth {k, t, bids, asks, tbq, tsq}` (levels `[price, qty, orders]`, best
+  first) for a key already in the socket's `sub` set (else `invalid_key`), at most 3 keys per socket (`limit`), each at
+  most 4 books a second; the stored book is sent right after the ack. `dunsub {key}` → ack `{ok}`; `unsub` of the key
+  or a disconnect stops it too.
+
+**Feed source (1b).** One platform market feed (leader lock `lock:feed:market`) driven by `MARKET_FEED_SOURCE` (§7):
+`auto` picks `MARKET_FEED_ACCOUNT_ID` if ACTIVE, else the ACTIVE Upstox account with the latest login, else the latest
+ACTIVE Dhan account, else the simulator; it is re-chosen every 30 s, on `broker.account.*` and on `instruments.synced`.
+A refused token (re-opened once with fresh credentials), a connect failure, a feed down for a minute or a broker
+without a synced instrument master falls back to the simulator with a `reason` and is retried after a backoff (30 s
+doubling to 10 min). An explicit `upstox`/`dhan` source never falls back: it reports `down` with the reason and
+retries. The feed streams the pinned keys (every `MARKET_INDEX_KEYS` index and `NIFTY_50_KEYS`) plus `subs:wanted`,
+mapped to the broker's tokens (`InstrumentBrokerToken`; keys without one are skipped), in `full` mode up to the
+broker's `feedLimits` (Upstox: all `full` up to 2000, else 1500 `full` + up to 2000 `ltp`). Going live deletes the
+simulator's `quote:*` and, once (`candles:origin`), synthetic `Candle` rows and `candles:cov:*`.
+
+| Redis key | What |
+|---|---|
+| `quote:<key>` | hash, the fields of `GET /v1/quotes` plus `src` (the broker that wrote it) |
+| `depth:<key>` / `d:<key>` | latest book (JSON `RtDepth`, 1 day) / its fan-out channel |
+| `subs:wanted` | set of keys the gateways want (broker-agnostic) |
+| `feed:source` | hash `{broker, live, accountId, since, reason}`, rewritten on every switch |
+| `feed:status:<BROKER>` | JSON `{status, ts, lastTickAt}`, PX 15 s, refreshed every second by the leader |
+| `candles:origin` | `BROKER` once synthetic candles were purged |
+| `instruments:synced:<BROKER>` | epoch ms of the last master sync with rows (7 days) |
 
 ## 5. Internal API (api ↔ ai-engine)
 ```
@@ -150,9 +183,9 @@ between the halves of a surrogate pair) rather than send an invalid problem.
   `BROKER_REJECTED`, with the broker's own code in `broker.code` and its message in `broker.message`. Clients can tell
   "we stopped it" from "the broker refused it", and support can look up the broker's code.
 - **`NEEDS_RELOGIN` is 409, never 401.** The user's Finlytics session is still valid; only the broker session expired
-  (Upstox tokens end at 03:30, Dhan tokens after 30 days). A 401 means "not signed in to Finlytics", so the web app
-  would sign the user out. A 409 says the request conflicts with the broker account's state, and the app shows the
-  one-click broker re-login banner instead.
+  (Upstox tokens end at 03:30, Dhan tokens 24 hours after they were issued unless renewed). A 401 means "not signed
+  in to Finlytics", so the web app would sign the user out. A 409 says the request conflicts with the broker
+  account's state, and the app shows the one-click broker re-login banner instead.
 - **`KILL_SWITCH` is 423 (Locked).** Trading stays locked for the user (`TradingControl`) or for everyone
   (`GlobalControl`) until the switch is released.
 - **`SERVICE_UNAVAILABLE` is ours, `BROKER_UNAVAILABLE` is the broker's.** `SERVICE_UNAVAILABLE` (503) means one of our
@@ -291,8 +324,8 @@ exits 1 with one `VARIABLE: reason` line per problem, never a value. Booleans ar
 |---|---|---|---|
 | `NODE_ENV` | `development`, `test`, `production` | `development`, only while `API_HOST` is `127.0.0.1`, `::1` or `localhost`; on any other host it must be set | must be set |
 | `APP_ROLE` | comma list of `http`, `gateway`, `feed`, `worker` (`pnpm dev` runs all four) | `http` | exactly one role per process |
-| `MARKET_FEED_SOURCE` | `paper` (deterministic simulator), `upstox` | `paper` | must be set for `feed` and `gateway` |
-| `MARKET_FEED_ACCOUNT_ID` | the `BrokerAccount` id whose token drives the shared Upstox feed | unset | required when the source is `upstox` and the role is `feed` |
+| `MARKET_FEED_SOURCE` | `auto` (best ACTIVE Upstox/Dhan account, else the simulator), `paper` (deterministic simulator), `upstox`, `dhan` (the account in `MARKET_FEED_ACCOUNT_ID`, no fallback) | `auto` | `upstox` or `dhan`, required for `feed` and `gateway`; `auto` and `paper` are refused |
+| `MARKET_FEED_ACCOUNT_ID` | the `BrokerAccount` id whose token drives the shared feed (with `auto`: preferred while ACTIVE) | unset | required when the source is `upstox` or `dhan` and the role is `feed` |
 | `MARKET_FEED_ALWAYS_ON` | `true`, `false`: the paper simulator ticks outside market hours | `true` (`false` in production) | — |
 | `MARKET_FEED_PAPER_SEED` | integer 0–2 147 483 647 | `1` | — |
 | `MARKET_FEED_PAPER_TICK_MS` | integer 20–60 000 | `250` | — |
@@ -317,3 +350,20 @@ exits 1 with one `VARIABLE: reason` line per problem, never a value. Booleans ar
 Fixed in code, not configurable: the 1 MiB body limit, the 15 s request timeouts, the transaction limits (2 s wait,
 12 s run), the session lifetimes (7 days idle, 30 days absolute), the idempotency TTLs (30 s in flight, 24 h stored),
 the 64 KiB stored-response cap, the `orders` policy (10 per second) and the `publicNet` multiplier (20).
+
+## 8. Domain events (apps/api, in-process)
+`@nestjs/event-emitter` (`EventEmitterModule.forRoot()` in AppModule). Emitted only after the change's transaction has
+committed; a listener's failure is logged and never fails the change. Payloads carry ids, never credentials or tokens.
+
+| Event | Payload | Emitted when |
+|---|---|---|
+| `broker.account.activated` | `{ userId, accountId, broker }` | an account becomes ACTIVE or gets a new token: the Upstox callback, a Dhan or paper connect (also a re-connect of the same label), a renewed Dhan token (`broker-token-renew`) |
+| `broker.account.deactivated` | `{ userId, accountId, broker }` | an account stops being usable: deleted, NEEDS_RELOGIN (the broker refused its token, the token expired, or a renewal was refused) |
+
+| `instruments.synced` | `{ broker, rows }` | an instrument-master sync stored rows (after `instruments:synced:<BROKER>` is recorded) |
+
+Names and payload type: `apps/api/src/modules/brokers/broker-events.ts` (`BROKER_ACCOUNT_EVENTS`, `BrokerAccountEvent`)
+and `broker-instruments.ts` (`INSTRUMENTS_SYNCED_EVENT`). Listeners: the market feed chooses its source again (all
+three); `broker.account.activated` queues the broker's `instrument-master-sync` unless one succeeded in the last 20 h
+(a worker start also queues it for every broker with an ACTIVE account and no sync record); `instruments.synced`
+reloads the adapters' instrument maps and the feed's token cache.
