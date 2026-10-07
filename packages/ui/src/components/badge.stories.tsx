@@ -35,7 +35,7 @@ export const Tones: Story = {
       {(["bg-bg", "bg-surface-1", "bg-surface-2"] as const).map((surface) => (
         <div
           key={surface}
-          className={`flex flex-wrap items-center gap-2 rounded-md border border-border p-3 ${surface}`}
+          className={`flex flex-wrap items-center gap-2 rounded-sm border border-border p-3 ${surface}`}
         >
           {TONES.map(({ tone, label }) => (
             <Badge key={tone} tone={tone}>

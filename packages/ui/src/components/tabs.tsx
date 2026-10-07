@@ -17,7 +17,7 @@ export const tabsListVariants = cva("inline-flex max-w-full items-center", {
       /** Underlined tabs on a 1px rule: page sections, a terminal panel's views. */
       line: "h-10 w-full justify-start gap-4 border-b border-border",
       /** Filled pills in a bordered surface-2 track: a compact switch between views. */
-      segmented: "h-9 w-fit gap-1 rounded-md border border-border bg-surface-2 p-0.5",
+      segmented: "h-9 w-fit gap-1 rounded-sm border border-border bg-surface-2 p-0.5",
     },
   },
   defaultVariants: { variant: "line" },

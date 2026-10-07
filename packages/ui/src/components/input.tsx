@@ -26,13 +26,13 @@ export function Input({ className, invalid, numeric, type, inputMode, ...props }
       aria-invalid={invalid ? true : undefined}
       className={cn(
         // Only the fill transitions: transition-colors would also fade the focus outline in from the text colour.
-        "h-10 w-full min-w-0 rounded-md border border-border-strong bg-surface-2 px-3 text-sm text-fg",
+        "h-10 w-full min-w-0 rounded-sm border border-border-strong bg-surface-2 px-3 text-sm text-fg",
         "transition-[background-color]",
         "placeholder:text-fg-muted hover:bg-surface-3",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid",
         "disabled:cursor-not-allowed disabled:opacity-50",
         "aria-invalid:border-loss aria-invalid:bg-loss/10",
-        "file:me-3 file:rounded-md file:bg-surface-3 file:px-2 file:py-1 file:text-sm file:font-medium file:text-fg",
+        "file:me-3 file:rounded-sm file:bg-surface-3 file:px-2 file:py-1 file:text-sm file:font-medium file:text-fg",
         numeric && "tabular",
         className,
       )}

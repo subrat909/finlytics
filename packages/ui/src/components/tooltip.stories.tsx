@@ -77,7 +77,7 @@ function CollapsibleLink() {
       <Tooltip content="Charts" enabled={collapsed} side="right">
         <a
           href="#charts"
-          className="inline-flex h-9 items-center gap-2 rounded-md px-3 text-sm text-fg hover:bg-surface-2"
+          className="inline-flex h-9 items-center gap-2 rounded-sm px-3 text-sm text-fg hover:bg-surface-2"
         >
           <CandlestickChart aria-hidden="true" className="size-4 text-highlight" />
           <span className={collapsed ? "sr-only" : undefined}>Charts</span>

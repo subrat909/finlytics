@@ -19,7 +19,7 @@ export function Card({ className, ...props }: CardProps) {
   return (
     <div
       data-slot="card"
-      className={cn("flex flex-col gap-4 rounded-md border border-border bg-surface-1 p-4 text-fg sm:p-6", className)}
+      className={cn("flex flex-col gap-4 rounded-sm border border-border bg-surface-1 p-4 text-fg sm:p-6", className)}
       {...props}
     />
   );

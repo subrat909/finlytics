@@ -40,7 +40,7 @@ export function TooltipContent({ className, sideOffset = 6, children, ...props }
         data-slot="tooltip-content"
         sideOffset={sideOffset}
         className={cn(
-          "z-50 max-w-xs rounded-md bg-fg px-2 py-1 text-xs font-medium text-balance text-bg",
+          "z-50 max-w-xs rounded-sm bg-fg px-2 py-1 text-xs font-medium text-balance text-bg",
           "motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-95",
           "origin-(--radix-tooltip-content-transform-origin)",
           className,

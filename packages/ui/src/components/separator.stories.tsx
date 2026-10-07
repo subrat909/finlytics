@@ -14,7 +14,7 @@ type Story = StoryObj<typeof meta>;
 /** Between the sections of a panel, and between items in a status bar. */
 export const HorizontalAndVertical: Story = {
   render: () => (
-    <div className="w-80 rounded-md border border-border bg-surface-1 p-4 text-sm text-fg">
+    <div className="w-80 rounded-sm border border-border bg-surface-1 p-4 text-sm text-fg">
       <p className="font-medium">Funds</p>
       <p className="text-fg-muted">Available margin across your accounts.</p>
       <Separator className="my-3" />

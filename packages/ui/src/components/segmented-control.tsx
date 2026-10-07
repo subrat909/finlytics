@@ -56,7 +56,7 @@ export function SegmentedControl<T extends string>({
         if (option) onValueChange(option.value);
       }}
       className={cn(
-        "inline-flex items-center gap-1 rounded-md border border-border bg-surface-2 p-1",
+        "inline-flex items-center gap-1 rounded-sm border border-border bg-surface-2 p-1",
         "data-[disabled]:opacity-50",
         className,
       )}
@@ -68,7 +68,7 @@ export function SegmentedControl<T extends string>({
           value={option.value}
           data-slot="segmented-control-option"
           className={cn(
-            "inline-flex cursor-pointer items-center justify-center gap-2 rounded-md text-sm font-medium text-fg-muted",
+            "inline-flex cursor-pointer items-center justify-center gap-2 rounded-sm text-sm font-medium text-fg-muted",
             "transition-[color,background-color] hover:bg-surface-3 hover:text-fg",
             "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid",
             "disabled:pointer-events-none",

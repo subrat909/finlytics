@@ -129,8 +129,8 @@ function ColorTokens() {
               <tr key={token}>
                 <td className="py-1.5 font-mono">--{token}</td>
                 <td className="py-1.5">
-                  <span aria-hidden="true" className="block size-8 rounded-lg bg-surface-2 p-1">
-                    <span className={`block size-full rounded-md ${SWATCH[token] ?? ""}`} />
+                  <span aria-hidden="true" className="block size-8 rounded-sm bg-surface-2 p-1">
+                    <span className={`block size-full rounded-sm ${SWATCH[token] ?? ""}`} />
                   </span>
                 </td>
                 <td className="tabular py-1.5">{readToken(token)}</td>
@@ -173,7 +173,7 @@ function ColorTokens() {
                   return (
                     <td key={surface} className="p-1">
                       {used ? (
-                        <div className={`rounded-md px-3 py-2 ${SURFACE_CLASS[surface]}`}>
+                        <div className={`rounded-sm px-3 py-2 ${SURFACE_CLASS[surface]}`}>
                           <div className={`font-medium ${TEXT[token] ?? ""}`}>Aa ₹1,234.50</div>
                           <Ratio foreground={token} background={surface} min={4.5} />
                         </div>
@@ -195,8 +195,8 @@ function ColorTokens() {
         </h2>
         <div className="flex flex-wrap gap-4">
           {FIELD_SURFACES.map((surface) => (
-            <div key={surface} className={`space-y-2 rounded-md p-3 ${SURFACE_CLASS[surface]}`}>
-              <div className="h-10 w-40 rounded-md border border-border-strong bg-surface-2" />
+            <div key={surface} className={`space-y-2 rounded-sm p-3 ${SURFACE_CLASS[surface]}`}>
+              <div className="h-10 w-40 rounded-sm border border-border-strong bg-surface-2" />
               <div className="text-xs text-fg-muted">on {surface}</div>
               <Ratio foreground="border-strong" background={surface} min={3} />
             </div>
@@ -211,7 +211,7 @@ function ColorTokens() {
         <div className="flex flex-wrap gap-4">
           {FILLS.map(([fill, text, className, label]) => (
             <div key={fill} className="space-y-1">
-              <div className={`rounded-md px-4 py-2 font-medium ${className}`}>{label}</div>
+              <div className={`rounded-sm px-4 py-2 font-medium ${className}`}>{label}</div>
               <Ratio foreground={text} background={fill} min={4.5} />
             </div>
           ))}

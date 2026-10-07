@@ -64,7 +64,7 @@ describe("Card", () => {
     expect([card, ...parts].map((part) => part.className).flatMap(forbiddenSurfaceUtilities)).toEqual([]);
     expect(borderUtilities(card.className)).toEqual(["border", "border-border"]);
     expect(parts.flatMap((part) => borderUtilities(part.className))).toEqual([]);
-    expect(card).toHaveClass("bg-surface-1", "rounded-md");
+    expect(card).toHaveClass("bg-surface-1", "rounded-sm");
   });
 
   it("has no axe violations", async () => {

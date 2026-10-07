@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-/** The radius scale, derived from --radius (12px): cards, buttons and inputs use rounded-md (8px). */
+/** The radius scale, derived from --radius (12px): everything uses rounded-sm (6px). */
 const meta = {
   title: "Foundations/Radius",
 } satisfies Meta;
@@ -9,11 +9,11 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 const RADII = [
-  ["rounded-sm", "6px", "Chips, small badges"],
-  ["rounded-md", "8px", "Cards, buttons, inputs, menu items, panels"],
-  ["rounded-lg", "10px", "Tooltips, the brand mark"],
-  ["rounded-xl", "12px", "Not used for cards, buttons or inputs"],
-  ["rounded-2xl", "16px", "Not used for cards, buttons or inputs"],
+  ["rounded-sm", "6px", "Everything: cards, buttons, inputs, menus, panels, dialogs, badges"],
+  ["rounded-md", "8px", "Not used"],
+  ["rounded-lg", "10px", "Not used"],
+  ["rounded-xl", "12px", "Not used"],
+  ["rounded-2xl", "16px", "Not used"],
   ["rounded-full", "50%", "Avatars, status dots, icon circles"],
 ] as const;
 

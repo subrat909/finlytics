@@ -17,7 +17,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-const NATIVE = "h-10 rounded-md bg-surface-2 px-3 text-sm text-fg hover:bg-surface-3";
+const NATIVE = "h-10 rounded-sm bg-surface-2 px-3 text-sm text-fg hover:bg-surface-3";
 
 export const EveryControl: Story = {
   render: () => (
@@ -38,7 +38,7 @@ export const EveryControl: Story = {
         <summary className="cursor-pointer rounded-sm">Details</summary>
         <p className="pt-2 text-fg-muted">Disclosure content.</p>
       </details>
-      <div role="button" tabIndex={0} className="rounded-md bg-surface-2 px-4 py-2 text-sm">
+      <div role="button" tabIndex={0} className="rounded-sm bg-surface-2 px-4 py-2 text-sm">
         Custom button role
       </div>
     </div>

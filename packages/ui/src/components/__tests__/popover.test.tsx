@@ -33,7 +33,7 @@ describe("Popover", () => {
     expect(panel).toHaveAttribute("data-slot", "popover-content");
     expect(borderUtilities(panel.className)).toEqual(["border", "border-border"]);
     expect(forbiddenSurfaceUtilities(panel.className)).toEqual([]);
-    expect(panel).toHaveClass("bg-surface-1", "rounded-md");
+    expect(panel).toHaveClass("bg-surface-1", "rounded-sm");
     await expectNoAxeViolations(panel);
 
     await actor.keyboard("{Escape}");

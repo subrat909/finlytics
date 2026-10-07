@@ -34,7 +34,7 @@ export const Shortcuts: Story = {
       <p className="flex items-center gap-2">
         Toggle the sidebar <Kbd size="sm">[</Kbd>
       </p>
-      <div className="flex h-9 w-72 items-center gap-2 rounded-md bg-surface-2 px-3 text-fg-muted">
+      <div className="flex h-9 w-72 items-center gap-2 rounded-sm bg-surface-2 px-3 text-fg-muted">
         <Search aria-hidden="true" className="size-4" />
         <span className="flex-1">Search…</span>
         <KbdGroup aria-hidden="true">

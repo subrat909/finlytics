@@ -11,8 +11,8 @@ import { cn } from "../lib/utils";
 const skeletonVariants = cva("bg-surface-2 motion-safe:shimmer motion-safe:animate-shimmer", {
   variants: {
     shape: {
-      line: "h-4 w-full rounded-md",
-      block: "h-24 w-full rounded-md",
+      line: "h-4 w-full rounded-sm",
+      block: "h-24 w-full rounded-sm",
       circle: "size-10 shrink-0 rounded-full",
     },
   },

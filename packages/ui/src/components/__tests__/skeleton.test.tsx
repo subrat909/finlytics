@@ -35,9 +35,9 @@ describe("Skeleton", () => {
 
     const [line, block, circle] = skeletons(container);
     expect(line).toHaveAttribute("data-shape", "line");
-    expect(line).toHaveClass("h-4", "rounded-md");
+    expect(line).toHaveClass("h-4", "rounded-sm");
     expect(block).toHaveAttribute("data-shape", "block");
-    expect(block).toHaveClass("rounded-md");
+    expect(block).toHaveClass("rounded-sm");
     expect(circle).toHaveAttribute("data-shape", "circle");
     expect(circle).toHaveClass("rounded-full", "size-12");
     expect(circle).not.toHaveClass("size-10");

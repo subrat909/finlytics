@@ -47,7 +47,7 @@ const meta = {
   component: Table,
   tags: ["responsive"],
   render: () => (
-    <div className="rounded-md border border-border bg-surface-1">
+    <div className="rounded-sm border border-border bg-surface-1">
       <div className="flex h-10 items-center justify-between border-b border-border px-3 text-sm font-medium">
         Positions
         <Badge size="sm" tone="primary">

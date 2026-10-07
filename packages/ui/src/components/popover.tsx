@@ -42,7 +42,7 @@ export function PopoverContent({ className, align = "center", sideOffset = 6, ..
         align={align}
         sideOffset={sideOffset}
         className={cn(
-          "z-50 w-72 rounded-md border border-border bg-surface-1 p-3 text-sm text-fg outline-none",
+          "z-50 w-72 rounded-sm border border-border bg-surface-1 p-3 text-sm text-fg outline-none",
           "origin-(--radix-popover-content-transform-origin)",
           "motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0",
           "motion-safe:data-[state=open]:zoom-in-95 motion-safe:data-[state=closed]:animate-out",

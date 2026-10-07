@@ -127,7 +127,7 @@ describe("Tooltip", () => {
     );
 
     const bubble = document.querySelector('[data-slot="tooltip-content"]');
-    expect(bubble).toHaveClass("bg-fg", "text-bg", "rounded-md");
+    expect(bubble).toHaveClass("bg-fg", "text-bg", "rounded-sm");
     expect(bubble?.className).not.toMatch(/(^|\s)(border|shadow|ring)(-|\s|$)/);
     expect(screen.getByRole("tooltip")).toHaveTextContent("Stops every automated order");
     await expectNoAxeViolations(document.body);
