@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { ErrorState } from "@finlytics/ui/components/error-state";
 
-import type { Timeframe } from "../schemas";
+import type { ChartInterval } from "../schemas";
 
 /** The vendored, licensed Advanced Charts library (CLAUDE.md "Charts"), served from `public/`. */
 export const TV_LIBRARY_PATH = "/charting_library/";
@@ -12,7 +12,17 @@ const UDF_URL = "/v1/udf";
 /** The UDF datafeed polls `/v1/udf/history` for the forming bar (our api, never a broker). */
 const UDF_UPDATE_MS = 5_000;
 
-const INTERVALS: Readonly<Record<Timeframe, string>> = { M1: "1", M5: "5", M15: "15", H1: "60", D1: "1D" };
+const INTERVALS: Readonly<Record<ChartInterval, string>> = {
+  M1: "1",
+  M3: "3",
+  M5: "5",
+  M15: "15",
+  M30: "30",
+  H1: "60",
+  H4: "240",
+  D1: "1D",
+  W1: "1W",
+};
 
 interface TradingViewWidget {
   remove(): void;
@@ -57,7 +67,7 @@ function currentTheme(): "light" | "dark" {
 
 export interface TradingViewChartProps {
   instrumentKey: string;
-  timeframe: Timeframe;
+  timeframe: ChartInterval;
   /** The UDF datafeed bundle that ships with the library (`datafeeds/udf/dist/bundle.js`). */
   datafeedPath: string;
   summary: string;

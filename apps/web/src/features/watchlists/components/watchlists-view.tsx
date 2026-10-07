@@ -1,18 +1,20 @@
 "use client";
 
-import { Pencil, Plus, Star, Trash2 } from "lucide-react";
+import { ListPlus, Plus, Search, Star } from "lucide-react";
 import { Tabs } from "radix-ui";
-import { useCallback, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type * as React from "react";
 
 import { Button } from "@finlytics/ui/components/button";
 import { EmptyState } from "@finlytics/ui/components/empty-state";
 import { ErrorState } from "@finlytics/ui/components/error-state";
-import { cn } from "@finlytics/ui/lib/utils";
 
 import { Toaster } from "@/components/toaster";
 import { useIsClient } from "@/hooks/use-is-client";
+import { InstrumentSearch } from "@/features/instruments/components/instrument-search";
+import { displaySymbol } from "@/features/instruments/lib/describe";
 import { FeedStatus } from "@/features/realtime/components/feed-status";
+import { SimulatedBadge } from "@/features/realtime/components/simulated-badge";
 import { useQuoteSeed } from "@/features/realtime/hooks/use-quote-seed";
 import { useSubscribe } from "@/features/realtime/hooks/use-realtime";
 import { isApiError } from "@/lib/api/client";
@@ -20,6 +22,7 @@ import { announce } from "@/stores/announcer.store";
 import { toast } from "@/stores/toast.store";
 
 import { watchlistErrorMessage } from "../errors";
+import { DESKTOP_QUERY, useDebouncedValue, useMediaQuery } from "../hooks/use-media-query";
 import {
   useAddWatchlistItem,
   useCreateWatchlist,
@@ -29,40 +32,61 @@ import {
   useReorderWatchlistItems,
   useWatchlists,
 } from "../hooks/use-watchlists";
-import { symbolOf } from "../schemas";
+import { isEditableTarget, itemLimitFrom, readActiveList, reorderedIds, writeActiveList } from "../lib/watchlist-lib";
 import type { Instrument, Watchlist, WatchlistItem } from "../schemas";
 
-import { InstrumentSearch } from "./instrument-search";
+import { DetailSheet } from "./detail-sheet";
+import { InstrumentDetail } from "./instrument-detail";
 import { DeleteWatchlistDialog, WatchlistNameDialog } from "./watchlist-dialogs";
-import { WatchlistsSkeleton } from "./watchlists-skeleton";
+import { WatchlistMenu, WatchlistTabs } from "./watchlist-tabs";
+import { InstrumentDetailSkeleton, WatchlistsSkeleton } from "./watchlists-skeleton";
 import { WatchlistTable } from "./watchlist-table";
 
-const tabClasses = cn(
-  "inline-flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-md px-3 text-sm font-medium whitespace-nowrap text-fg-muted",
-  "transition-[color,background-color] hover:bg-surface-2 hover:text-fg data-[state=active]:bg-surface-2 data-[state=active]:text-fg",
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid",
-);
+const EMPTY_ITEMS: readonly WatchlistItem[] = [];
+/** Keyboard browsing settles before the detail panel (depth stream, candles) follows. */
+const DETAIL_DEBOUNCE_MS = 120;
 
-/** Focuses an element after React has committed and the browser has laid it out. */
-function focusLater(id: string) {
-  requestAnimationFrame(() => {
-    document.getElementById(id)?.focus();
-  });
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="inline-flex h-4 min-w-4 items-center justify-center rounded-sm border border-border px-1 font-mono text-[10px] text-fg-muted">
+      {children}
+    </kbd>
+  );
 }
 
 interface WatchlistPanelProps {
   watchlist: Watchlist;
+  selectedKey: string | undefined;
+  depthKey: string | undefined;
+  itemLimit: number | undefined;
+  searchRef: React.RefObject<HTMLInputElement | null>;
+  onLimit: (limit: number) => void;
+  onSelect: (item: WatchlistItem, source: "pointer" | "keyboard") => void;
+  onOpen: (item: WatchlistItem) => void;
+  onToggleDepth: (item: WatchlistItem) => void;
+  onRemove: (item: WatchlistItem, next: WatchlistItem | undefined) => void;
+  onAdded: (instrument: Instrument) => void;
 }
 
 /**
- * One watchlist: add through the search, live rows, remove and reorder. Subscribes to its instruments while it's the
- * open tab (Radix mounts only the active panel) and seeds them from `GET /v1/quotes` so prices show at once.
+ * The open list: the search that adds to it, its live rows and the footer. Subscribes to its instruments while it's
+ * the open tab and seeds them from `GET /v1/quotes`, so prices show at once (and when the market is closed).
  */
-function WatchlistPanel({ watchlist }: WatchlistPanelProps) {
+function WatchlistPanel({
+  watchlist,
+  selectedKey,
+  depthKey,
+  itemLimit,
+  searchRef,
+  onLimit,
+  onSelect,
+  onOpen,
+  onToggleDepth,
+  onRemove,
+  onAdded,
+}: WatchlistPanelProps) {
   const addItem = useAddWatchlistItem();
-  const { mutate: removeItem } = useRemoveWatchlistItem();
   const { mutate: reorder } = useReorderWatchlistItems();
-  const searchRef = useRef<HTMLInputElement>(null);
   const addErrorId = useId();
   const { items } = watchlist;
   const keys = useMemo(() => items.map((item) => item.instrumentKey), [items]);
@@ -75,65 +99,45 @@ function WatchlistPanel({ watchlist }: WatchlistPanelProps) {
       { watchlistId: watchlist.id, instrument },
       {
         onSuccess: () => {
-          announce(`Added ${instrument.symbol} to ${watchlist.name}.`);
+          announce(`Added ${displaySymbol(instrument)} to ${watchlist.name}.`);
+          onAdded(instrument);
+        },
+        onError: (error) => {
+          const limit = itemLimitFrom(isApiError(error) ? error.detail : undefined);
+          if (limit !== undefined) onLimit(limit);
         },
       },
     );
   };
 
-  // Stable across ticks (items change only when the list does), so the memoised rows keep their props.
-  const onMove = useCallback(
-    (item: WatchlistItem, offset: -1 | 1) => {
-      const from = items.findIndex((candidate) => candidate.id === item.id);
-      const to = from + offset;
-      if (from < 0 || to < 0 || to >= items.length) return;
-      const ids = items.map((candidate) => candidate.id);
-      [ids[from], ids[to]] = [ids[to] ?? item.id, ids[from] ?? item.id];
-      reorder(
-        { watchlistId: watchlist.id, itemIds: ids },
-        {
-          onError: (error) => toast.error("The order didn't save", watchlistErrorMessage(error, "Try again.")),
-        },
-      );
-      announce(`Moved ${symbolOf(item)} to position ${String(to + 1)} of ${String(items.length)}.`);
-      // The row's node moves; keep the keyboard where it was (or on the other arrow at either end).
-      const edge = to === 0 || to === items.length - 1;
-      focusLater(`${item.id}-${edge ? (offset < 0 ? "down" : "up") : offset < 0 ? "up" : "down"}`);
-    },
-    [items, reorder, watchlist.id],
-  );
-  const onRemove = useCallback(
-    (item: WatchlistItem) => {
-      removeItem(
-        { watchlistId: watchlist.id, itemId: item.id },
-        {
-          onSuccess: () => {
-            announce(`Removed ${symbolOf(item)}.`);
-          },
-          onError: (error) =>
-            toast.error(`Couldn't remove ${symbolOf(item)}`, watchlistErrorMessage(error, "Try again.")),
-        },
-      );
-      searchRef.current?.focus();
-    },
-    [removeItem, watchlist.id],
-  );
+  const onMoveTo = (item: WatchlistItem, to: number) => {
+    const from = items.findIndex((candidate) => candidate.id === item.id);
+    if (from < 0 || to === from || to < 0 || to >= items.length) return;
+    reorder(
+      { watchlistId: watchlist.id, itemIds: reorderedIds(items, from, to) },
+      { onError: (error) => toast.error("The order didn't save", watchlistErrorMessage(error, "Try again.")) },
+    );
+    announce(`Moved ${displaySymbol(item.instrument)} to position ${String(to + 1)} of ${String(items.length)}.`);
+  };
 
   const addError = addItem.isError
     ? watchlistErrorMessage(addItem.error, "That instrument wasn't added. Try again.")
     : undefined;
+  const count = items.length;
 
   return (
-    <div className="space-y-4">
-      <div className="space-y-2">
+    <>
+      <div className="shrink-0 space-y-2 border-b border-border p-2" data-slot="watchlist-search">
         <InstrumentSearch
           inputRef={searchRef}
           label={`Add to ${watchlist.name}`}
           hideLabel
+          size="sm"
+          shortcut="/"
+          placeholder="Search & add: infy, nifty 24000 ce…"
           onSelect={add}
           disabledKeys={keySet}
           busy={addItem.isPending}
-          className="sm:max-w-md"
           aria-describedby={addError ? addErrorId : undefined}
         />
         {addError ? (
@@ -142,16 +146,17 @@ function WatchlistPanel({ watchlist }: WatchlistPanelProps) {
             role="alert"
             data-slot="watchlist-add-error"
             data-code={isApiError(addItem.error) ? addItem.error.code : undefined}
-            className="rounded-md bg-loss/10 px-3 py-2 text-sm text-fg sm:max-w-md"
+            className="rounded-md bg-loss/10 px-3 py-2 text-xs text-fg"
           >
             {addError}
           </p>
         ) : null}
       </div>
-      {items.length === 0 ? (
-        <section aria-labelledby={`${watchlist.id}-empty`} className="rounded-md bg-surface-1">
+      {count === 0 ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
           <EmptyState
             id={`${watchlist.id}-empty`}
+            size="inline"
             headingLevel={2}
             icon={<Star className="text-highlight" />}
             title={
@@ -159,45 +164,173 @@ function WatchlistPanel({ watchlist }: WatchlistPanelProps) {
                 Add your first symbol <span aria-hidden="true">⭐</span>
               </>
             }
-            description="Search an index, a stock or an option above. Prices update live."
+            description="Search an index, a stock or an option. Prices, depth and the chart update live."
             action={
               <Button
+                size="sm"
                 onClick={() => {
                   searchRef.current?.focus();
                 }}
               >
-                <Plus aria-hidden="true" />
-                Add a symbol
+                <Search aria-hidden="true" />
+                Search to add
               </Button>
             }
           />
-        </section>
+        </div>
       ) : (
-        <WatchlistTable name={watchlist.name} items={items} onMove={onMove} onRemove={onRemove} />
+        <WatchlistTable
+          name={watchlist.name}
+          items={items}
+          selectedKey={selectedKey}
+          depthKey={depthKey}
+          onSelect={onSelect}
+          onOpen={onOpen}
+          onToggleDepth={onToggleDepth}
+          onRemove={onRemove}
+          onMoveTo={onMoveTo}
+        />
       )}
-    </div>
+      <footer
+        data-slot="watchlist-footer"
+        className="flex h-8 shrink-0 items-center justify-between gap-3 border-t border-border px-3 text-[11px] text-fg-muted"
+      >
+        <span className="tabular">
+          {itemLimit === undefined
+            ? `${String(count)} instrument${count === 1 ? "" : "s"}`
+            : `${String(count)} / ${String(itemLimit)} instruments`}
+        </span>
+        <span aria-hidden="true" className="hidden items-center gap-1 pointer-fine:sm:flex">
+          <Kbd>↑</Kbd>
+          <Kbd>↓</Kbd> select · <Kbd>↵</Kbd> details · <Kbd>D</Kbd> depth · <Kbd>Del</Kbd> remove
+        </span>
+      </footer>
+    </>
   );
 }
 
 type NameDialog = { mode: "create" } | { mode: "rename"; watchlist: Watchlist } | null;
 
 /**
- * The watchlists page body (docs/05 Watchlists): a tab per list (create, rename, delete), the open list's live rows,
- * and every state: loading skeleton, empty with a CTA, error with retry.
+ * The watchlist terminal (docs/05 Watchlists, plan phase-1b W): a list panel (numbered tabs, search to add, dense live
+ * rows with hover and keyboard actions, footer) and, from 1024 px, the selected instrument's detail panel (quote,
+ * statistics, market depth, intraday chart); below 1024 px the detail opens in a sheet. Every state: shaped skeleton,
+ * empty with a CTA, error with retry. Render inside `TerminalPage`.
  */
 export function WatchlistsView() {
   const lists = useWatchlists();
   // Render what the server did (the skeleton) until hydration is over, even if the query already finished.
   const hydrated = useIsClient();
+  const isDesktop = useMediaQuery(DESKTOP_QUERY);
   const create = useCreateWatchlist();
   const rename = useRenameWatchlist();
-  const remove = useDeleteWatchlist();
-  const [selected, setSelected] = useState<string | undefined>(undefined);
+  const removeList = useDeleteWatchlist();
+  const { mutate: removeItem } = useRemoveWatchlistItem();
+  const [activeId, setActiveId] = useState<string | undefined>(readActiveList);
+  const [selection, setSelection] = useState<Readonly<Record<string, string>>>({});
+  const [depthKey, setDepthKey] = useState<string | undefined>(undefined);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [nameDialog, setNameDialog] = useState<NameDialog>(null);
   const [deleting, setDeleting] = useState<Watchlist | null>(null);
+  const [itemLimit, setItemLimit] = useState<number | undefined>(undefined);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  /** Enter on a row (desktop): focus the detail heading once the panel shows that instrument. */
+  const focusDetail = useRef<string | undefined>(undefined);
 
   const data = lists.data;
-  const active = data?.find((list) => list.id === selected) ?? data?.[0];
+  const active = data?.find((list) => list.id === activeId) ?? data?.[0];
+  const items = active?.items ?? EMPTY_ITEMS;
+  const selectedItem = items.find((item) => item.instrumentKey === selection[active?.id ?? ""]) ?? items[0];
+  const openDepthKey = items.some((item) => item.instrumentKey === depthKey) ? depthKey : undefined;
+  const detailInstrument = useDebouncedValue(selectedItem?.instrument, DETAIL_DEBOUNCE_MS);
+  const ready = hydrated && data !== undefined;
+  const failed = lists.isError && data === undefined;
+
+  useEffect(() => {
+    if (focusDetail.current === undefined || detailInstrument?.key !== focusDetail.current) return;
+    focusDetail.current = undefined;
+    headingRef.current?.focus();
+  });
+
+  // "/" focuses the search (not while typing, and not under a dialog).
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "/" || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (isEditableTarget(event.target) || document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
+      const input = searchRef.current;
+      if (input === null) return;
+      event.preventDefault();
+      input.focus();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
+
+  const select = useCallback(
+    (item: WatchlistItem, source: "pointer" | "keyboard") => {
+      if (active === undefined) return;
+      setSelection((current) => ({ ...current, [active.id]: item.instrumentKey }));
+      if (source === "pointer" && !isDesktop) setSheetOpen(true);
+    },
+    [active, isDesktop],
+  );
+
+  const open = useCallback(
+    (item: WatchlistItem) => {
+      if (active === undefined) return;
+      setSelection((current) => ({ ...current, [active.id]: item.instrumentKey }));
+      if (isDesktop) focusDetail.current = item.instrumentKey;
+      else setSheetOpen(true);
+    },
+    [active, isDesktop],
+  );
+
+  const toggleDepth = useCallback((item: WatchlistItem) => {
+    setDepthKey((current) => (current === item.instrumentKey ? undefined : item.instrumentKey));
+  }, []);
+
+  const removeInstrument = useCallback(
+    (item: WatchlistItem, next: WatchlistItem | undefined) => {
+      if (active === undefined) return;
+      const symbol = displaySymbol(item.instrument);
+      if (next !== undefined) setSelection((current) => ({ ...current, [active.id]: next.instrumentKey }));
+      else if (active.items.length <= 1) {
+        setSheetOpen(false);
+        searchRef.current?.focus();
+      }
+      removeItem(
+        { watchlistId: active.id, itemId: item.id },
+        {
+          onSuccess: () => {
+            announce(`Removed ${symbol} from ${active.name}.`);
+          },
+          onError: (error) => toast.error(`Couldn't remove ${symbol}`, watchlistErrorMessage(error, "Try again.")),
+        },
+      );
+    },
+    [active, removeItem],
+  );
+
+  const removeSelected =
+    active === undefined || selectedItem === undefined
+      ? undefined
+      : () => {
+          const index = active.items.findIndex((item) => item.id === selectedItem.id);
+          removeInstrument(selectedItem, active.items[index + 1] ?? active.items[index - 1]);
+        };
+  const removeLabel =
+    active === undefined || selectedItem === undefined
+      ? undefined
+      : `Remove ${displaySymbol(selectedItem.instrument)} from ${active.name}`;
+
+  const switchList = (id: string) => {
+    setActiveId(id);
+    writeActiveList(id);
+    setDepthKey(undefined);
+  };
 
   const submitName = async (name: string) => {
     try {
@@ -206,7 +339,7 @@ export function WatchlistsView() {
         announce(`Renamed to ${name}.`);
       } else {
         const created = await create.mutateAsync(name);
-        setSelected(created.id);
+        switchList(created.id);
         announce(`Created ${name}.`);
       }
       setNameDialog(null);
@@ -215,17 +348,16 @@ export function WatchlistsView() {
     }
   };
 
+  const openCreate = () => {
+    setNameDialog({ mode: "create" });
+  };
+
   let body: React.ReactNode;
-  if (!hydrated || lists.isPending) {
+  if (failed) {
     body = (
-      <div role="status" aria-label="Loading watchlists">
-        <WatchlistsSkeleton />
-      </div>
-    );
-  } else if (lists.isError) {
-    body = (
-      <section className="rounded-md bg-surface-1">
+      <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
         <ErrorState
+          size="inline"
           title="Your watchlists didn't load"
           description="The Finlytics service didn't answer. Try again in a moment."
           reference={isApiError(lists.error) ? lists.error.requestId : undefined}
@@ -233,106 +365,142 @@ export function WatchlistsView() {
             await lists.refetch({ throwOnError: true });
           }}
         />
-      </section>
+      </div>
+    );
+  } else if (!ready) {
+    body = (
+      <div role="status" aria-label="Loading watchlists" className="flex min-h-0 flex-1 flex-col">
+        <WatchlistsSkeleton />
+      </div>
     );
   } else if (active === undefined) {
     body = (
-      <section aria-labelledby="watchlists-empty" className="rounded-md bg-surface-1">
+      <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
         <EmptyState
           id="watchlists-empty"
-          icon={<Star className="text-highlight" />}
+          size="inline"
+          icon={<ListPlus className="text-highlight" />}
           title={
             <>
               Create your first watchlist <span aria-hidden="true">⭐</span>
             </>
           }
-          description="Group the instruments you follow and watch them update live."
+          description="Group the instruments you follow and watch them update live, with depth and a chart for each."
           action={
-            <Button
-              onClick={() => {
-                setNameDialog({ mode: "create" });
-              }}
-            >
+            <Button size="sm" onClick={openCreate}>
               <Plus aria-hidden="true" />
               New watchlist
             </Button>
           }
         />
-      </section>
+      </div>
     );
   } else {
     body = (
-      <Tabs.Root value={active.id} onValueChange={setSelected} className="space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <Tabs.List aria-label="Watchlists" className="flex min-w-0 flex-1 gap-1 overflow-x-auto p-0.5">
-            {data?.map((list) => (
-              <Tabs.Trigger key={list.id} value={list.id} className={tabClasses} data-slot="watchlist-tab">
-                {list.name}
-                <span aria-hidden="true" className="rounded-full bg-surface-3 px-1.5 text-xs tabular text-fg-muted">
-                  {list.items.length}
-                </span>
-                <span className="sr-only">{`, ${String(list.items.length)} instruments`}</span>
-              </Tabs.Trigger>
-            ))}
-          </Tabs.List>
-          <div className="flex items-center gap-1">
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label="New watchlist"
-              onClick={() => {
-                setNameDialog({ mode: "create" });
-              }}
-            >
-              <Plus aria-hidden="true" />
-            </Button>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label={`Rename ${active.name}`}
-              onClick={() => {
-                setNameDialog({ mode: "rename", watchlist: active });
-              }}
-            >
-              <Pencil aria-hidden="true" />
-            </Button>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              className="text-loss"
-              aria-label={`Delete ${active.name}`}
-              onClick={() => {
-                setDeleting(active);
-              }}
-            >
-              <Trash2 aria-hidden="true" />
-            </Button>
-          </div>
-        </div>
+      <Tabs.Root value={active.id} onValueChange={switchList} className="flex min-h-0 flex-1 flex-col">
+        <WatchlistTabs lists={data} activeId={active.id} onCreate={openCreate} />
         <Tabs.Content
           value={active.id}
-          className="rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid"
+          className="flex min-h-0 flex-1 flex-col focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid"
         >
-          <WatchlistPanel watchlist={active} />
+          <WatchlistPanel
+            watchlist={active}
+            selectedKey={selectedItem?.instrumentKey}
+            depthKey={openDepthKey}
+            itemLimit={itemLimit}
+            searchRef={searchRef}
+            onLimit={setItemLimit}
+            onSelect={select}
+            onOpen={open}
+            onToggleDepth={toggleDepth}
+            onRemove={removeInstrument}
+            onAdded={(instrument) => {
+              setSelection((current) => ({ ...current, [active.id]: instrument.key }));
+            }}
+          />
         </Tabs.Content>
       </Tabs.Root>
     );
   }
 
+  let detail: React.ReactNode;
+  if (!isDesktop || (!ready && !failed)) {
+    detail = <InstrumentDetailSkeleton />;
+  } else if (detailInstrument === undefined || selectedItem === undefined) {
+    detail = (
+      <div className="flex min-h-0 flex-1 items-center justify-center">
+        <EmptyState
+          size="inline"
+          icon={<Search className="text-highlight" />}
+          title="Pick an instrument"
+          description={
+            failed
+              ? "Details show here once your watchlists load."
+              : "Search and add instruments on the left: the quote, market depth and an intraday chart show here."
+          }
+        />
+      </div>
+    );
+  } else {
+    detail = (
+      <InstrumentDetail
+        key={detailInstrument.key}
+        instrument={detailInstrument}
+        headingRef={headingRef}
+        onRemove={detailInstrument.key === selectedItem.instrumentKey ? removeSelected : undefined}
+        removeLabel={removeLabel}
+      />
+    );
+  }
+
   return (
     <>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight text-fg">Watchlists</h1>
-          <p className="text-sm text-fg-muted">Your symbols with live prices.</p>
-        </div>
-        <FeedStatus />
-      </div>
-      {body}
+      <section
+        aria-labelledby="watchlists-title"
+        data-slot="watchlist-panel"
+        className="flex min-h-0 w-full flex-col bg-surface-1 lg:w-[360px] lg:shrink-0 lg:rounded-md lg:border lg:border-border"
+      >
+        <header className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border px-3">
+          <h1 id="watchlists-title" className="truncate text-sm font-semibold text-fg">
+            Watchlists
+          </h1>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <SimulatedBadge />
+            <FeedStatus compact />
+            {ready ? (
+              <WatchlistMenu
+                active={active}
+                onCreate={openCreate}
+                onRename={(watchlist) => {
+                  setNameDialog({ mode: "rename", watchlist });
+                }}
+                onDelete={setDeleting}
+              />
+            ) : null}
+          </div>
+        </header>
+        {body}
+      </section>
+      <section
+        aria-label="Instrument details"
+        data-slot="watchlist-detail"
+        className="hidden min-w-0 flex-1 flex-col overflow-hidden rounded-md border border-border bg-surface-1 lg:flex"
+      >
+        {detail}
+      </section>
+      {hydrated && !isDesktop ? (
+        <DetailSheet
+          instrument={selectedItem?.instrument}
+          open={sheetOpen}
+          onOpenChange={setSheetOpen}
+          onRemove={removeSelected}
+          removeLabel={removeLabel}
+        />
+      ) : null}
       <WatchlistNameDialog
         open={nameDialog !== null}
-        onOpenChange={(open) => {
-          if (!open) setNameDialog(null);
+        onOpenChange={(next) => {
+          if (!next) setNameDialog(null);
         }}
         mode={nameDialog?.mode ?? "create"}
         defaultName={nameDialog?.mode === "rename" ? nameDialog.watchlist.name : undefined}
@@ -340,21 +508,21 @@ export function WatchlistsView() {
       />
       <DeleteWatchlistDialog
         open={deleting !== null}
-        onOpenChange={(open) => {
-          if (!open) setDeleting(null);
+        onOpenChange={(next) => {
+          if (!next) setDeleting(null);
         }}
         name={deleting?.name ?? ""}
         count={deleting?.items.length ?? 0}
         onConfirm={() => {
           if (deleting === null) return;
           const { id, name } = deleting;
-          remove.mutate(id, {
+          removeList.mutate(id, {
             onSuccess: () => {
               announce(`Deleted ${name}.`);
             },
             onError: (error) => toast.error(`Couldn't delete “${name}”`, watchlistErrorMessage(error, "Try again.")),
           });
-          setSelected(undefined);
+          if (id === active?.id) setActiveId(undefined);
         }}
       />
       <Toaster />

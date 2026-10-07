@@ -1,12 +1,11 @@
 "use client";
 
-import { Check, CircleAlert, LoaderCircle, Rows3, Rows4 } from "lucide-react";
+import { Check, CircleAlert, LoaderCircle, Palette, Rows3, Rows4 } from "lucide-react";
 import { useEffect, useId, useRef } from "react";
 import type * as React from "react";
 
 import type { UserSettings } from "@finlytics/shared";
 import { Button } from "@finlytics/ui/components/button";
-import { Card, CardDescription, CardHeader, CardTitle } from "@finlytics/ui/components/card";
 import { ErrorState } from "@finlytics/ui/components/error-state";
 import { SegmentedControl } from "@finlytics/ui/components/segmented-control";
 import type { SegmentedOption } from "@finlytics/ui/components/segmented-control";
@@ -38,7 +37,7 @@ function SettingRow({ label, description, control }: SettingRowProps) {
   const labelId = `${id}-label`;
   const descriptionId = `${id}-description`;
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+    <div className="flex flex-col gap-3 border-t border-border px-4 py-4 first:border-t-0 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
       <div className="min-w-0 space-y-0.5">
         <p id={labelId} className="text-sm font-medium text-fg">
           {label}
@@ -92,7 +91,7 @@ function SaveStatus({ save }: { save: ReturnType<typeof useSaveAppearance> }) {
       role="status"
       aria-live="polite"
       data-slot="appearance-save-status"
-      className="flex min-h-8 flex-wrap items-center gap-2 text-sm text-fg-muted"
+      className="flex min-h-10 flex-wrap items-center gap-2 border-t border-border px-4 py-1.5 text-[0.8125rem] text-fg-muted"
     >
       {content}
     </div>
@@ -116,13 +115,7 @@ function AppearanceCard({ settings }: { settings: UserSettings }) {
   }, [accountDensity, density, setDensity]);
 
   return (
-    <Card data-slot="appearance-card" className="gap-6">
-      <CardHeader>
-        <CardTitle asChild>
-          <h2>Appearance</h2>
-        </CardTitle>
-        <CardDescription>How Finlytics looks. Changes apply at once and are saved to your account.</CardDescription>
-      </CardHeader>
+    <AppearancePanel>
       <SettingRow
         label="Theme"
         description="System follows your device. This device's choice wins; new devices start with it."
@@ -136,7 +129,6 @@ function AppearanceCard({ settings }: { settings: UserSettings }) {
           />
         )}
       />
-      <div aria-hidden="true" className="h-px bg-border" />
       <SettingRow
         label="Density"
         description="Compact tightens spacing everywhere, so more rows fit on screen."
@@ -156,7 +148,33 @@ function AppearanceCard({ settings }: { settings: UserSettings }) {
         )}
       />
       <SaveStatus save={save} />
-    </Card>
+    </AppearancePanel>
+  );
+}
+
+/**
+ * The Appearance panel: the `#appearance` anchor, a 40px header with the section's h2 on a 1px rule, then the rows.
+ * Shared by the loaded, loading and error states, so the page doesn't jump between them.
+ */
+function AppearancePanel({ children }: { children: React.ReactNode }) {
+  return (
+    <section
+      id="appearance"
+      aria-labelledby="appearance-heading"
+      data-slot="appearance-card"
+      className="scroll-mt-4 rounded-md border border-border bg-surface-1"
+    >
+      <div className="flex min-h-10 flex-wrap items-center justify-between gap-x-3 border-b border-border px-4 py-2">
+        <h2 id="appearance-heading" className="flex items-center gap-2 text-sm font-semibold text-fg">
+          <Palette aria-hidden="true" className="size-4 shrink-0 text-primary" />
+          Appearance
+        </h2>
+        <p className="text-xs text-fg-muted">
+          How Finlytics looks. Changes apply at once and are saved to your account.
+        </p>
+      </div>
+      {children}
+    </section>
   );
 }
 
@@ -174,10 +192,10 @@ export function AppearanceSettings() {
 
   if (settings.isError) {
     return (
-      <Card>
+      <AppearancePanel>
         <ErrorState
           size="inline"
-          headingLevel={2}
+          headingLevel={3}
           title="Your settings didn't load"
           description="The Finlytics service didn't answer. Your theme still works on this device; try again in a moment."
           reference={isApiError(settings.error) ? settings.error.requestId : undefined}
@@ -185,7 +203,7 @@ export function AppearanceSettings() {
             await settings.refetch({ throwOnError: true });
           }}
         />
-      </Card>
+      </AppearancePanel>
     );
   }
 

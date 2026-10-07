@@ -1,14 +1,16 @@
 "use client";
 
-import { InstrumentListSchema, WatchlistListSchema, WatchlistSchema } from "@finlytics/shared";
+import { WatchlistListSchema, WatchlistSchema } from "@finlytics/shared";
 import type { Instrument, Watchlist } from "@finlytics/shared";
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 
 import { apiRequest } from "@/lib/api/client";
 
+/** Moved to `features/instruments`; re-exported for existing imports. */
+export { SEARCH_LIMIT, useInstrumentSearch } from "@/features/instruments/hooks/use-instrument-search";
+
 export const WATCHLISTS_QUERY_KEY = ["watchlists"] as const;
-export const SEARCH_LIMIT = 20;
 
 function listPath(id: string): `/v1/${string}` {
   return `/v1/watchlists/${encodeURIComponent(id)}`;
@@ -19,21 +21,6 @@ export function useWatchlists() {
   return useQuery({
     queryKey: WATCHLISTS_QUERY_KEY,
     queryFn: ({ signal }) => apiRequest("/v1/watchlists", WatchlistListSchema, { signal }),
-  });
-}
-
-/** `GET /v1/instruments?q=&limit=20`; the previous results stay while the next query loads. */
-export function useInstrumentSearch(query: string) {
-  const q = query.trim();
-  return useQuery({
-    queryKey: ["instruments", "search", q],
-    queryFn: ({ signal }) =>
-      apiRequest(`/v1/instruments?q=${encodeURIComponent(q)}&limit=${String(SEARCH_LIMIT)}`, InstrumentListSchema, {
-        signal,
-      }),
-    enabled: q.length > 0,
-    placeholderData: keepPreviousData,
-    staleTime: 60_000,
   });
 }
 

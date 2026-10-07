@@ -3,9 +3,12 @@
 import { useEffect } from "react";
 
 import { useRealtimeClient } from "../components/realtime-provider";
-import type { Tick } from "../schemas";
+import type { FeedSource, Tick } from "../schemas";
 import { isStale, useMarketStore } from "../store";
 import type { ConnectionStatus, MarketState } from "../store";
+
+export { useDepth } from "./use-depth";
+export type { DepthView } from "./use-depth";
 
 const SEPARATOR = "\n";
 
@@ -44,4 +47,12 @@ export function useConnectionStatus(): ConnectionStatus {
 
 export function useFeedStatus(): MarketState["feed"] {
   return useMarketStore((state) => state.feed);
+}
+
+/**
+ * Which broker's feed drives the prices, and whether it is live (`live: false` is the paper simulator: label prices
+ * "Simulated"). Undefined until the server's first `status`.
+ */
+export function useFeedSource(): FeedSource | undefined {
+  return useMarketStore((state) => state.source);
 }

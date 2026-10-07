@@ -5,20 +5,51 @@ import type { CreateWatchlist } from "@finlytics/shared";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { X } from "lucide-react";
 import { AlertDialog, Dialog } from "radix-ui";
+import { useId, useRef } from "react";
 import { useForm } from "react-hook-form";
 
 import { Button } from "@finlytics/ui/components/button";
 import { Input } from "@finlytics/ui/components/input";
-
-import {
-  dialogCloseClasses,
-  dialogContentClasses,
-  dialogOverlayClasses,
-  useReturnFocus,
-} from "@/features/brokers/components/add-broker-dialog";
-import { FormField } from "@/features/brokers/components/form-field";
+import { cn } from "@finlytics/ui/lib/utils";
 
 import { watchlistNameErrors } from "../schemas";
+
+const overlayClasses =
+  "fixed inset-0 z-40 bg-bg/80 backdrop-blur-sm motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0";
+const contentClasses = cn(
+  "fixed top-1/2 left-1/2 z-50 max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2",
+  "overflow-y-auto rounded-md border border-border bg-surface-1 p-5 text-fg sm:p-6",
+  "motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0 motion-safe:data-[state=open]:zoom-in-95",
+);
+const closeClasses =
+  "absolute top-3 right-3 inline-flex size-8 cursor-pointer items-center justify-center rounded-md text-fg-muted transition-[color,background-color] hover:bg-surface-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid";
+
+/**
+ * Focus return for a dialog opened without a Radix Trigger (a menu item, an empty state): remembers what had focus
+ * when it opened and returns there on close, or to `fallback` when that element is gone. Spread on the Content.
+ */
+function useReturnFocus(fallback: () => HTMLElement | null | undefined) {
+  const opener = useRef<HTMLElement | null>(null);
+  return {
+    onOpenAutoFocus: () => {
+      opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    },
+    onCloseAutoFocus: (event: Event) => {
+      event.preventDefault();
+      const target = opener.current?.isConnected && opener.current !== document.body ? opener.current : fallback();
+      target?.focus();
+      opener.current = null;
+    },
+  };
+}
+
+/** After a list is created, renamed or deleted, the keyboard goes to the open list's search (else its tab). */
+function watchlistFocusTarget(): HTMLElement | null {
+  return (
+    document.querySelector<HTMLElement>('[data-slot="watchlist-search"] input') ??
+    document.querySelector<HTMLElement>('[role="tab"][data-state="active"]')
+  );
+}
 
 export interface WatchlistNameDialogProps {
   open: boolean;
@@ -35,11 +66,13 @@ function NameForm({
   onSubmit,
   onCancel,
 }: Omit<WatchlistNameDialogProps, "open" | "onOpenChange"> & { onCancel: () => void }) {
+  const id = useId();
   const form = useForm<CreateWatchlist>({
     resolver: zodResolver(CreateWatchlistSchema, { error: watchlistNameErrors }),
     defaultValues: { name: defaultName ?? "" },
   });
   const { errors, isSubmitting } = form.formState;
+  const nameError = errors.name?.message;
 
   return (
     <form
@@ -53,9 +86,24 @@ function NameForm({
         }
       })}
     >
-      <FormField label="Name" error={errors.name?.message}>
-        {(control) => <Input {...control} autoComplete="off" maxLength={60} {...form.register("name")} />}
-      </FormField>
+      <div className="space-y-1.5">
+        <label htmlFor={`${id}-name`} className="block text-sm font-medium text-fg">
+          Name
+        </label>
+        <Input
+          id={`${id}-name`}
+          autoComplete="off"
+          maxLength={60}
+          invalid={nameError !== undefined}
+          aria-describedby={nameError === undefined ? undefined : `${id}-error`}
+          {...form.register("name")}
+        />
+        {nameError === undefined ? null : (
+          <p id={`${id}-error`} className="text-sm text-loss">
+            {nameError}
+          </p>
+        )}
+      </div>
       {errors.root?.message ? (
         <p role="alert" className="rounded-md bg-loss/10 px-3 py-2 text-sm text-fg">
           {errors.root.message}
@@ -75,15 +123,12 @@ function NameForm({
 
 /** Create or rename a watchlist (react-hook-form + Zod; server errors such as a plan limit show in the dialog). */
 export function WatchlistNameDialog({ open, onOpenChange, mode, defaultName, onSubmit }: WatchlistNameDialogProps) {
-  // A new list opens its tab: the search is where the user goes next.
-  const returnFocus = useReturnFocus(() =>
-    document.querySelector<HTMLElement>('[data-slot="instrument-search"] input'),
-  );
+  const returnFocus = useReturnFocus(watchlistFocusTarget);
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className={dialogOverlayClasses} />
-        <Dialog.Content data-slot="watchlist-name-dialog" className={dialogContentClasses} {...returnFocus}>
+        <Dialog.Overlay className={overlayClasses} />
+        <Dialog.Content data-slot="watchlist-name-dialog" className={contentClasses} {...returnFocus}>
           <Dialog.Title className="pr-8 text-lg font-semibold">
             {mode === "create" ? "New watchlist" : "Rename watchlist"}
           </Dialog.Title>
@@ -101,7 +146,7 @@ export function WatchlistNameDialog({ open, onOpenChange, mode, defaultName, onS
               }}
             />
           ) : null}
-          <Dialog.Close aria-label="Close" className={dialogCloseClasses}>
+          <Dialog.Close aria-label="Close" className={closeClasses}>
             <X aria-hidden="true" className="size-4" />
           </Dialog.Close>
         </Dialog.Content>
@@ -120,13 +165,12 @@ export interface DeleteWatchlistDialogProps {
 
 /** Confirms deleting a watchlist (an alert dialog: focus starts on Cancel). */
 export function DeleteWatchlistDialog({ open, onOpenChange, name, count, onConfirm }: DeleteWatchlistDialogProps) {
-  // The deleted list's tab is gone: land on the tabs.
-  const returnFocus = useReturnFocus(() => document.querySelector<HTMLElement>('[role="tab"][data-state="active"]'));
+  const returnFocus = useReturnFocus(watchlistFocusTarget);
   return (
     <AlertDialog.Root open={open} onOpenChange={onOpenChange}>
       <AlertDialog.Portal>
-        <AlertDialog.Overlay className={dialogOverlayClasses} />
-        <AlertDialog.Content className={dialogContentClasses} {...returnFocus}>
+        <AlertDialog.Overlay className={overlayClasses} />
+        <AlertDialog.Content className={contentClasses} {...returnFocus}>
           <AlertDialog.Title className="pr-8 text-lg font-semibold">Delete “{name}”?</AlertDialog.Title>
           <AlertDialog.Description className="mt-2 text-sm text-fg-muted">
             {count === 0

@@ -3,14 +3,15 @@
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 
 import { Button } from "@finlytics/ui/components/button";
+import { Kbd } from "@finlytics/ui/components/kbd";
+import { Tooltip } from "@finlytics/ui/components/tooltip";
 
 import { useUiStore } from "@/stores/ui.store";
 
 import { SIDEBAR_ID } from "./sidebar";
-import { ShellTooltip } from "./tooltip";
 
 /**
- * Collapses and expands the desktop sidebar (≥ 1024 px), from the top bar's left edge; `[` does the same. Below
+ * Collapses and expands the desktop sidebar (≥ 1024 px), from the navbar's left edge; `[` does the same. Below
  * 1024 px the sidebar is a sheet, and MobileNav's button takes this place.
  */
 export function SidebarToggle({ collapsed }: { collapsed: boolean }) {
@@ -18,18 +19,20 @@ export function SidebarToggle({ collapsed }: { collapsed: boolean }) {
   const label = collapsed ? "Expand sidebar" : "Collapse sidebar";
 
   return (
-    <ShellTooltip
+    <Tooltip
       side="bottom"
       content={
         <span className="flex items-center gap-2">
           {label}
-          <kbd className="rounded bg-bg/20 px-1 font-mono">[</kbd>
+          <Kbd size="sm" className="border-transparent bg-bg/20 text-bg">
+            [
+          </Kbd>
         </span>
       }
     >
       <Button
         variant="ghost"
-        size="icon"
+        size="icon-sm"
         onClick={toggleSidebar}
         aria-label={label}
         aria-expanded={!collapsed}
@@ -40,6 +43,6 @@ export function SidebarToggle({ collapsed }: { collapsed: boolean }) {
       >
         {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
       </Button>
-    </ShellTooltip>
+    </Tooltip>
   );
 }

@@ -1,9 +1,16 @@
 /**
  * Chart colours from the design tokens (frontend.md: tokens only). Canvas charts can't use CSS classes, so the token
- * values are read from the computed style of the chart's element, which also follows a themed island.
+ * values are read from the computed style of the chart's element (which also follows a themed island) and re-read
+ * when `data-theme` changes.
  */
+import { COLOR_TOKENS } from "./indicators/registry";
+import type { ColorToken } from "./indicators/registry";
+
 export interface ChartColors {
+  /** The chart's own background (opaque, so screenshots aren't transparent). */
+  background: string;
   text: string;
+  textStrong: string;
   grid: string;
   border: string;
   up: string;
@@ -11,6 +18,9 @@ export interface ChartColors {
   upVolume: string;
   downVolume: string;
   crosshair: string;
+  crosshairLabel: string;
+  /** Every colour token indicators and drawings may use. */
+  palette: Readonly<Record<ColorToken, string>>;
 }
 
 function token(style: CSSStyleDeclaration, name: string): string {
@@ -29,14 +39,23 @@ export function readChartColors(element: Element): ChartColors {
   const style = getComputedStyle(element);
   const up = token(style, "--profit");
   const down = token(style, "--loss");
+  const muted = token(style, "--fg-muted");
+  const palette = Object.fromEntries(COLOR_TOKENS.map((name) => [name, token(style, `--${name}`)])) as Record<
+    ColorToken,
+    string
+  >;
   return {
-    text: token(style, "--fg-muted"),
+    background: token(style, "--surface-1"),
+    text: muted,
+    textStrong: token(style, "--fg"),
     grid: token(style, "--surface-2"),
-    border: token(style, "--surface-3"),
+    border: token(style, "--border"),
     up,
     down,
-    upVolume: withAlpha(up, 0.35),
-    downVolume: withAlpha(down, 0.35),
-    crosshair: token(style, "--fg-muted"),
+    upVolume: withAlpha(up, 0.4),
+    downVolume: withAlpha(down, 0.4),
+    crosshair: muted,
+    crosshairLabel: token(style, "--fg"),
+    palette,
   };
 }

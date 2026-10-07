@@ -1,12 +1,12 @@
-import { PageLoader } from "@finlytics/ui/components/page-loader";
-
+import { PageContainer } from "@/components/page";
 import { AnnounceLoading } from "@/components/shell/shell-announcer";
+import { DashboardPageSkeleton } from "@/features/dashboard/components/dashboard-skeleton";
 
 export default function DashboardLoading() {
   return (
-    <>
-      <PageLoader variant="dashboard" />
+    <PageContainer role="status" aria-label="Loading dashboard">
+      <DashboardPageSkeleton />
       <AnnounceLoading label="Loading dashboard" />
-    </>
+    </PageContainer>
   );
 }

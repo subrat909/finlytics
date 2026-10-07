@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { PageContainer } from "@/components/page";
 import { BrokersView } from "@/features/brokers/components/brokers-view";
 
 export const metadata: Metadata = { title: "Brokers" };
@@ -12,12 +13,12 @@ function single(value: string | string[] | undefined): string | undefined {
   return typeof value === "string" && value !== "" && value.length <= 128 ? value : undefined;
 }
 
-/** Broker accounts (docs/05 Brokers). The api's Upstox callback lands here with `?connected=<id>` (plan P4). */
+/** Broker accounts (plan phase-1b "Brokers"). The api's Upstox callback lands here with `?connected=<id>` or `?error=`. */
 export default async function BrokersPage({ searchParams }: BrokersPageProps) {
   const params = await searchParams;
   return (
-    <div className="w-full space-y-6">
+    <PageContainer>
       <BrokersView connectedId={single(params.connected)} connectError={single(params.error)} />
-    </div>
+    </PageContainer>
   );
 }

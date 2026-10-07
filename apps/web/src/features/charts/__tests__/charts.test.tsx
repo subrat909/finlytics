@@ -1,7 +1,8 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { Tick } from "@/features/realtime/schemas";
 import { marketActions } from "@/features/realtime/store";
 import { mockApi, problem } from "@/test/api-mock";
 import { expectNoAxeViolations } from "@/test/axe";
@@ -9,86 +10,214 @@ import { nextNavigationMock, router } from "@/test/next-mocks";
 import { renderWithProviders } from "@/test/render";
 
 import { ChartsView } from "../components/charts-view";
-import LightweightChart from "../components/lightweight-chart";
-import TradingViewChart from "../components/tradingview-chart";
-import { IST_OFFSET_S } from "../lib/bars";
+import type { DrawingsPrimitive } from "../lib/chart/drawings-primitive";
+import { IST_OFFSET_S } from "../lib/time";
 
-const chartMocks = vi.hoisted(() => {
-  const series = () => ({
-    setData: vi.fn(),
-    update: vi.fn(),
-    applyOptions: vi.fn(),
-    priceScale: vi.fn(() => ({ applyOptions: vi.fn() })),
-  });
-  const candles = series();
-  const volume = series();
-  const chart = {
-    addSeries: vi.fn((definition: string) => (definition === "Candlestick" ? candles : volume)),
-    applyOptions: vi.fn(),
-    remove: vi.fn(),
-    timeScale: vi.fn(() => ({ scrollToRealTime: vi.fn() })),
+interface MockSeries {
+  definition: string;
+  options: Record<string, unknown>;
+  paneIndex: number;
+  setData: ReturnType<typeof vi.fn>;
+  update: ReturnType<typeof vi.fn>;
+  applyOptions: ReturnType<typeof vi.fn>;
+  attachPrimitive: ReturnType<typeof vi.fn>;
+}
+
+const lwc = vi.hoisted(() => {
+  const state = {
+    series: [] as MockSeries[],
+    removed: [] as unknown[],
+    paneCount: 1,
   };
-  return { chart, candles, volume, createChart: vi.fn(() => chart) };
+  const pane = (index: number) => ({
+    setPreserveEmptyPane: vi.fn(),
+    setStretchFactor: vi.fn(),
+    getHTMLElement: () => document.createElement("tr"),
+    getSeries: () => state.series.filter((series) => series.paneIndex === index && !state.removed.includes(series)),
+  });
+  const timeScale = {
+    scrollToRealTime: vi.fn(),
+    fitContent: vi.fn(),
+    setVisibleRange: vi.fn(),
+    subscribeVisibleLogicalRangeChange: vi.fn(),
+    unsubscribeVisibleLogicalRangeChange: vi.fn(),
+    logicalToCoordinate: vi.fn(() => 10),
+    coordinateToLogical: vi.fn(() => 0),
+    getVisibleLogicalRange: vi.fn(() => null),
+    applyOptions: vi.fn(),
+  };
+  const priceScale = { applyOptions: vi.fn(), options: () => ({ autoScale: true }) };
+  const chart = {
+    addSeries: vi.fn((definition: string, options?: Record<string, unknown>, index?: number) => {
+      const paneIndex: number = index ?? 0;
+      const series: MockSeries & Record<string, unknown> = {
+        definition,
+        options: options ?? {},
+        paneIndex,
+        setData: vi.fn(),
+        update: vi.fn(),
+        applyOptions: vi.fn(),
+        attachPrimitive: vi.fn(),
+        detachPrimitive: vi.fn(),
+        setSeriesOrder: vi.fn(),
+        priceScale: vi.fn(() => ({ applyOptions: vi.fn() })),
+        priceToCoordinate: vi.fn(() => 100),
+        coordinateToPrice: vi.fn(() => 24_000),
+        createPriceLine: vi.fn(() => ({})),
+        removePriceLine: vi.fn(),
+      };
+      state.series.push(series);
+      state.paneCount = Math.max(state.paneCount, paneIndex + 1);
+      return series;
+    }),
+    removeSeries: vi.fn((series: unknown) => {
+      state.removed.push(series);
+    }),
+    panes: vi.fn(() => Array.from({ length: state.paneCount }, (_, index) => pane(index))),
+    removePane: vi.fn(() => {
+      state.paneCount = Math.max(1, state.paneCount - 1);
+    }),
+    applyOptions: vi.fn(),
+    priceScale: vi.fn(() => priceScale),
+    timeScale: vi.fn(() => timeScale),
+    subscribeCrosshairMove: vi.fn(),
+    unsubscribeCrosshairMove: vi.fn(),
+    paneSize: vi.fn(() => ({ width: 800, height: 400 })),
+    takeScreenshot: vi.fn(),
+    remove: vi.fn(),
+  };
+  return { state, chart, timeScale, createChart: vi.fn(() => chart) };
 });
 
 vi.mock("lightweight-charts", () => ({
-  createChart: chartMocks.createChart,
+  createChart: lwc.createChart,
   CandlestickSeries: "Candlestick",
+  BarSeries: "Bar",
+  LineSeries: "Line",
+  AreaSeries: "Area",
+  BaselineSeries: "Baseline",
   HistogramSeries: "Histogram",
   ColorType: { Solid: "solid" },
-  CrosshairMode: { Normal: 0 },
+  CrosshairMode: { Normal: 0, Magnet: 1, Hidden: 2 },
+  LineStyle: { Solid: 0, Dotted: 1, Dashed: 2 },
+  PriceScaleMode: { Normal: 0, Logarithmic: 1, Percentage: 2 },
 }));
 vi.mock("next/navigation", () => nextNavigationMock);
 
 const KEY = "NSE_INDEX|NIFTY 50";
-const NIFTY = {
-  key: KEY,
+const instrument = (key: string, symbol: string, segment: "INDEX" | "EQ", name: string) => ({
+  key,
   exchange: "NSE",
-  segment: "INDEX",
-  symbol: "NIFTY 50",
+  segment,
+  symbol,
   tradingSymbol: null,
-  name: "Nifty 50",
+  name,
   expiry: null,
   strike: null,
   optionType: null,
   lotSize: 1,
   tickSize: "0.05",
   isActive: true,
-};
+});
+const NIFTY = instrument(KEY, "NIFTY 50", "INDEX", "Nifty 50");
+const RELIANCE = instrument("NSE_EQ|RELIANCE", "RELIANCE", "EQ", "Reliance Industries");
+/** Wednesday 2025-10-08 09:15 IST. */
 const BAR_MS = 1_759_895_100_000;
 const CANDLES = [
   { ts: BAR_MS - 300_000, open: "24000", high: "24010", low: "23990", close: "24005", volume: 0 },
   { ts: BAR_MS, open: "24005", high: "24020", low: "24000", close: "24015.5", volume: 0 },
 ];
+const OVERVIEW = {
+  asOf: "2025-10-08T04:00:00.000Z",
+  exchanges: [],
+  feed: { state: "up", source: "PAPER", live: false, lastTickAt: null, reason: null },
+  indices: [],
+  gainers: [],
+  losers: [],
+  active: [],
+  breadth: { advances: 0, declines: 0, unchanged: 0 },
+};
+const WATCHLISTS = [
+  {
+    id: "w1",
+    name: "Main",
+    position: 0,
+    items: [
+      { id: "i1", instrumentKey: KEY, position: 0, instrument: NIFTY },
+      { id: "i2", instrumentKey: RELIANCE.key, position: 1, instrument: RELIANCE },
+    ],
+  },
+];
+
+const chartTime = (ms: number) => ms / 1_000 + IST_OFFSET_S;
+
+function tick(ltp: number, ts: number, vol: number | null): Tick {
+  return { ltp, chg: ltp - 24_000, chgPct: 0.1, vol, ts, receivedAt: Date.now() };
+}
+
+/** The api: candles only in the window that holds BAR_MS (older windows are empty, so history ends). */
+function routes(candles: () => Response = () => Response.json(CANDLES)) {
+  return mockApi([
+    { path: `/v1/instruments/${encodeURIComponent(KEY)}`, respond: () => Response.json(NIFTY) },
+    { path: /^\/v1\/instruments\?q=/, respond: () => Response.json([NIFTY, RELIANCE]) },
+    {
+      path: /^\/v1\/candles\?/,
+      respond: (call) => {
+        const query = new URLSearchParams(call.path.split("?")[1]);
+        const to = Number(query.get("to")) * 1_000;
+        const from = Number(query.get("from")) * 1_000;
+        return from <= BAR_MS && BAR_MS < to ? candles() : Response.json([]);
+      },
+    },
+    { path: /^\/v1\/quotes\?/, respond: () => Response.json({}) },
+    { path: "/v1/market/overview", respond: () => Response.json(OVERVIEW) },
+    { path: "/v1/watchlists", respond: () => Response.json(WATCHLISTS) },
+  ]);
+}
+
+function seriesOf(definition: string): MockSeries[] {
+  return lwc.state.series.filter((series) => series.definition === definition && !lwc.state.removed.includes(series));
+}
+
+function mainSeries(): MockSeries {
+  const main = lwc.state.series.find(
+    (series) => series.attachPrimitive.mock.calls.length > 0 && !lwc.state.removed.includes(series),
+  );
+  if (main === undefined) throw new Error("no main series");
+  return main;
+}
+
+// The watchlist virtualiser measures its scroll box; jsdom has no layout.
+const offsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
 
 beforeEach(() => {
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get: () => 600 });
   marketActions.reset();
   vi.clearAllMocks();
+  lwc.state.series = [];
+  lwc.state.removed = [];
+  lwc.state.paneCount = 1;
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(BAR_MS + 600_000);
   document.documentElement.style.setProperty("--profit", "#047857");
   document.documentElement.style.setProperty("--loss", "#be123c");
 });
 
 afterEach(() => {
+  if (offsetHeight) Object.defineProperty(HTMLElement.prototype, "offsetHeight", offsetHeight);
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
-function routes(candles: () => Response = () => Response.json(CANDLES)) {
-  return mockApi([
-    { path: `/v1/instruments/${encodeURIComponent(KEY)}`, respond: () => Response.json(NIFTY) },
-    { path: /^\/v1\/candles\?/, respond: candles },
-    {
-      path: /^\/v1\/quotes\?/,
-      respond: () => Response.json({ [KEY]: { ltp: "24015.5", chg: "15", chgPct: "0.06", ts: 1 } }),
-    },
-  ]);
-}
-
-describe("ChartsView", () => {
-  it("asks for an instrument when there is none, and opens the chart of the one picked", async () => {
+describe("ChartsView without an instrument", () => {
+  it("offers the search and popular indices, and opens the chart of the one picked", async () => {
     const actor = userEvent.setup();
-    mockApi([{ path: /^\/v1\/instruments\?q=nif/, respond: () => Response.json([NIFTY]) }]);
-    const { container } = renderWithProviders(<ChartsView timeframe="M5" />);
+    routes();
+    const { container } = renderWithProviders(<ChartsView />);
     expect(screen.getByRole("heading", { level: 2, name: "Choose an instrument" })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("navigation", { name: "Popular indices" })).getByRole("link", { name: /SENSEX/ }),
+    ).toHaveAttribute("href", `/charts?key=${encodeURIComponent("BSE_INDEX|SENSEX")}&tf=M5`);
     await expectNoAxeViolations(container);
     await actor.type(screen.getByRole("combobox", { name: "Open a chart" }), "nif");
     await actor.click(await screen.findByRole("option", { name: /NIFTY 50/ }));
@@ -96,178 +225,232 @@ describe("ChartsView", () => {
   });
 
   it("explains an invalid instrument link", () => {
-    renderWithProviders(<ChartsView invalidKey timeframe="M5" />);
+    renderWithProviders(<ChartsView invalidKey />);
     expect(screen.getByRole("heading", { name: "That instrument link isn't valid" })).toBeInTheDocument();
   });
+});
 
-  it("draws the candles, follows live ticks on the last bar and switches timeframe", async () => {
+describe("the chart workspace", () => {
+  // The workspace is a `next/dynamic` import with a large module graph: load it once up front, so the first test
+  // doesn't spend its time budget importing (slow when the whole suite runs in parallel).
+  beforeAll(async () => {
+    await import("../components/chart-workspace");
+  }, 30_000);
+
+  it("draws the candles with volume, follows live ticks, switches interval and chart type, and cleans up", async () => {
     const actor = userEvent.setup();
     const replaceState = vi.spyOn(window.history, "replaceState");
     const calls = routes();
-    const { container, unmount } = renderWithProviders(<ChartsView instrumentKey={KEY} timeframe="M5" />);
-    expect(await screen.findByRole("heading", { level: 1, name: "NIFTY 50 chart" })).toBeInTheDocument();
-    expect(await screen.findByText("Nifty 50 · NSE")).toBeInTheDocument();
+    const { container, unmount } = renderWithProviders(
+      <ChartsView instrumentKey={KEY} interval="M5" userId="user-1" />,
+    );
 
-    const chart = await screen.findByRole("img", { name: /NIFTY 50 candlestick chart, 5 minutes candles, 2 candles/ });
-    expect(chart).toBeInTheDocument();
-    expect(chartMocks.createChart).toHaveBeenCalledTimes(1);
-    const firstCall = chartMocks.candles.setData.mock.calls[0] as unknown[] | undefined;
-    expect(firstCall?.[0]).toEqual([
-      { time: (BAR_MS - 300_000) / 1_000 + IST_OFFSET_S, open: 24000, high: 24010, low: 23990, close: 24005 },
-      { time: BAR_MS / 1_000 + IST_OFFSET_S, open: 24005, high: 24020, low: 24000, close: 24015.5 },
+    expect(
+      await screen.findByRole("img", { name: /NIFTY 50 chart, 5 minutes bars, 2 bars, last close 24,015.50/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "NIFTY 50 chart" })).toBeInTheDocument();
+    expect(lwc.createChart).toHaveBeenCalledTimes(1);
+    expect(mainSeries().definition).toBe("Candlestick");
+    expect(mainSeries().setData).toHaveBeenLastCalledWith([
+      { time: chartTime(BAR_MS - 300_000), open: 24_000, high: 24_010, low: 23_990, close: 24_005 },
+      { time: chartTime(BAR_MS), open: 24_005, high: 24_020, low: 24_000, close: 24_015.5 },
     ]);
-    const candlesCall = calls.find((call) => call.path.startsWith("/v1/candles"));
-    expect(candlesCall?.path).toMatch(/key=NSE_INDEX%7CNIFTY\+50&tf=M5&from=\d+&to=\d+/);
+    expect(lwc.chart.addSeries).toHaveBeenCalledWith(
+      "Histogram",
+      expect.objectContaining({ priceScaleId: "volume" }),
+      0,
+    );
+    expect(calls.find((call) => call.path.startsWith("/v1/candles"))?.path).toMatch(
+      /key=NSE_INDEX%7CNIFTY\+50&tf=M5&from=\d+&to=\d+/,
+    );
+    expect(replaceState).toHaveBeenLastCalledWith(null, "", `/charts?key=${encodeURIComponent(KEY)}&tf=M5`);
+
+    // The legend: OHLC of the latest bar, the change from the previous close, the simulated-feed label.
+    const ohlc = container.querySelector('[data-slot="legend-ohlc"]');
+    if (!(ohlc instanceof HTMLElement)) throw new Error("no legend");
+    await waitFor(() => {
+      expect(within(ohlc).getByText("24,015.50")).toBeInTheDocument();
+    });
+    expect(within(ohlc).getByText(/\+10\.50 \(\+0\.04%\)/)).toBeInTheDocument();
+    expect(await screen.findAllByText("Simulated")).not.toHaveLength(0);
+    expect(await screen.findByRole("link", { name: /RELIANCE/ })).toHaveAttribute(
+      "href",
+      `/charts?key=${encodeURIComponent(RELIANCE.key)}&tf=M5`,
+    );
     await expectNoAxeViolations(container);
 
-    // A tick inside the last bar updates it; the next one opens a new bar.
+    // A tick inside the last bar updates it; the next one opens a new bar, and volume follows its delta.
     act(() => {
-      marketActions.applyTicks(
-        new Map([[KEY, { ltp: 24030, chg: 30, chgPct: 0.12, vol: 100, ts: BAR_MS + 60_000, receivedAt: 1 }]]),
-      );
+      marketActions.applyTicks(new Map([[KEY, tick(24_030, BAR_MS + 60_000, 100)]]));
     });
-    expect(chartMocks.candles.update).toHaveBeenLastCalledWith({
-      time: BAR_MS / 1_000 + IST_OFFSET_S,
-      open: 24005,
-      high: 24030,
-      low: 24000,
-      close: 24030,
+    expect(mainSeries().update).toHaveBeenLastCalledWith({
+      time: chartTime(BAR_MS),
+      open: 24_005,
+      high: 24_030,
+      low: 24_000,
+      close: 24_030,
     });
     act(() => {
-      marketActions.applyTicks(
-        new Map([[KEY, { ltp: 24001, chg: 1, chgPct: 0, vol: 160, ts: BAR_MS + 300_000, receivedAt: 2 }]]),
-      );
+      marketActions.applyTicks(new Map([[KEY, tick(24_001, BAR_MS + 300_000, 160)]]));
     });
-    expect(chartMocks.candles.update).toHaveBeenLastCalledWith(
-      expect.objectContaining({ time: BAR_MS / 1_000 + 300 + IST_OFFSET_S, open: 24001 }),
+    expect(mainSeries().update).toHaveBeenLastCalledWith(
+      expect.objectContaining({ time: chartTime(BAR_MS + 300_000), open: 24_001 }),
     );
-    expect(chartMocks.volume.update).toHaveBeenLastCalledWith(expect.objectContaining({ value: 60 }));
-
-    // The theme switch re-reads the tokens.
-    document.documentElement.setAttribute("data-theme", "dark");
+    const [volume] = seriesOf("Histogram");
     await waitFor(() => {
-      expect(chartMocks.chart.applyOptions).toHaveBeenCalled();
+      expect(volume?.update).toHaveBeenLastCalledWith(expect.objectContaining({ value: 60 }), false);
     });
 
-    // Timeframe: a radio group with arrow keys; the URL follows without a navigation.
-    const group = screen.getByRole("radiogroup", { name: "Timeframe" });
-    expect(within(group).getByRole("radio", { name: "5 minutes" })).toHaveAttribute("aria-checked", "true");
+    // Intervals: a radio group with arrow keys; the URL follows without a navigation; 30m comes from 15m bars.
+    const group = screen.getByRole("radiogroup", { name: "Interval" });
     within(group).getByRole("radio", { name: "5 minutes" }).focus();
     await actor.keyboard("{ArrowRight}");
-    expect(within(group).getByRole("radio", { name: "15 minutes" })).toHaveFocus();
+    expect(within(group).getByRole("radio", { name: "15 minutes" })).toHaveAttribute("aria-checked", "true");
     expect(replaceState).toHaveBeenLastCalledWith(null, "", `/charts?key=${encodeURIComponent(KEY)}&tf=M15`);
-    await actor.keyboard("{ArrowLeft}{ArrowLeft}");
-    expect(within(group).getByRole("radio", { name: "1 minute" })).toHaveAttribute("aria-checked", "true");
-    await actor.click(within(group).getByRole("radio", { name: "1 day" }));
+    await actor.click(within(group).getByRole("radio", { name: "30 minutes" }));
+    expect(replaceState).toHaveBeenLastCalledWith(null, "", `/charts?key=${encodeURIComponent(KEY)}&tf=M30`);
     await waitFor(() => {
-      expect(calls.some((call) => call.path.includes("tf=D1"))).toBe(true);
+      expect(calls.some((call) => call.path.includes("tf=M15"))).toBe(true);
+    });
+
+    // Chart type: a menu of radio items; the main series is rebuilt, the layout saved for the user.
+    await actor.click(screen.getByRole("button", { name: "Chart type: Candles" }));
+    await actor.click(await screen.findByRole("menuitemradio", { name: "Line" }));
+    expect(mainSeries().definition).toBe("Line");
+    expect(JSON.parse(localStorage.getItem("finlytics.chart.layout:user-1") ?? "{}")).toMatchObject({
+      chartType: "line",
+      interval: "M30",
+    });
+
+    // The theme switch re-reads the tokens.
+    lwc.chart.applyOptions.mockClear();
+    document.documentElement.setAttribute("data-theme", "dark");
+    await waitFor(() => {
+      expect(lwc.chart.applyOptions).toHaveBeenCalled();
     });
 
     unmount();
-    expect(chartMocks.chart.remove).toHaveBeenCalled();
+    expect(lwc.chart.remove).toHaveBeenCalled();
   });
 
-  it("shows a retryable error when the candles fail, and the empty history note", async () => {
+  it("adds an indicator in its own pane, with a legend row to hide, edit and remove it", async () => {
+    const actor = userEvent.setup();
+    routes();
+    renderWithProviders(<ChartsView instrumentKey={KEY} interval="M5" />);
+    await screen.findByRole("img", { name: /2 bars/ });
+
+    await actor.click(screen.getByRole("button", { name: /^Indicators/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Indicators" });
+    await actor.type(within(dialog).getByRole("searchbox", { name: "Search indicators" }), "rsi");
+    await actor.click(within(dialog).getByRole("button", { name: /Relative Strength Index/ }));
+    expect(within(dialog).getByText("Added Relative Strength Index.")).toBeInTheDocument();
+    expect(lwc.chart.addSeries).toHaveBeenCalledWith("Line", expect.objectContaining({ lineWidth: 1 }), 1);
+    await actor.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    const row = await screen.findByText("RSI 14 close");
+    const legend = row.closest("li");
+    if (legend === null) throw new Error("no legend row");
+    await actor.click(within(legend).getByRole("button", { name: "Hide RSI 14 close" }));
+    expect(within(legend).getByRole("button", { name: "Show RSI 14 close" })).toBeInTheDocument();
+
+    await actor.click(within(legend).getByRole("button", { name: "RSI 14 close settings" }));
+    const settings = await screen.findByRole("dialog", { name: "Relative Strength Index" });
+    const length = within(settings).getByRole("spinbutton", { name: "Length" });
+    await actor.clear(length);
+    await actor.type(length, "21");
+    await actor.click(within(settings).getByRole("button", { name: "Apply" }));
+    expect(await screen.findByText("RSI 21 close")).toBeInTheDocument();
+
+    const rsi = seriesOf("Line").at(-1);
+    await actor.click(screen.getByRole("button", { name: "Remove RSI 21 close" }));
+    expect(lwc.chart.removeSeries).toHaveBeenCalledWith(rsi);
+    expect(screen.queryByText("RSI 21 close")).not.toBeInTheDocument();
+  });
+
+  it("selects drawing tools by click and shortcut, and keeps drawings per instrument with undo", async () => {
+    const actor = userEvent.setup();
+    localStorage.setItem(
+      `finlytics.chart.drawings:${KEY}`,
+      JSON.stringify({
+        v: 1,
+        drawings: [{ id: "d1", kind: "hline", color: "info", points: [{ time: chartTime(BAR_MS), price: 24_010 }] }],
+      }),
+    );
+    routes();
+    const { container } = renderWithProviders(<ChartsView instrumentKey={KEY} interval="M5" />);
+    await screen.findByRole("img", { name: /2 bars/ });
+    const primitive = mainSeries().attachPrimitive.mock.calls[0]?.[0] as DrawingsPrimitive;
+    expect(primitive.state.drawings.map((drawing) => drawing.kind)).toEqual(["hline"]);
+
+    const toolbar = screen.getByRole("toolbar", { name: "Drawing tools" });
+    expect(within(toolbar).getByRole("button", { name: "Crosshair" })).toHaveAttribute("aria-pressed", "true");
+    await actor.click(within(toolbar).getByRole("button", { name: "Horizontal line" }));
+    expect(within(toolbar).getByRole("button", { name: "Horizontal line" })).toHaveAttribute("aria-pressed", "true");
+    await actor.keyboard("{Alt>}t{/Alt}");
+    expect(within(toolbar).getByRole("button", { name: "Trend line" })).toHaveAttribute("aria-pressed", "true");
+    await actor.keyboard("{Escape}{Escape}");
+    expect(within(toolbar).getByRole("button", { name: "Crosshair" })).toHaveAttribute("aria-pressed", "true");
+    // Arrow keys move through the toolbar (one tab stop).
+    within(toolbar).getByRole("button", { name: "Crosshair" }).focus();
+    await actor.keyboard("{ArrowDown}");
+    expect(within(toolbar).getByRole("button", { name: "Cursor" })).toHaveFocus();
+
+    await actor.click(within(toolbar).getByRole("button", { name: "Remove 1 drawing" }));
+    expect(localStorage.getItem(`finlytics.chart.drawings:${KEY}`)).toBeNull();
+    expect(primitive.state.drawings).toEqual([]);
+    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
+    await actor.keyboard("{Control>}z{/Control}");
+    expect(primitive.state.drawings.map((drawing) => drawing.id)).toEqual(["d1"]);
+    expect(localStorage.getItem(`finlytics.chart.drawings:${KEY}`)).toContain('"d1"');
+    expect(screen.getByRole("button", { name: "Redo" })).toBeEnabled();
+    await expectNoAxeViolations(container);
+  });
+
+  it("zooms to a range in its interval, and toggles the price scale", async () => {
+    const actor = userEvent.setup();
+    routes();
+    renderWithProviders(<ChartsView instrumentKey={KEY} interval="M5" />);
+    await screen.findByRole("img", { name: /2 bars/ });
+    // The mock history is shorter than five days, so the range shows all of it.
+    await actor.click(screen.getByRole("button", { name: "5D, 5 days" }));
+    await waitFor(() => {
+      expect(lwc.timeScale.fitContent).toHaveBeenCalled();
+    });
+    await actor.click(screen.getByRole("button", { name: "1D, 1 day" }));
+    expect(
+      within(screen.getByRole("radiogroup", { name: "Interval" })).getByRole("radio", { name: "1 minute" }),
+    ).toHaveAttribute("aria-checked", "true");
+    await actor.click(screen.getByRole("button", { name: "Log scale" }));
+    expect(screen.getByRole("button", { name: "Log scale" })).toHaveAttribute("aria-pressed", "true");
+    expect(lwc.chart.priceScale().applyOptions).toHaveBeenLastCalledWith({ mode: 1, autoScale: true });
+  });
+
+  it("opens the symbol search by typing on the chart and switches instrument", async () => {
+    const actor = userEvent.setup();
+    routes();
+    renderWithProviders(<ChartsView instrumentKey={KEY} interval="M5" />);
+    await screen.findByRole("img", { name: /2 bars/ });
+    await actor.keyboard("r");
+    const dialog = await screen.findByRole("dialog", { name: "Symbol search" });
+    const field = within(dialog).getByRole("combobox", { name: "Search symbols" });
+    expect(field).toHaveValue("r");
+    expect(field).toHaveFocus();
+    await actor.keyboard("e");
+    await actor.click(await within(dialog).findByRole("option", { name: /RELIANCE/ }));
+    expect(router.push).toHaveBeenCalledWith(`/charts?key=${encodeURIComponent(RELIANCE.key)}&tf=M5`);
+  });
+
+  it("shows a retryable error when the candles fail, then the empty-history note", async () => {
     const actor = userEvent.setup();
     let fail = true;
     routes(() => (fail ? problem(503, "SERVICE_UNAVAILABLE") : Response.json([])));
-    renderWithProviders(<ChartsView instrumentKey={KEY} timeframe="H1" />);
+    renderWithProviders(<ChartsView instrumentKey={KEY} interval="H1" />);
     expect(await screen.findByRole("alert", {}, { timeout: 5_000 })).toHaveTextContent("The candles didn't load");
     fail = false;
     await actor.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByText(/No price history for this timeframe yet/)).toBeInTheDocument();
-  });
-});
-
-describe("LightweightChart", () => {
-  it("draws the first live bar when there is no history", () => {
-    render(<LightweightChart bars={[]} instrumentKey={KEY} period={60} summary="Chart" />);
-    act(() => {
-      marketActions.applyTicks(new Map([[KEY, { ltp: 10, chg: 0, chgPct: 0, vol: null, ts: 120_000, receivedAt: 1 }]]));
-    });
-    expect(chartMocks.candles.update).toHaveBeenCalledWith({
-      time: 120 + IST_OFFSET_S,
-      open: 10,
-      high: 10,
-      low: 10,
-      close: 10,
-    });
-  });
-});
-
-interface WidgetOptions {
-  symbol: string;
-  interval: string;
-  theme: string;
-  datafeed: unknown;
-}
-
-describe("TradingViewChart", () => {
-  function stubScripts(outcome: "load" | "error") {
-    const append = vi.spyOn(document.head, "append").mockImplementation((...nodes) => {
-      for (const node of nodes) {
-        if (!(node instanceof HTMLScriptElement)) continue;
-        queueMicrotask(() => {
-          if (outcome === "load") node.onload?.(new Event("load"));
-          else node.onerror?.(new Event("error"));
-        });
-      }
-    });
-    return append;
-  }
-
-  it("loads the library and the UDF datafeed, then removes the widget on unmount", async () => {
-    stubScripts("load");
-    const remove = vi.fn();
-    const changeTheme = vi.fn();
-    const widget = vi.fn<(this: { remove: () => void; changeTheme: () => void }, options: WidgetOptions) => void>(
-      function (this: { remove: () => void; changeTheme: () => void }) {
-        this.remove = remove;
-        this.changeTheme = changeTheme;
-      },
-    );
-    const datafeed = vi.fn();
-    vi.stubGlobal("TradingView", { widget });
-    vi.stubGlobal("Datafeeds", { UDFCompatibleDatafeed: datafeed });
-
-    const { unmount } = render(
-      <TradingViewChart
-        instrumentKey={KEY}
-        timeframe="H1"
-        datafeedPath="/datafeeds/udf/dist/bundle.js"
-        summary="NIFTY chart"
-      />,
-    );
-    await waitFor(() => {
-      expect(widget).toHaveBeenCalledTimes(1);
-    });
-    expect(datafeed).toHaveBeenCalledWith("/v1/udf", 5_000);
-    expect(widget.mock.calls[0]?.[0]).toMatchObject({
-      symbol: KEY,
-      interval: "60",
-      library_path: "/charting_library/",
-    });
-    document.documentElement.setAttribute("data-theme", "light");
-    await waitFor(() => {
-      expect(changeTheme).toHaveBeenCalledWith("light");
-    });
-    unmount();
-    expect(remove).toHaveBeenCalled();
-  });
-
-  it("shows a retryable error when the library doesn't load", async () => {
-    const actor = userEvent.setup();
-    stubScripts("error");
-    render(
-      <TradingViewChart
-        instrumentKey={KEY}
-        timeframe="M1"
-        datafeedPath="/datafeeds/udf/dist/missing.js"
-        summary="Chart"
-      />,
-    );
-    expect(await screen.findByRole("alert")).toHaveTextContent("The chart library didn't load");
-    await actor.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(await screen.findByText(/No price history for this interval yet/)).toBeInTheDocument();
   });
 });

@@ -3,7 +3,9 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AUTH_URL, DHAN, LIMITS, NOW, UPSTOX, overview } from "@/features/dashboard/__tests__/fixtures";
 import { mockApi, problem } from "@/test/api-mock";
+import type { ApiRoute } from "@/test/api-mock";
 import { expectNoAxeViolations } from "@/test/axe";
 import { navigation, nextNavigationMock, router } from "@/test/next-mocks";
 import { renderWithProviders } from "@/test/render";
@@ -14,28 +16,23 @@ import { NeedsReloginBanner, accountsNeedingLogin } from "../components/needs-re
 
 vi.mock("next/navigation", () => nextNavigationMock);
 
-const NOW = Date.UTC(2026, 9, 6, 6, 0);
-const UPSTOX: BrokerAccountView = {
-  id: "acc_up",
-  broker: "UPSTOX",
-  label: "Main",
-  status: "ACTIVE",
-  isDefault: true,
-  tokenExpiresAt: "2026-10-06T22:00:00.000Z",
-  lastLoginAt: "2026-10-06T03:00:00.000Z",
-  lastError: null,
-};
-const DHAN: BrokerAccountView = {
-  id: "acc_dh",
-  broker: "DHAN",
-  label: "Dhan swing",
-  status: "ACTIVE",
-  isDefault: false,
-  tokenExpiresAt: "2026-10-08T00:00:00.000Z",
-  lastLoginAt: null,
-  lastError: null,
-};
-const AUTH_URL = "https://api.upstox.com/v2/login/authorization/dialog?client_id=x&state=y";
+const VALID_TOKEN = "eyJhbGciOiJIUzUxMiJ9.payload.signature";
+
+/** The page's reads: the account list, the plan limits and the market overview (for the feed marker). */
+function pageRoutes(accounts: BrokerAccountView[], extra: ApiRoute[] = [], limits = LIMITS): ApiRoute[] {
+  return [
+    ...extra,
+    { path: "/v1/brokers", respond: () => Response.json(accounts) },
+    { path: "/v1/brokers/limits", respond: () => Response.json(limits) },
+    { path: "/v1/market/overview", respond: () => Response.json(overview(true)) },
+  ];
+}
+
+function rowOf(label: string): HTMLElement {
+  const row = screen.getByText(label, { selector: '[data-slot="broker-account-label"]' }).closest('[role="row"]');
+  if (!(row instanceof HTMLElement)) throw new Error(`no row for ${label}`);
+  return row;
+}
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"], now: NOW });
@@ -50,47 +47,57 @@ afterEach(() => {
 });
 
 describe("BrokersView", () => {
-  it("shows a shaped skeleton, then the account cards with status, expiry and actions", async () => {
-    mockApi([{ path: "/v1/brokers", respond: () => Response.json([UPSTOX, DHAN]) }]);
+  it("shows a shaped skeleton, then the accounts table with status, session, last login, feed and plan usage", async () => {
+    mockApi(pageRoutes([UPSTOX, DHAN]));
     const { container } = renderWithProviders(<BrokersView />);
     expect(screen.getByRole("status", { name: "Loading broker accounts" })).toBeInTheDocument();
 
-    const list = await screen.findByRole("list", { name: "Broker accounts" });
-    const cards = within(list).getAllByRole("listitem");
-    expect(cards).toHaveLength(2);
-    const upstox = within(cards[0] as HTMLElement);
-    expect(upstox.getByRole("heading", { name: "Main" })).toBeInTheDocument();
+    const table = await screen.findByRole("table", { name: "Broker accounts" });
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .map((header) => header.textContent),
+    ).toEqual(["Account", "Status", "Session", "Last login", "Market data", "Actions"]);
+    const upstox = within(rowOf("Main"));
     expect(upstox.getByText("Connected")).toBeInTheDocument();
     expect(upstox.getByText("Default")).toBeInTheDocument();
-    expect(upstox.getByText("7 Oct 2026, 03:30 IST")).toBeInTheDocument();
-    const dhan = within(cards[1] as HTMLElement);
-    // Within three days: called out.
-    expect(container.querySelector('[data-account-id="acc_dh"] [data-slot="broker-expiry"]')).toHaveAttribute(
-      "data-expiry",
-      "soon",
-    );
-    expect(dhan.getByRole("button", { name: "Make default" })).toBeInTheDocument();
+    expect(upstox.getByText("Ends in 16h 00m")).toBeInTheDocument();
+    expect(upstox.getByText("6 Oct 2026, 08:30 IST")).toBeInTheDocument();
+    expect(await upstox.findByText("Feeds market data")).toBeInTheDocument();
+    expect(upstox.getByRole("meter", { name: "Session time left" })).toHaveAttribute("aria-valuenow", "84");
+
+    // Dhan's token ends within two hours: called out (the renewal job is due).
+    const dhan = rowOf("Dhan swing");
+    expect(dhan.querySelector('[data-slot="broker-session"]')).toHaveAttribute("data-session", "soon");
+    expect(within(dhan).queryByText("Feeds market data")).toBeNull();
+
+    expect(await screen.findByText("1 of 2 broker accounts")).toBeInTheDocument();
+    expect(screen.getByRole("meter", { name: "Broker accounts used" })).toHaveAttribute("aria-valuenow", "50");
+    const catalog = screen.getByRole("list", { name: "Supported brokers" });
+    expect(within(catalog).getByRole("button", { name: "Connect Upstox" })).toBeInTheDocument();
+    expect(within(catalog).getByRole("button", { name: "Add paper account" })).toBeInTheDocument();
+    expect(within(catalog).getAllByText("Coming soon")).toHaveLength(3);
     await expectNoAxeViolations(container);
   });
 
-  it("shows the empty state with a CTA that opens the wizard", async () => {
+  it("shows the empty state with a CTA that opens the wizard on the broker picker", async () => {
     const actor = userEvent.setup();
-    mockApi([{ path: "/v1/brokers", respond: () => Response.json([]) }]);
-    renderWithProviders(<BrokersView />);
-    await actor.click(await screen.findByRole("button", { name: "Add a broker" }));
-    const dialog = screen.getByRole("dialog", { name: "Add a broker" });
-    expect(within(dialog).getByRole("button", { name: /Upstox/ })).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: /Dhan/ })).toBeInTheDocument();
+    mockApi(pageRoutes([], [], { ...LIMITS, brokerAccounts: 0 }));
+    const { baseElement } = renderWithProviders(<BrokersView />);
+    await actor.click(await screen.findByRole("button", { name: "Connect your first broker" }));
+    const dialog = screen.getByRole("dialog", { name: "Connect a broker" });
+    const options = within(within(dialog).getByRole("list", { name: "Brokers" })).getAllByRole("button");
+    expect(options.map((option) => option.getAttribute("data-broker"))).toEqual(["UPSTOX", "DHAN", "PAPER"]);
+    expect(within(dialog).getByText("Coming soon: Zerodha, Angel One, Fyers.")).toBeInTheDocument();
+    await expectNoAxeViolations(baseElement);
   });
 
   it("shows a retryable error", async () => {
     const actor = userEvent.setup();
     let fail = true;
     mockApi([
-      {
-        path: "/v1/brokers",
-        respond: () => (fail ? problem(500, "INTERNAL") : Response.json([UPSTOX])),
-      },
+      { path: "/v1/brokers", respond: () => (fail ? problem(500, "INTERNAL") : Response.json([UPSTOX])) },
+      { path: "/v1/brokers/limits", respond: () => Response.json(LIMITS) },
     ]);
     const { container } = renderWithProviders(<BrokersView />);
     expect(await screen.findByRole("alert")).toHaveTextContent("Your broker accounts didn't load");
@@ -98,92 +105,168 @@ describe("BrokersView", () => {
     await expectNoAxeViolations(container);
     fail = false;
     await actor.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByRole("heading", { name: "Main" })).toBeInTheDocument();
+    expect(await screen.findByRole("table", { name: "Broker accounts" })).toBeInTheDocument();
   });
 
-  it("checks a pasted token's shape with the shared schema", async () => {
+  it("disables connecting a real broker at the plan limit and says why; paper is still open", async () => {
     const actor = userEvent.setup();
-    mockApi([{ path: "/v1/brokers", respond: () => Response.json([]) }]);
+    const full = { ...LIMITS, brokerAccounts: 2 };
+    mockApi(pageRoutes([UPSTOX, DHAN], [], full));
     renderWithProviders(<BrokersView />);
-    await actor.click(await screen.findByRole("button", { name: "Add a broker" }));
-    await actor.click(screen.getByRole("button", { name: /Dhan/ }));
-    await actor.type(screen.getByLabelText("Client ID"), "1000012345");
-    await actor.type(screen.getByLabelText("Access token"), "short");
-    await actor.click(screen.getByRole("button", { name: "Connect Dhan" }));
-    expect(await screen.findByText("That doesn't look like a Dhan access token")).toBeInTheDocument();
+    const reason = "Your plan allows 2 broker accounts, all in use. Remove one to connect another.";
+    const connect = await screen.findByRole("button", { name: "Connect broker" });
+    await waitFor(() => {
+      expect(connect).toHaveAttribute("aria-disabled", "true");
+    });
+    expect(connect).toHaveAccessibleDescription(`${reason} Paper accounts don't count towards it.`);
+    expect(screen.getByText("2 of 2 broker accounts")).toBeInTheDocument();
+    await actor.click(connect);
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    const catalog = screen.getByRole("list", { name: "Supported brokers" });
+    expect(within(catalog).getByRole("button", { name: "Connect Dhan" })).toHaveAccessibleDescription(reason);
+    await actor.click(within(catalog).getByRole("button", { name: "Add paper account" }));
+    expect(screen.getByRole("dialog", { name: "Add a paper account" })).toBeInTheDocument();
   });
 
-  it("validates the Dhan form, then connects and announces it", async () => {
+  it("walks the Dhan steps: instructions, then the form validated like the api, then connects", async () => {
     const actor = userEvent.setup();
-    const calls = mockApi([
-      { path: "/v1/brokers", respond: () => Response.json([]) },
-      { method: "POST", path: "/v1/brokers/dhan", respond: () => Response.json({ ...DHAN, label: "Dhan" }) },
-    ]);
+    const calls = mockApi(
+      pageRoutes(
+        [],
+        [{ method: "POST", path: "/v1/brokers/dhan", respond: () => Response.json({ ...DHAN, label: "Dhan" }) }],
+        {
+          ...LIMITS,
+          brokerAccounts: 0,
+        },
+      ),
+    );
     const { baseElement } = renderWithProviders(<BrokersView />);
-    await actor.click(await screen.findByRole("button", { name: "Add a broker" }));
+    await actor.click(await screen.findByRole("button", { name: "Connect broker" }));
     await actor.click(screen.getByRole("button", { name: /Dhan/ }));
     const dialog = screen.getByRole("dialog", { name: "Connect Dhan" });
+    const steps = within(dialog).getByRole("list", { name: "Steps" });
+    expect(within(steps).getByText("Generate token").closest("li")).toHaveAttribute("aria-current", "step");
+    expect(within(dialog).getByRole("link", { name: /web\.dhan\.co/ })).toHaveAttribute("href", "https://web.dhan.co");
+    await expectNoAxeViolations(baseElement);
 
+    await actor.click(within(dialog).getByRole("button", { name: "Next" }));
+    expect(within(steps).getByText("Enter details").closest("li")).toHaveAttribute("aria-current", "step");
     await actor.click(within(dialog).getByRole("button", { name: "Connect Dhan" }));
     const token = within(dialog).getByLabelText("Access token");
     expect(token).toHaveAttribute("aria-invalid", "true");
     expect(within(dialog).getByText("Paste the access token from the Dhan dashboard")).toBeInTheDocument();
-    expect(within(dialog).getByText("Enter your Dhan client ID")).toBeInTheDocument();
-    await expectNoAxeViolations(baseElement);
+    // The client ID is optional: the api reads it from the token.
+    expect(within(dialog).getByLabelText("Client ID")).not.toHaveAttribute("aria-invalid");
+    expect(within(dialog).getByLabelText("Client ID")).toHaveAccessibleDescription("Optional — read from your token.");
+    expect(token).toHaveAccessibleDescription(/Valid 24 hours, renewed automatically/);
 
     await actor.type(within(dialog).getByLabelText("Client ID"), "1000012345");
-    await actor.type(token, "eyJhbGciOiJIUzUxMiJ9.payload.signature");
+    await actor.type(token, "short");
     await actor.click(within(dialog).getByRole("button", { name: "Connect Dhan" }));
+    expect(await within(dialog).findByText("That doesn't look like a Dhan access token")).toBeInTheDocument();
 
+    await actor.clear(token);
+    await actor.type(token, VALID_TOKEN);
+    await actor.click(within(dialog).getByRole("button", { name: "Connect Dhan" }));
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).toBeNull();
     });
     expect(calls.find((call) => call.method === "POST")?.body).toEqual({
       label: "Dhan",
       clientId: "1000012345",
-      accessToken: "eyJhbGciOiJIUzUxMiJ9.payload.signature",
+      accessToken: VALID_TOKEN,
     });
     expect(await screen.findByText("Dhan connected")).toBeInTheDocument();
   });
 
-  it("shows the broker's refusal in the Dhan form", async () => {
+  it("accepts a pasted Bearer token without a client ID, and checks a client ID that is given", async () => {
     const actor = userEvent.setup();
-    mockApi([
-      { path: "/v1/brokers", respond: () => Response.json([]) },
-      { method: "POST", path: "/v1/brokers/dhan", respond: () => problem(422, "BROKER_REJECTED") },
-    ]);
+    const calls = mockApi(
+      pageRoutes(
+        [],
+        [{ method: "POST", path: "/v1/brokers/dhan", respond: () => Response.json({ ...DHAN, label: "Dhan" }) }],
+      ),
+    );
     renderWithProviders(<BrokersView />);
-    await actor.click(await screen.findByRole("button", { name: "Add a broker" }));
+    await actor.click(await screen.findByRole("button", { name: "Connect broker" }));
     await actor.click(screen.getByRole("button", { name: /Dhan/ }));
     const dialog = screen.getByRole("dialog", { name: "Connect Dhan" });
-    await actor.type(within(dialog).getByLabelText("Client ID"), "1000012345");
-    await actor.type(within(dialog).getByLabelText("Access token"), "eyJhbGciOiJIUzUxMiJ9.payload.signature");
+    await actor.click(within(dialog).getByRole("button", { name: "Next" }));
+
+    await actor.type(within(dialog).getByLabelText("Client ID"), "10-00");
+    await actor.type(within(dialog).getByLabelText("Access token"), `  "Bearer ${VALID_TOKEN}"  `);
     await actor.click(within(dialog).getByRole("button", { name: "Connect Dhan" }));
-    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Dhan didn't accept these credentials");
+    expect(
+      await within(dialog).findByText("Use the client ID from Dhan (letters and digits), or leave it empty"),
+    ).toBeInTheDocument();
+
+    await actor.clear(within(dialog).getByLabelText("Client ID"));
+    await actor.click(within(dialog).getByRole("button", { name: "Connect Dhan" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+    const body = calls.find((call) => call.method === "POST")?.body;
+    expect(body).toEqual({ label: "Dhan", accessToken: VALID_TOKEN });
+    expect(body).not.toHaveProperty("clientId");
   });
 
-  it("sends the Upstox app's key and secret, then goes to the Upstox login", async () => {
+  it.each([
+    [problem(422, "BROKER_REJECTED"), "Dhan didn't accept these credentials. Check them and try again."],
+    [
+      problem(403, "FORBIDDEN", { detail: "Your plan allows 2 broker accounts." }),
+      "Your plan allows 2 broker accounts.",
+    ],
+    [problem(503, "BROKER_UNAVAILABLE"), "Dhan isn't answering right now. Try again in a minute."],
+  ])("explains a refused Dhan connection (%#)", async (response, message) => {
+    const actor = userEvent.setup();
+    mockApi(pageRoutes([], [{ method: "POST", path: "/v1/brokers/dhan", respond: () => response.clone() }]));
+    renderWithProviders(<BrokersView />);
+    await actor.click(await screen.findByRole("button", { name: "Connect broker" }));
+    await actor.click(screen.getByRole("button", { name: /Dhan/ }));
+    const dialog = screen.getByRole("dialog", { name: "Connect Dhan" });
+    await actor.click(within(dialog).getByRole("button", { name: "Next" }));
+    await actor.type(within(dialog).getByLabelText("Client ID"), "1000012345");
+    await actor.type(within(dialog).getByLabelText("Access token"), VALID_TOKEN);
+    await actor.click(within(dialog).getByRole("button", { name: "Connect Dhan" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(message);
+  });
+
+  it("walks the Upstox steps: create the app, copy the exact redirect URL, keys, then the Upstox login", async () => {
     const actor = userEvent.setup();
     const navigate = vi.fn();
-    const calls = mockApi([
-      { path: "/v1/brokers", respond: () => Response.json([]) },
-      {
-        method: "POST",
-        path: "/v1/brokers/upstox",
-        respond: () => Response.json({ account: { ...UPSTOX, status: "PENDING" }, authUrl: AUTH_URL }),
-      },
-    ]);
+    const calls = mockApi(
+      pageRoutes(
+        [],
+        [
+          {
+            method: "POST",
+            path: "/v1/brokers/upstox",
+            respond: () => Response.json({ account: { ...UPSTOX, status: "PENDING" }, authUrl: AUTH_URL }),
+          },
+        ],
+      ),
+    );
     renderWithProviders(<BrokersView navigate={navigate} />);
-    await actor.click(await screen.findByRole("button", { name: "Add a broker" }));
+    await actor.click(await screen.findByRole("button", { name: "Connect broker" }));
     await actor.click(screen.getByRole("button", { name: /Upstox/ }));
     const dialog = screen.getByRole("dialog", { name: "Connect Upstox" });
-    expect(within(dialog).getByText(`${window.location.origin}/v1/brokers/upstox/callback`)).toBeInTheDocument();
+    expect(within(dialog).getByRole("link", { name: /Upstox developer console/ })).toHaveAttribute(
+      "href",
+      "https://account.upstox.com/developer/apps",
+    );
+    await actor.click(within(dialog).getByRole("button", { name: "Next" }));
 
-    await actor.click(within(dialog).getByRole("button", { name: "Back" }));
-    await actor.click(screen.getByRole("button", { name: /Upstox/ }));
-    await actor.type(screen.getByLabelText("API key"), "my-api-key");
-    await actor.type(screen.getByLabelText("API secret"), "my-api-secret");
-    await actor.click(screen.getByRole("button", { name: "Continue to Upstox" }));
+    const redirect = within(dialog).getByLabelText("Redirect URL");
+    expect(redirect).toHaveValue(`${window.location.origin}/v1/brokers/upstox/callback`);
+    await actor.click(within(dialog).getByRole("button", { name: "Copy" }));
+    expect(await within(dialog).findByRole("button", { name: "Copied" })).toBeInTheDocument();
+    await expect(navigator.clipboard.readText()).resolves.toBe(`${window.location.origin}/v1/brokers/upstox/callback`);
+
+    await actor.click(within(dialog).getByRole("button", { name: "I've set it" }));
+    await actor.type(within(dialog).getByLabelText("API key"), "my-api-key");
+    await actor.type(within(dialog).getByLabelText("API secret"), "my-api-secret");
+    await actor.click(within(dialog).getByRole("button", { name: "Continue to Upstox" }));
     await waitFor(() => {
       expect(navigate).toHaveBeenCalledWith(AUTH_URL);
     });
@@ -192,10 +275,113 @@ describe("BrokersView", () => {
       apiKey: "my-api-key",
       apiSecret: "my-api-secret",
     });
+    const steps = within(dialog).getByRole("list", { name: "Steps" });
+    expect(within(steps).getByText("Log in").closest("li")).toHaveAttribute("aria-current", "step");
+  });
+
+  it("adds a paper account from the catalog", async () => {
+    const actor = userEvent.setup();
+    const paper: BrokerAccountView = { ...UPSTOX, id: "acc_pa", broker: "PAPER", label: "Paper", isDefault: false };
+    const calls = mockApi(
+      pageRoutes([], [{ method: "POST", path: "/v1/brokers/paper", respond: () => Response.json(paper) }]),
+    );
+    renderWithProviders(<BrokersView />);
+    const catalog = await screen.findByRole("list", { name: "Supported brokers" });
+    await actor.click(within(catalog).getByRole("button", { name: "Add paper account" }));
+    const dialog = screen.getByRole("dialog", { name: "Add a paper account" });
+    expect(within(dialog).getByLabelText("Account name")).toHaveValue("Paper");
+    await actor.click(within(dialog).getByRole("button", { name: "Add paper account" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+    expect(calls.find((call) => call.method === "POST")).toMatchObject({
+      path: "/v1/brokers/paper",
+      body: { label: "Paper" },
+    });
+    expect(await screen.findByText("Paper account added")).toBeInTheDocument();
+  });
+
+  it("logs in again inline, and from the menu sets the default, renames and disconnects (confirmed)", async () => {
+    const actor = userEvent.setup();
+    const navigate = vi.fn();
+    const expired: BrokerAccountView = { ...UPSTOX, status: "NEEDS_RELOGIN", isDefault: false };
+    const calls = mockApi(
+      pageRoutes(
+        [expired, DHAN],
+        [
+          {
+            method: "POST",
+            path: "/v1/brokers/acc_up/relogin",
+            respond: () => Response.json({ account: expired, authUrl: AUTH_URL }),
+          },
+          {
+            method: "PATCH",
+            path: "/v1/brokers/acc_dh",
+            respond: (call) => Response.json({ ...DHAN, ...(call.body as object) }),
+          },
+          { method: "DELETE", path: "/v1/brokers/acc_dh", respond: () => new Response(null, { status: 204 }) },
+        ],
+      ),
+    );
+    const { baseElement } = renderWithProviders(<BrokersView navigate={navigate} />);
+    await screen.findByRole("table", { name: "Broker accounts" });
+    await actor.click(within(rowOf("Main")).getByRole("button", { name: "Log in again" }));
+    await waitFor(() => {
+      expect(navigate).toHaveBeenCalledWith(AUTH_URL);
+    });
+
+    await actor.click(screen.getByRole("button", { name: "Actions for Dhan swing" }));
+    const menu = screen.getByRole("menu");
+    expect(
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Renew token", "Set as default", "Rename", "Disconnect"]);
+    await expectNoAxeViolations(baseElement);
+    await actor.click(within(menu).getByRole("menuitem", { name: "Set as default" }));
+    await waitFor(() => {
+      expect(calls.find((call) => call.method === "PATCH")?.body).toEqual({ isDefault: true });
+    });
+    expect(await screen.findByText("“Dhan swing” is now your default broker")).toBeInTheDocument();
+
+    await actor.click(screen.getByRole("button", { name: "Actions for Dhan swing" }));
+    await actor.click(screen.getByRole("menuitem", { name: "Rename" }));
+    const rename = screen.getByRole("dialog", { name: "Rename “Dhan swing”" });
+    const name = within(rename).getByLabelText("Account name");
+    await actor.clear(name);
+    await actor.type(name, "Dhan long-term");
+    await actor.click(within(rename).getByRole("button", { name: "Save" }));
+    await waitFor(() => {
+      expect(calls.filter((call) => call.method === "PATCH").at(-1)?.body).toEqual({ label: "Dhan long-term" });
+    });
+    expect(await screen.findByText("Renamed to “Dhan long-term”")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    await actor.click(screen.getByRole("button", { name: "Actions for Dhan swing" }));
+    await actor.click(screen.getByRole("menuitem", { name: "Disconnect" }));
+    const confirm = screen.getByRole("alertdialog", { name: "Disconnect “Dhan swing”?" });
+    await actor.click(within(confirm).getByRole("button", { name: "Disconnect" }));
+    await waitFor(() => {
+      expect(calls.some((call) => call.method === "DELETE")).toBe(true);
+    });
+    expect(await screen.findByText("Disconnected “Dhan swing”")).toBeInTheDocument();
+  });
+
+  it("opens the Dhan token step with the account's label to paste a new token", async () => {
+    const actor = userEvent.setup();
+    mockApi(pageRoutes([{ ...DHAN, status: "NEEDS_RELOGIN", lastError: "The token was revoked on Dhan." }]));
+    renderWithProviders(<BrokersView />);
+    expect(await screen.findByText("The token was revoked on Dhan.")).toBeInTheDocument();
+    await actor.click(screen.getByRole("button", { name: "Paste new token" }));
+    const dialog = screen.getByRole("dialog", { name: "Renew Dhan token" });
+    expect(within(dialog).getByLabelText("Account name")).toHaveValue("Dhan swing");
+    expect(within(dialog).getByText("Keep the name to replace this account's token.")).toBeInTheDocument();
   });
 
   it("announces the OAuth callback once and drops the query parameter", async () => {
-    mockApi([{ path: "/v1/brokers", respond: () => Response.json([UPSTOX]) }]);
+    mockApi(pageRoutes([UPSTOX]));
     renderWithProviders(<BrokersView connectedId="acc_up" />);
     expect(await screen.findByText("Upstox connected")).toBeInTheDocument();
     expect(screen.getByText(/“Main” is ready/)).toBeInTheDocument();
@@ -203,68 +389,11 @@ describe("BrokersView", () => {
   });
 
   it("explains a failed OAuth callback", async () => {
-    mockApi([{ path: "/v1/brokers", respond: () => Response.json([]) }]);
+    mockApi(pageRoutes([]));
     renderWithProviders(<BrokersView connectError="state_invalid" />);
     expect(await screen.findByText("The broker login didn't finish")).toBeInTheDocument();
     expect(screen.getByText(callbackErrorMessage("state_invalid"))).toBeInTheDocument();
     expect(callbackErrorMessage("bogus")).toBe("Nothing was saved. Try connecting again.");
-  });
-
-  it("logs in again, makes default and removes (confirmed)", async () => {
-    const actor = userEvent.setup();
-    const navigate = vi.fn();
-    const expired: BrokerAccountView = { ...UPSTOX, status: "NEEDS_RELOGIN", isDefault: false };
-    const calls = mockApi([
-      {
-        path: "/v1/brokers",
-        respond: () => Response.json([expired, { ...DHAN, status: "ERROR", lastError: "Token revoked" }]),
-      },
-      {
-        method: "POST",
-        path: "/v1/brokers/acc_up/relogin",
-        respond: () => Response.json({ account: expired, authUrl: AUTH_URL }),
-      },
-      { method: "DELETE", path: "/v1/brokers/acc_dh", respond: () => new Response(null, { status: 204 }) },
-    ]);
-    renderWithProviders(<BrokersView navigate={navigate} />);
-    expect(await screen.findByText("Token revoked")).toBeInTheDocument();
-    await actor.click(screen.getByRole("button", { name: "Log in again" }));
-    await waitFor(() => {
-      expect(navigate).toHaveBeenCalledWith(AUTH_URL);
-    });
-
-    const dhanCard = screen.getByRole("heading", { name: "Dhan swing" }).closest('[data-slot="broker-card"]');
-    await actor.click(within(dhanCard as HTMLElement).getByRole("button", { name: "Remove" }));
-    const confirm = screen.getByRole("alertdialog", { name: "Remove “Dhan swing”?" });
-    await actor.click(within(confirm).getByRole("button", { name: "Remove" }));
-    await waitFor(() => {
-      expect(calls.some((call) => call.method === "DELETE")).toBe(true);
-    });
-    expect(await screen.findByText("Removed “Dhan swing”")).toBeInTheDocument();
-  });
-
-  it("makes an account the default", async () => {
-    const actor = userEvent.setup();
-    const calls = mockApi([
-      { path: "/v1/brokers", respond: () => Response.json([UPSTOX, DHAN]) },
-      { method: "PATCH", path: "/v1/brokers/acc_dh", respond: () => Response.json({ ...DHAN, isDefault: true }) },
-    ]);
-    renderWithProviders(<BrokersView />);
-    await actor.click(await screen.findByRole("button", { name: "Make default" }));
-    await waitFor(() => {
-      expect(calls.find((call) => call.method === "PATCH")?.body).toEqual({ isDefault: true });
-    });
-    expect(await screen.findByText("“Dhan swing” is now your default broker")).toBeInTheDocument();
-  });
-
-  it("opens the Dhan form with the account's label to paste a new token", async () => {
-    const actor = userEvent.setup();
-    mockApi([{ path: "/v1/brokers", respond: () => Response.json([{ ...DHAN, status: "EXPIRED" }]) }]);
-    renderWithProviders(<BrokersView />);
-    await actor.click(await screen.findByRole("button", { name: "Paste a new token" }));
-    const dialog = screen.getByRole("dialog", { name: "Connect Dhan" });
-    expect(within(dialog).getByLabelText("Account name")).toHaveValue("Dhan swing");
-    expect(within(dialog).queryByRole("button", { name: "Back" })).toBeNull();
   });
 });
 
@@ -305,7 +434,7 @@ describe("NeedsReloginBanner", () => {
     });
   });
 
-  it("links to the brokers page when several sessions ended, and shows a failed relogin", async () => {
+  it("links to the brokers page when several sessions ended", async () => {
     navigation.pathname = "/dashboard";
     mockApi([
       {

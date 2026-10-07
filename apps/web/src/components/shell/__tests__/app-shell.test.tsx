@@ -4,10 +4,12 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import type * as React from "react";
 import { renderToString } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { marketOverview } from "@/features/market/__tests__/fixtures";
+import { mockApi } from "@/test/api-mock";
 import { expectNoAxeViolations } from "@/test/axe";
-import { nextNavigationMock } from "@/test/next-mocks";
+import { navigation, nextNavigationMock } from "@/test/next-mocks";
 import { renderWithProviders, testQueryClient } from "@/test/render";
 import { useUiStore } from "@/stores/ui.store";
 
@@ -21,11 +23,22 @@ const USER = { id: "u1", name: "Asha Rao", email: "asha@example.com", image: nul
 
 function renderShell(initialCollapsed = false) {
   return renderWithProviders(
-    <AppShell user={USER} initialCollapsed={initialCollapsed}>
+    <AppShell user={USER} initialCollapsed={initialCollapsed} version="0.0.1">
       <p>Page content</p>
     </AppShell>,
   );
 }
+
+/** Long enough for the tooltip provider's 250 ms open delay, and then some. */
+function pastTooltipDelay(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 400);
+  });
+}
+
+beforeEach(() => {
+  mockApi([{ path: "/v1/market/overview", respond: () => Response.json(marketOverview()) }]);
+});
 
 afterEach(() => {
   act(() => {
@@ -92,18 +105,107 @@ describe("AppShell", () => {
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Watchlists");
   });
 
-  it("lists the five sections in the sidebar, in order", () => {
+  it("groups the sections in the sidebar, in order, and marks the ones still to come", () => {
     renderShell();
     const nav = screen.getByRole("navigation", { name: "Main" });
 
     expect(
       within(nav)
+        .getAllByRole("heading", { level: 2 })
+        .map((heading) => heading.textContent),
+    ).toEqual(["Overview", "Markets", "Trading", "Algo", "Account"]);
+    expect(
+      within(nav)
         .getAllByRole("link")
-        .map((link) => link.textContent),
-    ).toEqual(["Dashboard", "Watchlists", "Charts", "Brokers", "Settings"]);
+        .map((link) => link.getAttribute("href")),
+    ).toEqual([
+      "/dashboard",
+      "/watchlists",
+      "/charts",
+      "/option-chain",
+      "/markets",
+      "/orders",
+      "/positions",
+      "/pnl",
+      "/strategies",
+      "/backtests",
+      "/agents",
+      "/alerts",
+      "/brokers",
+      "/settings",
+    ]);
+    const optionChain = within(nav).getByRole("link", { name: "Option Chain, coming soon" });
+    expect(optionChain).toHaveAttribute("data-soon", "true");
+    expect(within(optionChain).getByText("Soon")).toHaveAttribute("aria-hidden", "true");
+    expect(within(nav).getByRole("link", { name: "Charts" })).not.toHaveAttribute("data-soon");
   });
 
-  it("puts the sidebar toggle and the centred search in the top bar, and no theme switch", () => {
+  it("marks the current page with the primary bar, and shows the trading mode at the foot", () => {
+    navigation.pathname = "/watchlists";
+    renderShell();
+    const sidebar = screen.getByRole("complementary", { name: "Sidebar" });
+
+    const current = within(sidebar).getByRole("link", { name: "Watchlists" });
+    expect(current).toHaveAttribute("aria-current", "page");
+    expect(current).toHaveClass("aria-[current=page]:before:bg-primary", "aria-[current=page]:bg-surface-2");
+    expect(within(sidebar).getByRole("link", { name: "Paper trading: orders are simulated" })).toHaveAttribute(
+      "href",
+      "/settings#trading",
+    );
+    navigation.pathname = "/dashboard";
+  });
+
+  it("swaps the group headings for rules when collapsed, keeping every row in place", async () => {
+    const user = userEvent.setup();
+    renderShell();
+    const sidebar = screen.getByRole("complementary", { name: "Sidebar" });
+    const heading = within(sidebar).getByRole("heading", { name: "Markets" });
+    const rule = heading.parentElement?.querySelector('[data-slot="sidebar-group-rule"]');
+    expect(heading).not.toHaveClass("opacity-0");
+    expect(rule).toHaveClass("opacity-0");
+
+    await user.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+
+    expect(heading).toHaveClass("opacity-0");
+    expect(rule).toHaveClass("opacity-100");
+    expect(within(sidebar).getByRole("heading", { name: "Markets" })).toBe(heading);
+  });
+
+  it("never shows a tooltip for a link hovered while expanded once the sidebar collapses (regression)", async () => {
+    const user = userEvent.setup();
+    renderShell();
+    const sidebar = screen.getByRole("complementary", { name: "Sidebar" });
+
+    // Expanded: labels show, so hovering a link opens nothing, even past the delay.
+    await user.hover(within(sidebar).getByRole("link", { name: "Charts" }));
+    await act(pastTooltipDelay);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    await user.hover(within(sidebar).getByRole("link", { name: "Brokers" }));
+    await act(pastTooltipDelay);
+
+    // Collapsing (here with `[`) shows none of them by itself.
+    fireEvent.keyDown(window, { key: "[" });
+    expect(sidebar).toHaveAttribute("data-collapsed", "true");
+    await act(pastTooltipDelay);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+
+    // A hover while collapsed shows that link's tooltip, and only it.
+    await user.hover(within(sidebar).getByRole("link", { name: "Watchlists" }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Watchlists");
+    expect(screen.getAllByRole("tooltip")).toHaveLength(1);
+  });
+
+  it("puts the status bar under the page, outside the scroll container", () => {
+    renderShell();
+    const footer = screen.getByRole("contentinfo", { name: "Status bar" });
+
+    expect(footer.previousElementSibling).toBe(screen.getByRole("main"));
+    expect(screen.getByRole("main")).toHaveClass("overflow-y-auto", "flex-1", "min-h-0");
+    expect(footer.parentElement).toHaveClass("h-dvh", "flex-col");
+    expect(footer).toHaveTextContent("v0.0.1");
+  });
+
+  it("puts the sidebar toggle, the centred search and the index ticker in the top bar, and no theme switch", () => {
     renderShell();
     const topbar = screen.getByRole("banner");
 
@@ -115,7 +217,8 @@ describe("AppShell", () => {
     // Named by its visible text (no aria-label, so axe's label-content-name-mismatch can't trip). jsdom drops the
     // space at the start of the inner span; browsers keep it, and the e2e checks the real name.
     expect(search).toHaveAccessibleName(/^Search\s?sections and actions/);
-    expect(topbar).toHaveClass("bg-surface-1", "border-b", "border-border");
+    expect(topbar).toHaveClass("bg-surface-1", "border-b", "border-border", "h-14", "shrink-0");
+    expect(within(topbar).getByRole("list", { name: "Market indices" })).toHaveClass("hidden", "xl:flex");
     expect(screen.queryByRole("radiogroup", { name: "Theme" })).not.toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "Sidebar" })).toHaveClass("border-r", "border-border");
   });

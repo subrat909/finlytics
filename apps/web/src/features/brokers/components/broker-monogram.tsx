@@ -4,18 +4,29 @@ import { cn } from "@finlytics/ui/lib/utils";
 
 import { BROKER_CONFIG } from "../config";
 
-/** A broker's tile: its monogram on the brokers accent (orange, finlytics-ui), decorative. Server-safe. */
-export function BrokerMonogram({ broker, className }: { broker: BrokerCode; className?: string | undefined }) {
+/** A broker's mark: its monogram on the broker's tint, decorative (the name is always next to it). Server-safe. */
+export function BrokerMonogram({
+  broker,
+  size = "md",
+  className,
+}: {
+  broker: BrokerCode;
+  size?: "sm" | "md" | undefined;
+  className?: string | undefined;
+}) {
+  const config = BROKER_CONFIG[broker];
   return (
     <span
       aria-hidden="true"
       data-slot="broker-monogram"
       className={cn(
-        "inline-flex size-10 shrink-0 items-center justify-center rounded-md bg-orange/10 text-sm font-semibold text-orange",
+        "inline-flex shrink-0 items-center justify-center rounded-md font-semibold",
+        size === "sm" ? "size-7 text-xs" : "size-9 text-sm",
+        config.accent,
         className,
       )}
     >
-      {BROKER_CONFIG[broker].monogram}
+      {config.monogram}
     </span>
   );
 }

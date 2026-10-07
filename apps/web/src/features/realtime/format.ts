@@ -32,6 +32,12 @@ export function formatPercent(value: number | null | undefined): string {
   return `${formatInr(fixed2(value), { symbol: false, sign: "always" })}%`;
 }
 
+/** `1,23,456`: a whole quantity with Indian grouping (depth, lots). */
+export function formatQuantity(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return NO_VALUE;
+  return formatInr(String(Math.round(value)), { symbol: false, decimals: 0 });
+}
+
 /** `12.3 L` (lakh), `4.5 Cr` (crore): volume and open interest. */
 export function formatQuantityCompact(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return NO_VALUE;
@@ -61,6 +67,13 @@ export function formatIstDateTime(value: string | number | Date): string {
   const ist = new Date(ms + IST_OFFSET_MS);
   const month = MONTHS[ist.getUTCMonth()] ?? "";
   return `${String(ist.getUTCDate())} ${month} ${String(ist.getUTCFullYear())}, ${pad(ist.getUTCHours())}:${pad(ist.getUTCMinutes())} IST`;
+}
+
+/** `15:29:59` in IST: a tick's exchange time. */
+export function formatIstTime(value: number): string {
+  if (!Number.isFinite(value)) return NO_VALUE;
+  const ist = new Date(value + IST_OFFSET_MS);
+  return `${pad(ist.getUTCHours())}:${pad(ist.getUTCMinutes())}:${pad(ist.getUTCSeconds())}`;
 }
 
 /** `7 Oct 2026` in IST. */

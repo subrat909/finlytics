@@ -10,6 +10,7 @@ import { Logo } from "@/components/brand/logo";
 import { useUiStore } from "@/stores/ui.store";
 
 import { SidebarNav } from "./sidebar-nav";
+import { TradingMode } from "./trading-mode";
 
 const DESKTOP_QUERY = "(min-width: 1024px)";
 
@@ -38,7 +39,7 @@ export function MobileNav() {
       <Dialog.Trigger asChild>
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           aria-label="Open navigation"
           className="lg:hidden"
           data-slot="mobile-nav-trigger"
@@ -62,7 +63,7 @@ export function MobileNav() {
           </div>
           <Dialog.Title className="sr-only">Navigation</Dialog.Title>
           <Dialog.Description className="sr-only">Go to a section of Finlytics.</Dialog.Description>
-          <nav aria-label="Main" className="flex-1 overflow-y-auto px-3 py-3">
+          <nav aria-label="Main" className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
             <SidebarNav
               idPrefix="mobile-nav"
               onNavigate={() => {
@@ -70,6 +71,13 @@ export function MobileNav() {
               }}
             />
           </nav>
+          <div className="flex h-10 shrink-0 items-center border-t border-border px-3">
+            <TradingMode
+              onNavigate={() => {
+                setOpen(false);
+              }}
+            />
+          </div>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

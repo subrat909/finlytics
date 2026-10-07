@@ -1,46 +1,102 @@
-import { Card } from "@finlytics/ui/components/card";
+import type * as React from "react";
+
 import { Skeleton } from "@finlytics/ui/components/skeleton";
 
-/** Shaped like the account cards: tile, two lines and a chip, the dates, then the actions. Server-safe. */
-export function BrokerCardsSkeleton({ count = 2 }: { count?: number }) {
+function range(length: number): number[] {
+  return Array.from({ length }, (_, index) => index);
+}
+
+/** Shaped like the accounts table: header bar, then rows of mark + name, status, session bar, date, badge, menu. */
+export function BrokerAccountsSkeleton({ rows = 2 }: { rows?: number }) {
   return (
-    <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3" data-slot="broker-cards-skeleton">
-      {Array.from({ length: count }, (_, index) => (
-        <Card key={index} className="gap-5">
-          <div className="flex items-center gap-3">
-            <Skeleton className="size-10 rounded-md" />
-            <div className="flex-1 space-y-2">
-              <Skeleton className="h-4 w-32" />
-              <Skeleton className="h-3 w-20" />
+    <div data-slot="broker-accounts-skeleton" aria-hidden="true">
+      <div className="hidden gap-4 border-b border-border bg-surface-2/50 px-3 py-2.5 md:flex">
+        {range(5).map((column) => (
+          <Skeleton key={column} className="h-3 flex-1 bg-surface-3" />
+        ))}
+      </div>
+      {range(rows).map((row) => (
+        <div
+          key={row}
+          className="grid grid-cols-2 gap-3 border-b border-border px-3 py-3 last:border-b-0 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] md:items-center"
+        >
+          <div className="col-span-2 flex items-center gap-3 md:col-span-1">
+            <Skeleton className="size-9 rounded-md" />
+            <div className="flex-1 space-y-1.5">
+              <Skeleton className="h-3.5 w-28" />
+              <Skeleton className="h-3 w-16" />
             </div>
-            <Skeleton className="h-6 w-24 rounded-full" />
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Skeleton className="h-10" />
-            <Skeleton className="h-10" />
+          <Skeleton className="h-5 w-24 rounded-sm" />
+          <div className="space-y-1.5">
+            <Skeleton className="h-3.5 w-24" />
+            <Skeleton className="h-1.5 w-28 rounded-full" />
           </div>
-          <div className="flex gap-2">
-            <Skeleton className="h-8 w-28 rounded-md" />
-            <Skeleton className="h-8 w-20 rounded-md" />
-          </div>
-        </Card>
+          <Skeleton className="h-3.5 w-32" />
+          <Skeleton className="h-5 w-20 rounded-sm" />
+          <Skeleton className="ml-auto size-8 rounded-md" />
+        </div>
       ))}
     </div>
   );
 }
 
-/** The route's loading state: header, then the cards. */
+/** Shaped like the catalog cards. */
+export function BrokerCatalogSkeleton() {
+  return (
+    <div className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3" aria-hidden="true">
+      {range(3).map((card) => (
+        <div key={card} className="space-y-3 rounded-md border border-border p-3">
+          <div className="flex items-start gap-3">
+            <Skeleton className="size-9 rounded-md" />
+            <div className="flex-1 space-y-1.5">
+              <Skeleton className="h-3.5 w-24" />
+              <Skeleton className="h-3 w-full" />
+            </div>
+          </div>
+          <Skeleton className="h-8 w-36 rounded-md" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** A panel frame with a header bar, for the route's skeleton. */
+function PanelFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-md border border-border bg-surface-1">
+      <div className="flex h-10 items-center justify-between border-b border-border px-3">
+        <Skeleton className="h-3.5 w-36" />
+        <Skeleton className="h-3.5 w-16" />
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** The route's loading state: header with plan usage and the connect button, the accounts, then the catalog. */
 export function BrokersPageSkeleton() {
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="space-y-2">
-          <Skeleton className="h-7 w-32" />
-          <Skeleton className="h-4 w-72 max-w-full" />
+    <div className="flex flex-col gap-4 lg:gap-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <Skeleton className="size-9 rounded-md" />
+          <div className="space-y-1.5">
+            <Skeleton className="h-5 w-28" />
+            <Skeleton className="h-3.5 w-72 max-w-full" />
+          </div>
         </div>
-        <Skeleton className="h-10 w-32 rounded-md" />
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-8 w-40 rounded-md" />
+          <Skeleton className="h-10 w-36 rounded-md" />
+        </div>
       </div>
-      <BrokerCardsSkeleton />
+      <PanelFrame>
+        <BrokerAccountsSkeleton />
+      </PanelFrame>
+      <PanelFrame>
+        <BrokerCatalogSkeleton />
+      </PanelFrame>
     </div>
   );
 }

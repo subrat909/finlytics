@@ -118,10 +118,12 @@ export interface ChangeCellProps {
   /** `abs`: points from the previous close; `pct`: percent. */
   kind: "abs" | "pct";
   className?: string | undefined;
+  /** Show the ▲/▼ glyph (default true). Dense rows show it once, on the price. */
+  glyph?: boolean | undefined;
 }
 
 /** The day's change (points or percent), signed, coloured and with its glyph. */
-export const ChangeCell = memo(function ChangeCell({ instrumentKey, kind, className }: ChangeCellProps) {
+export const ChangeCell = memo(function ChangeCell({ instrumentKey, kind, className, glyph = true }: ChangeCellProps) {
   const tick = useTick(instrumentKey);
   const direction = directionOf(tick?.chg);
   const text = tick === undefined ? NO_VALUE : kind === "abs" ? formatChange(tick.chg) : formatPercent(tick.chgPct);
@@ -130,7 +132,7 @@ export const ChangeCell = memo(function ChangeCell({ instrumentKey, kind, classN
       data-slot="change-cell"
       className={cn("inline-flex items-center justify-end gap-1 tabular text-sm", DIRECTION_TEXT[direction], className)}
     >
-      {tick !== undefined && direction !== "flat" ? (
+      {glyph && tick !== undefined && direction !== "flat" ? (
         <span aria-hidden="true" className="text-[0.7em]">
           {GLYPH[direction]}
         </span>

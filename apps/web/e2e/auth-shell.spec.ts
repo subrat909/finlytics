@@ -1,6 +1,6 @@
 /**
- * The shell, end to end: email magic-link sign-in (mailpit) → dashboard → `GET /v1/me` through the same-origin
- * rewrite shows the same user → the sidebar collapses from the top bar's toggle and `[` without re-mounting the page →
+ * The shell, end to end: email magic-link sign-in (mailpit) → dashboard (with the status bar) → `GET /v1/me` through
+ * the same-origin rewrite is the same user → the sidebar collapses from the top bar's toggle and `[` without re-mounting the page →
  * ⌘K goes to Settings → the theme and the density switch and save → sign out. Every page is also checked with axe
  * (colour contrast included) and for console errors and CSP violations.
  */
@@ -22,15 +22,15 @@ test("signs in with a magic link, uses the shell, and signs out", async ({ page,
   await expect(page.getByRole("heading", { level: 1, name: "Sign in to Finlytics" })).toBeVisible();
   expect(await axeViolations(page)).toEqual([]);
 
-  // The magic link lands on the dashboard; /v1/me (through the rewrite) is the same, normalised user.
-  const meResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/v1/me");
+  // The magic link lands on the dashboard; /v1/me (through the rewrite, with the session cookie) is the same,
+  // normalised user, and the shell's account menu names them.
   await signInWithMagicLink(page, email);
-  const me = MeSchema.parse(await (await meResponse).json());
+  await expect(page.getByRole("heading", { level: 1, name: "Dashboard" })).toBeVisible();
+  const me = MeSchema.parse(await (await page.request.get("/v1/me")).json());
   expect(me.email).toBe(normalised);
-  const accountCard = page.locator('[data-slot="account-card"]');
-  await expect(accountCard).toContainText(normalised);
-  await expect(accountCard).toHaveAttribute("data-user-id", me.id);
+  await expect(page.getByRole("button", { name: `Account menu for ${normalised}` })).toBeVisible();
   await expect(page.getByRole("heading", { name: /Connect a broker to see your portfolio/ })).toBeVisible();
+  await expect(page.getByRole("contentinfo", { name: "Status bar" })).toBeVisible();
 
   // The session cookie follows the contract (docs/06): HttpOnly, SameSite=Lax, Path=/, no Domain attribute.
   const cookie = (await context.cookies()).find((candidate) => candidate.name === SESSION_COOKIE);
@@ -49,7 +49,8 @@ test("signs in with a magic link, uses the shell, and signs out", async ({ page,
   const main = page.locator("main#main-content");
   await expect(sidebar).toHaveCSS("width", "256px");
   await expect(sidebar).toHaveCSS("transition-property", "width");
-  await accountCard.evaluate((element) => {
+  const pageHeader = page.locator('[data-slot="page-header"]').first();
+  await pageHeader.evaluate((element) => {
     (element as HTMLElement & { e2eMarker?: string }).e2eMarker = "kept";
   });
   const mainNode = await main.elementHandle();
@@ -58,9 +59,9 @@ test("signs in with a magic link, uses the shell, and signs out", async ({ page,
   await expect(sidebar).toHaveCSS("width", "64px");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator('[data-slot="app-content"]')).toHaveCSS("margin-left", "64px");
-  await expect(page.getByRole("link", { name: "Charts" })).toBeVisible(); // still named while collapsed
+  await expect(sidebar.getByRole("link", { name: "Charts", exact: true })).toBeVisible(); // still named while collapsed
   expect(await page.evaluate((node) => node === document.getElementById("main-content"), mainNode)).toBe(true);
-  expect(await accountCard.evaluate((element) => (element as HTMLElement & { e2eMarker?: string }).e2eMarker)).toBe(
+  expect(await pageHeader.evaluate((element) => (element as HTMLElement & { e2eMarker?: string }).e2eMarker)).toBe(
     "kept",
   );
   // Collapsed survives a reload with no flash: the server renders it from the cookie.
@@ -84,7 +85,7 @@ test("signs in with a magic link, uses the shell, and signs out", async ({ page,
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/settings$/);
   await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Settings" })).toHaveAttribute("aria-current", "page");
+  await expect(sidebar.getByRole("link", { name: "Settings", exact: true })).toHaveAttribute("aria-current", "page");
   expect(await page.evaluate((node) => node === document.getElementById("main-content"), mainBeforeNavigation)).toBe(
     true,
   );
@@ -137,7 +138,7 @@ test("works at 360 px: no horizontal scroll, navigation in a sheet", async ({ pa
   const problems = await collectProblems(page);
   await page.setViewportSize({ width: 360, height: 740 });
   await signInWithMagicLink(page, uniqueEmail("mobile"));
-  await expect(page.locator('[data-slot="account-card"]')).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Dashboard" })).toBeVisible();
 
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,

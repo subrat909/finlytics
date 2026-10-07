@@ -7,6 +7,7 @@ import { cn } from "@finlytics/ui/lib/utils";
 import { Logo } from "@/components/brand/logo";
 
 import { SidebarNav } from "./sidebar-nav";
+import { TradingMode } from "./trading-mode";
 
 export const SIDEBAR_ID = "app-sidebar";
 
@@ -15,9 +16,10 @@ export interface SidebarProps {
 }
 
 /**
- * The desktop sidebar (≥ 1024 px): fixed, `w-64 ↔ w-16` with a width transition (frontend.md "Sidebar"), the same
- * surface as the top bar with a 1px right edge. Its toggle lives in the top bar (SidebarToggle). Collapsing only
- * changes classes: nothing is unmounted, here or in the page.
+ * The desktop sidebar (≥ 1024 px): fixed at full height, `w-64 ↔ w-16` with a width transition (frontend.md
+ * "Sidebar"), the navbar's surface with a 1px right edge. The logo row has the navbar's height and bottom edge, so the
+ * two read as one line, and the foot row (the trading mode) lines up with the status bar the same way. Collapsing only changes
+ * classes: nothing is unmounted, here or in the page. Its toggle lives in the navbar (SidebarToggle).
  */
 export function Sidebar({ collapsed }: SidebarProps) {
   return (
@@ -32,19 +34,21 @@ export function Sidebar({ collapsed }: SidebarProps) {
         collapsed ? "w-16" : "w-64",
       )}
     >
-      {/* The same height and bottom edge as the top bar, so the two read as one line. */}
       <div className="flex h-14 shrink-0 items-center border-b border-border px-4">
         <Link
           href="/dashboard"
           aria-label="Finlytics, go to the dashboard"
-          className="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid"
+          className="rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid"
         >
           <Logo compact={collapsed} />
         </Link>
       </div>
-      <nav aria-label="Main" className="flex-1 overflow-x-hidden overflow-y-auto px-3 py-3">
+      <nav aria-label="Main" className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3">
         <SidebarNav collapsed={collapsed} idPrefix="sidebar" />
       </nav>
+      <div className="flex h-8 shrink-0 items-center border-t border-border px-3">
+        <TradingMode collapsed={collapsed} />
+      </div>
     </aside>
   );
 }

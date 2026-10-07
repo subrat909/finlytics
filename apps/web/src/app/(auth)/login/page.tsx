@@ -38,7 +38,7 @@ export default async function LoginPage({
         <p className="text-sm text-fg-muted">New here? Signing in creates your account.</p>
       </div>
       {error ? (
-        <p role="alert" className="rounded-md bg-loss/10 px-3 py-2 text-sm text-fg">
+        <p role="alert" className="rounded-md border border-loss/30 bg-loss/10 px-3 py-2 text-sm text-fg">
           {error}
         </p>
       ) : null}
@@ -46,15 +46,16 @@ export default async function LoginPage({
         <>
           <OAuthButtons providers={providers} callbackUrl={callbackUrl} />
           <div className="flex items-center gap-3 text-xs text-fg-muted" aria-hidden="true">
-            <span className="h-px flex-1 bg-surface-3" />
+            <span className="h-px flex-1 bg-border" />
             or
-            <span className="h-px flex-1 bg-surface-3" />
+            <span className="h-px flex-1 bg-border" />
           </div>
         </>
       ) : null}
       <EmailSignInForm callbackUrl={callbackUrl} />
-      <p className="text-xs text-fg-muted">
-        By continuing you agree to use paper trading until you connect a broker and enable live trading yourself.
+      <p className="text-xs leading-relaxed text-fg-muted">
+        Finlytics starts in paper trading: no real orders until you connect a broker and switch live trading on
+        yourself.
       </p>
     </div>
   );

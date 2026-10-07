@@ -6,11 +6,22 @@ import {
   formatChange,
   formatIstDate,
   formatIstDateTime,
+  formatIstTime,
   formatPercent,
   formatPrice,
+  formatQuantity,
   formatQuantityCompact,
 } from "../format";
-import { parseQuoteBatch, quoteToTick, rejectReasonText } from "../schemas";
+import {
+  depthRejectText,
+  mergeTick,
+  parseDepth,
+  parseQuoteBatch,
+  parseStatus,
+  quoteToTick,
+  rejectReasonText,
+} from "../schemas";
+import type { Depth, Tick } from "../schemas";
 import { isStale, marketActions, useMarketStore } from "../store";
 
 describe("live number formatting", () => {
@@ -35,6 +46,17 @@ describe("live number formatting", () => {
     expect(formatQuantityCompact(null)).toBe(NO_VALUE);
   });
 
+  it("formats whole quantities with Indian grouping", () => {
+    expect(formatQuantity(1_234_567)).toBe("12,34,567");
+    expect(formatQuantity(75.4)).toBe("75");
+    expect(formatQuantity(undefined)).toBe(NO_VALUE);
+  });
+
+  it("formats a tick's time in IST", () => {
+    expect(formatIstTime(Date.UTC(2026, 9, 6, 9, 59, 59))).toBe("15:29:59");
+    expect(formatIstTime(Number.NaN)).toBe(NO_VALUE);
+  });
+
   it("reads the direction from the rounded change", () => {
     expect(directionOf(0.5)).toBe("up");
     expect(directionOf(-0.5)).toBe("down");
@@ -52,21 +74,110 @@ describe("live number formatting", () => {
 });
 
 describe("realtime messages", () => {
-  it("turns quotes into ticks aged by their own timestamp", () => {
-    expect(quoteToTick({ ltp: "101.5", chg: "-1.5", chgPct: "-1.46", vol: "2500", ts: 5 })).toEqual({
+  it("turns quotes into ticks aged by their own timestamp, with the day statistics", () => {
+    expect(
+      quoteToTick({
+        ltp: "101.5",
+        chg: "-1.5",
+        chgPct: "-1.46",
+        vol: "2500",
+        ts: 5,
+        open: "102",
+        high: "103.25",
+        low: "100",
+        close: "103",
+        oi: "1200",
+        atp: "101.75",
+      }),
+    ).toEqual({
       ltp: 101.5,
       chg: -1.5,
       chgPct: -1.46,
       vol: 2500,
       ts: 5,
       receivedAt: 5,
+      open: 102,
+      high: 103.25,
+      low: 100,
+      close: 103,
+      oi: 1200,
+      atp: 101.75,
     });
-    expect(quoteToTick({ ltp: "1", ts: 9 })).toMatchObject({ chg: 0, chgPct: 0, vol: null });
+    expect(quoteToTick({ ltp: "1", ts: 9 })).toMatchObject({
+      chg: 0,
+      chgPct: 0,
+      vol: null,
+      open: null,
+      high: null,
+      low: null,
+      close: null,
+      oi: null,
+      atp: null,
+    });
+  });
+
+  it("reads 12-field quote rows, nulls included, and pads six-field ones", () => {
+    const [[key, tick] = ["", undefined]] = parseQuoteBatch(
+      { t: 1, d: [["NSE_EQ|INFY", "1500", "-3.5", "-0.23", 10, 2, "1501", null, "1490", "1503.5", null, "1499.1"]] },
+      7,
+    );
+    expect(key).toBe("NSE_EQ|INFY");
+    expect(tick).toEqual({
+      ltp: 1500,
+      chg: -3.5,
+      chgPct: -0.23,
+      vol: 10,
+      ts: 2,
+      receivedAt: 7,
+      open: 1501,
+      high: null,
+      low: 1490,
+      close: 1503.5,
+      oi: null,
+      atp: 1499.1,
+    });
+    expect(parseQuoteBatch({ t: 1, d: [["NSE_EQ|INFY", "1", "0", "0", 0, 2]] }, 0)[0]?.[1]).toMatchObject({
+      open: null,
+      atp: null,
+    });
+    // Too short, or a bad tail value: skipped.
+    expect(parseQuoteBatch({ t: 1, d: [["NSE_EQ|INFY", "1", "0", "0", 0]] }, 0)).toEqual([]);
+    expect(
+      parseQuoteBatch({ t: 1, d: [["NSE_EQ|INFY", "1", "0", "0", 0, 2, "x", null, null, null, null, null]] }, 0),
+    ).toEqual([]);
+  });
+
+  it("keeps day statistics a newer tick doesn't carry", () => {
+    const previous: Tick = { ltp: 1, chg: 0, chgPct: 0, vol: 1, ts: 1, receivedAt: 1, open: 9, high: 12, oi: 4 };
+    const next: Tick = { ltp: 2, chg: 1, chgPct: 1, vol: 2, ts: 2, receivedAt: 2, open: null, high: 13 };
+    expect(mergeTick(next, previous)).toMatchObject({ ltp: 2, open: 9, high: 13, low: null, oi: 4, atp: null });
+    expect(mergeTick(next, undefined)).toBe(next);
+    const complete: Tick = { ...next, open: 1, low: 1, close: 1, oi: 1, atp: 1 };
+    expect(mergeTick(complete, previous)).toBe(complete);
+  });
+
+  it("reads depth and status messages", () => {
+    expect(parseDepth({ k: "NSE_EQ|INFY", t: 3, bids: [["1500", 10, 2]], asks: [], tbq: null, tsq: 40 }, 9)).toEqual([
+      "NSE_EQ|INFY",
+      { t: 3, bids: [{ price: 1500, qty: 10, orders: 2 }], asks: [], tbq: null, tsq: 40, receivedAt: 9 },
+    ]);
+    expect(parseDepth({ k: "NSE_EQ|INFY", t: 3, bids: [["-1", 10, 2]], asks: [], tbq: null, tsq: null }, 9)).toBe(
+      undefined,
+    );
+    expect(parseStatus({ feed: "up", source: "DHAN", live: true })).toEqual({
+      feed: "up",
+      source: { source: "DHAN", live: true },
+    });
+    expect(parseStatus({ feed: "down" })).toEqual({ feed: "down", source: undefined });
+    expect(parseStatus({ feed: "up", source: "NSE", live: true })).toBeUndefined();
+    expect(parseStatus("up")).toBeUndefined();
   });
 
   it("explains refused keys", () => {
     expect(rejectReasonText("limit")).toBe("your plan's live-price limit is reached");
     expect(rejectReasonText("something new")).toBe("not available");
+    expect(depthRejectText("limit")).toMatch(/too many market depth panels/);
+    expect(depthRejectText("unavailable")).toBe("the live service is busy");
   });
 
   it("parses only well-formed rows", () => {
@@ -103,5 +214,60 @@ describe("market store", () => {
     expect(isStale(tick, 15_000)).toBe(false);
     expect(isStale(tick, 15_001)).toBe(true);
     expect(isStale(undefined, 15_001)).toBe(false);
+  });
+});
+
+function depth(t: number, price = 100): Depth {
+  return { t, bids: [{ price, qty: 1, orders: 1 }], asks: [], tbq: null, tsq: null, receivedAt: t };
+}
+
+describe("market store depth and source", () => {
+  it("applies ticks and depth from one flush in one update", () => {
+    marketActions.reset();
+    const updates: unknown[] = [];
+    const unsubscribe = useMarketStore.subscribe((state) => updates.push(state));
+    marketActions.applyBatch(
+      new Map([["K", { ltp: 1, chg: 0, chgPct: 0, vol: null, ts: 1, receivedAt: 1 }]]),
+      new Map([["K", depth(1)]]),
+    );
+    marketActions.applyBatch(new Map(), new Map());
+    unsubscribe();
+    expect(updates).toHaveLength(1);
+    expect(useMarketStore.getState().depth.get("K")?.bids[0]?.price).toBe(100);
+  });
+
+  it("never lets an older depth snapshot overwrite a newer book, and forgets books nothing shows", () => {
+    marketActions.reset();
+    marketActions.applyDepth(new Map([["K", depth(200)]]));
+    marketActions.seedDepth("K", depth(100, 1));
+    expect(useMarketStore.getState().depth.get("K")?.t).toBe(200);
+    marketActions.seedDepth("K", depth(300, 3));
+    expect(useMarketStore.getState().depth.get("K")?.bids[0]?.price).toBe(3);
+    marketActions.setDepthRejected("R", "limit");
+    marketActions.setDepthRejected("R", "limit");
+    const before = useMarketStore.getState();
+    marketActions.forgetDepthExcept(new Set(["K", "R"]));
+    expect(useMarketStore.getState()).toBe(before);
+    marketActions.forgetDepthExcept(new Set());
+    expect(useMarketStore.getState().depth.size).toBe(0);
+    expect(useMarketStore.getState().depthRejected.size).toBe(0);
+    marketActions.setDepthRejected("R", "limit");
+    marketActions.setDepthRejected("R", undefined);
+    expect(useMarketStore.getState().depthRejected.size).toBe(0);
+    marketActions.setDepthRejected("R", "limit");
+    marketActions.clearDepthRejected();
+    expect(useMarketStore.getState().depthRejected.size).toBe(0);
+  });
+
+  it("keeps the feed source's identity while it doesn't change", () => {
+    marketActions.reset();
+    marketActions.setSource({ source: "PAPER", live: false });
+    const first = useMarketStore.getState().source;
+    marketActions.setSource({ source: "PAPER", live: false });
+    expect(useMarketStore.getState().source).toBe(first);
+    marketActions.setSource({ source: "UPSTOX", live: true });
+    expect(useMarketStore.getState().source).toEqual({ source: "UPSTOX", live: true });
+    marketActions.setSource(undefined);
+    expect(useMarketStore.getState().source).toBeUndefined();
   });
 });

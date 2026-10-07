@@ -8,7 +8,7 @@ import { expectNoAxeViolations } from "@/test/axe";
 import { navigation, nextNavigationMock, router } from "@/test/next-mocks";
 import { renderWithProviders } from "@/test/render";
 
-import { CommandPalette } from "../command-palette";
+import { CommandPalette, paletteFilter } from "../command-palette";
 import { MobileNav } from "../mobile-nav";
 import { UserMenu } from "../user-menu";
 import { initialsFor } from "../user-avatar";
@@ -39,6 +39,7 @@ describe("UserMenu", () => {
     expect(menu).toHaveTextContent("Asha Rao");
     expect(menu).toHaveTextContent("asha@example.com");
     expect(within(menu).getByRole("menuitem", { name: "Settings" })).toHaveAttribute("href", "/settings");
+    expect(within(menu).getByRole("menuitem", { name: "Brokers" })).toHaveAttribute("href", "/brokers");
     await expectNoAxeViolations(menu);
 
     await actor.click(within(menu).getByRole("menuitem", { name: "Sign out" }));
@@ -82,6 +83,34 @@ describe("CommandPalette", () => {
     expect(useUiStore.getState().commandOpen).toBe(false);
   });
 
+  it("lists every section under the sidebar's groups, the ones still to come marked", async () => {
+    renderWithProviders(<CommandPalette />);
+    open();
+    const dialog = await screen.findByRole("dialog", { name: "Command palette" });
+
+    const markets = within(dialog).getByRole("group", { name: "Markets" });
+    expect(
+      within(markets)
+        .getAllByRole("option")
+        .map((option) => option.getAttribute("data-value")),
+    ).toEqual(["Watchlists", "Charts", "Option Chain", "Markets"]);
+    expect(within(markets).getByRole("option", { name: "Option Chain, coming soon" })).toBeInTheDocument();
+    for (const name of ["Overview", "Trading", "Algo", "Account", "Actions"]) {
+      expect(within(dialog).getByRole("group", { name })).toBeInTheDocument();
+    }
+  });
+
+  it("goes to a coming-soon section too", async () => {
+    const actor = userEvent.setup();
+    renderWithProviders(<CommandPalette />);
+    open();
+
+    await actor.type(await screen.findByRole("combobox"), "backtests");
+    await actor.keyboard("{Enter}");
+
+    expect(router.push).toHaveBeenCalledWith("/backtests");
+  });
+
   it("toggles the sidebar", async () => {
     const actor = userEvent.setup();
     renderWithProviders(<CommandPalette />);
@@ -115,6 +144,15 @@ describe("CommandPalette", () => {
     });
   });
 
+  it("matches labels before keywords, and hides what doesn't match at all", () => {
+    expect(paletteFilter("Backtests", "back", ["Algo"])).toBe(1);
+    expect(paletteFilter("Option Chain", "chain", [])).toBe(0.9);
+    expect(paletteFilter("P&L", "&", [])).toBe(0.8);
+    expect(paletteFilter("Markets", "global", ["Indices, movers, global markets"])).toBe(0.5);
+    expect(paletteFilter("Markets", "backtests", ["Indices, movers, global markets"])).toBe(0);
+    expect(paletteFilter("Charts", "  ", undefined)).toBe(1);
+  });
+
   it("says when nothing matches", async () => {
     const actor = userEvent.setup();
     renderWithProviders(<CommandPalette />);
@@ -135,6 +173,7 @@ describe("MobileNav", () => {
     expect(within(sheet).getByRole("link", { name: "Watchlists" })).toHaveAttribute("aria-current", "page");
     await expectNoAxeViolations(sheet);
 
+    expect(within(sheet).getByRole("link", { name: "Paper trading: orders are simulated" })).toBeInTheDocument();
     await actor.click(within(sheet).getByRole("link", { name: "Charts" }));
     await waitFor(() => {
       expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument();

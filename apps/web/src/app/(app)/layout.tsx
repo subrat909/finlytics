@@ -8,10 +8,13 @@ import { NeedsReloginBanner } from "@/features/brokers/components/needs-relogin-
 import { RealtimeRoot } from "@/features/realtime/components/realtime-root";
 import { SIDEBAR_COOKIE } from "@/stores/ui.store";
 
+import packageJson from "../../../package.json";
+
 /**
  * The authenticated area. The real session check (the proxy only saw a cookie): no valid session → /login. The shell
  * stays mounted across every page below it. `banner` is the shell's notice slot (between the top bar and the page):
- * the broker NEEDS_RELOGIN banner. One realtime socket per tab (RealtimeRoot), opened by the first subscription.
+ * the broker NEEDS_RELOGIN banner. One realtime socket per tab (RealtimeRoot), opened by the first subscription. The
+ * status bar shows the app's version, read here on the server (only the string reaches the client).
  */
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
@@ -20,7 +23,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <RealtimeRoot>
-      <AppShell user={session.user} initialCollapsed={initialCollapsed} banner={<NeedsReloginBanner />}>
+      <AppShell
+        user={session.user}
+        initialCollapsed={initialCollapsed}
+        banner={<NeedsReloginBanner />}
+        version={packageJson.version}
+      >
         {children}
       </AppShell>
     </RealtimeRoot>

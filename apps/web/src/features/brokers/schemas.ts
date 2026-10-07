@@ -2,14 +2,20 @@
  * Broker accounts: the wire contract is `@finlytics/shared` (`schemas/brokers`, stream C1). This file adds what only
  * the UI needs: the wizard's brokers and friendly form messages for the shared request schemas.
  */
-import { ConnectDhanSchema, ConnectUpstoxSchema } from "@finlytics/shared";
-import type { BrokerAccountStatus, BrokerAccountView, ConnectDhan, ConnectUpstox } from "@finlytics/shared";
+import { BrokerAccountLabelSchema, ConnectPaperSchema, ConnectUpstoxSchema } from "@finlytics/shared";
+import type {
+  BrokerAccountStatus,
+  BrokerAccountView,
+  BrokerLimits,
+  ConnectPaper,
+  ConnectUpstox,
+} from "@finlytics/shared";
 import { z } from "zod";
 
-export type { BrokerAccountStatus, BrokerAccountView, ConnectDhan, ConnectUpstox };
+export type { BrokerAccountStatus, BrokerAccountView, BrokerLimits, ConnectPaper, ConnectUpstox };
 
-/** The brokers a user can connect from the wizard (phase 1). */
-export const CONNECTABLE_BROKERS = ["UPSTOX", "DHAN"] as const;
+/** The brokers a user can connect from the wizard (phase 1b): two real brokers and the built-in paper broker. */
+export const CONNECTABLE_BROKERS = ["UPSTOX", "DHAN", "PAPER"] as const;
 export type ConnectableBroker = (typeof CONNECTABLE_BROKERS)[number];
 
 /**
@@ -44,8 +50,64 @@ export const UpstoxFormSchema = ConnectUpstoxSchema.extend({
   apiSecret: required("Paste the API secret from your Upstox app", ConnectUpstoxSchema.shape.apiSecret),
 });
 
-/** The Dhan form: the shared request schema, with friendly messages for empty fields. */
-export const DhanFormSchema = ConnectDhanSchema.extend({
-  clientId: required("Enter your Dhan client ID", ConnectDhanSchema.shape.clientId),
-  accessToken: required("Paste the access token from the Dhan dashboard", ConnectDhanSchema.shape.accessToken),
-});
+/**
+ * What people paste around a Dhan token, removed before it's checked or sent (the api's adapter does the same):
+ * surrounding whitespace and quotes, a `Bearer ` prefix, and line breaks from a wrapped copy.
+ */
+export function cleanDhanToken(raw: string): string {
+  const QUOTES = /^["'`]+|["'`]+$/g;
+  return raw
+    .trim()
+    .replace(QUOTES, "")
+    .trim()
+    .replace(/^bearer\s+/i, "")
+    .replace(QUOTES, "")
+    .replace(/\s+/g, "");
+}
+
+/** `POST /v1/brokers/dhan`: the client ID is optional (the api reads it from the token) and omitted when empty. */
+export interface DhanConnectInput {
+  label: string;
+  clientId?: string | undefined;
+  accessToken: string;
+}
+
+/**
+ * The Dhan form. The client ID is optional: empty becomes "omitted", anything else must look like one. The token is
+ * cleaned first (a pasted `Bearer …` is fine), then checked like the api checks it.
+ */
+export const DhanFormSchema = z.strictObject({
+  label: BrokerAccountLabelSchema,
+  clientId: z
+    .string()
+    .trim()
+    .transform((value) => (value === "" ? undefined : value))
+    .pipe(
+      z
+        .string()
+        .regex(/^[A-Za-z0-9]{1,32}$/, { error: "Use the client ID from Dhan (letters and digits), or leave it empty" })
+        .optional(),
+    ),
+  accessToken: z
+    .string()
+    .transform(cleanDhanToken)
+    .pipe(
+      z
+        .string()
+        .min(1, { error: "Paste the access token from the Dhan dashboard" })
+        .pipe(
+          z
+            .string()
+            .min(16)
+            .max(4096)
+            .regex(/^[A-Za-z0-9._-]+$/),
+        ),
+    ),
+}) satisfies z.ZodType<DhanConnectInput>;
+export type DhanFormValues = z.input<typeof DhanFormSchema>;
+
+/** The paper form: just a name. */
+export const PaperFormSchema = ConnectPaperSchema;
+
+/** The rename form: the shared label rules. */
+export const RenameFormSchema = ConnectPaperSchema;

@@ -70,7 +70,7 @@ test("adds an instrument to a watchlist, sees its price move live, and opens its
   await page.setViewportSize({ width: 1280, height: 720 });
 
   // The symbol opens its chart: Lightweight Charts draws on canvases.
-  await row.getByRole("link").first().click();
+  await row.getByRole("link", { name: /^Chart / }).click();
   await expect(page).toHaveURL(/\/charts\?key=/);
   const chart = page.locator('[data-slot="lightweight-chart"]');
   await expect(chart.locator("canvas").first()).toBeVisible({ timeout: 20_000 });
@@ -89,10 +89,13 @@ test("the brokers page explains an empty Dhan access token", async ({ page }) =>
   await signInWithMagicLink(page, uniqueEmail("brokers"), "/brokers");
   await expect(page.getByRole("heading", { level: 1, name: "Brokers" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Add a broker" }).first().click();
-  await page.getByRole("dialog", { name: "Add a broker" }).getByRole("button", { name: /Dhan/ }).click();
+  // The wizard: pick Dhan, read the steps, then the form (the client ID is optional: it's read from the token).
+  const connect = page.locator('[data-slot="connect-broker-button"]');
+  await connect.click();
+  await page.getByRole("dialog", { name: "Connect a broker" }).getByRole("button", { name: /Dhan/ }).click();
   const dialog = page.getByRole("dialog", { name: "Connect Dhan" });
-  await dialog.getByLabel("Client ID").fill("1000012345");
+  await dialog.getByRole("button", { name: "Next" }).click();
+  await dialog.getByLabel(/Client ID/).fill("1000012345");
   await dialog.getByRole("button", { name: "Connect Dhan" }).click();
 
   const token = dialog.getByLabel("Access token");
@@ -104,7 +107,7 @@ test("the brokers page explains an empty Dhan access token", async ({ page }) =>
   // Escape closes the wizard and returns focus to the button that opened it.
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
-  await expect(page.getByRole("button", { name: "Add a broker" }).first()).toBeFocused();
+  await expect(connect).toBeFocused();
 
   expect(problems).toEqual([]);
 });
