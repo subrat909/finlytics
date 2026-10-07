@@ -44,6 +44,16 @@ horizontal scalability, low memory per user.
 | **PostgreSQL + Timescale** | System of record; hypertables for ticks/candles/chain snapshots with compression + retention | Primary + read replica; PgBouncer |
 | **Redis** | Quote cache, pub/sub fan-out, streams, queues, rate limits | Redis Cluster / managed |
 
+## One origin: how requests reach the api
+- **Production:** the ingress (behind Cloudflare) serves a single origin. `/v1/*` goes to `api-http`, `/rt` to
+  `api-gateway` (from 1.4), and everything else to Next.js. `/health/*` and `/docs*` are never routed; probes reach
+  pods directly, and `/docs` doesn't exist in production.
+- **Development:** Next.js rewrites `/v1/*` to `http://127.0.0.1:4000`, so the browser still talks to one origin.
+- **Why:** the Auth.js session cookie is `__Host-authjs.session-token` in production. A `__Host-` cookie carries no
+  `Domain`, so only the host that set it receives it; a separate `api.` host would never see the session. One origin
+  also keeps the api's CORS allowlist down to the web origin and its CSRF check to an exact `Origin` match.
+- Server actions in Next.js call the api server-side, forwarding only the incoming `Cookie` and `x-request-id`.
+
 ## Why one WebSocket per broker works for many users
 Broker feeds are **per developer app**, not per end user, for market data. The market-feed worker subscribes the union
 of all instruments any user is watching (ref-counted), receives each tick once, and fans it out via Redis to every
@@ -59,9 +69,42 @@ order updates where the broker mandates it. Fallback: reconcile via `getOrderBoo
 4. Browser: `RealtimeProvider` writes to Zustand Map; cells re-render via rAF-throttled selectors.
 
 ## Multi-tenancy & isolation
-- Row-level ownership (`userId`) on all user data; Prisma middleware asserts `userId` present on user-owned models.
+- Row-level ownership (`userId`) on all user data. In apps/api, repositories query through `PrismaService.db`, which
+  carries the **tenancy guard**: a Prisma `$extends` query extension (Prisma 7 has no `$use` middleware,
+  `src/infra/prisma/tenancy.extension.ts`). On a model with a `userId` column, every read, update, delete and aggregate
+  must filter by `userId` (a top-level `userId`, or a compound unique key that contains it such as `id_userId`), and
+  every create must set it on every row; `User` is scoped by `id`. `AuditLog` creates are exempt (append-only), but
+  its reads need a `userId` or `actorId` filter. Child tables without `userId` (`WatchlistItem`, `AlertEvent`,
+  `StrategyRunEvent`) are scoped through their parent's `userId`. Updates that would change `userId`, and `include`,
+  `select` or relation filters that reach a user-owned model from an unscoped one, are refused. A violation
+  throws `TenancyViolationError` (500: a bug, never a client error). The model list is kept equal to `schema.prisma`
+  by a unit test. Raw SQL and nested writes aren't covered: code review and tests cover those.
+- The base client, `PrismaService.unscoped`, is allowed only in `src/infra/prisma`, `src/modules/auth` (the session
+  lookup by token hash) and `src/modules/health` (`SELECT 1`); an ESLint rule (`no-restricted-syntax` on `.unscoped`)
+  enforces the allowlist.
 - Per-user limits (strategies deployed, alerts, watchlists) by plan (`Plan` table) to protect shared resources.
 - Strategy code runs in sandboxes with CPU/mem/time quotas; one strategy cannot block another.
+
+## Redis key namespaces
+Every key is built in `apps/api/src/infra/redis/keys.ts` and nowhere else, so namespaces can't collide across modules
+and phases. Segments are separated by `:`; a segment never contains `:` or whitespace (user ids are cuids, instrument
+keys use `|`, `IdempotencyKeySchema` forbids `:`), except a client IP, always the last segment. No `KEYS` and no
+unbounded `SCAN` on the request path.
+
+| Key | Type | TTL | Owner (phase) |
+|---|---|---|---|
+| `rl:<policy>:ip:<ip>`, `rl:<policy>:u:<userId>` | string (GCRA TAT in ms) | ≤ the policy period | rate limiting (0.5) |
+| `brl:<BROKER>:<accountId>:<class>` (`class`: orders, data, standard; `accountId` `app` before an account exists) | string (GCRA TAT in µs) | until the bucket is full again | broker rate limiter (1.1, `@finlytics/broker-sdk`) |
+| `idem:<userId>:<key>` | string (JSON marker or record) | 30 s in flight, 24 h stored | idempotency (0.5) |
+| `quote:<instrumentKey>` | hash | none (overwritten) | market feed (1.4) |
+| `q:<instrumentKey>` | pub/sub channel | — | tick fan-out (1.4) |
+| `ticks:<broker>` | stream (`MAXLEN ~`) | — | feed (1.4) |
+| `subs:<instrumentKey>` | counter | 30 s grace at zero | subscriptions (1.4) |
+| `lease:feed:<broker>` | string | the lease | feed leader (1.4) |
+| `bull:<queue>:*` | BullMQ | BullMQ | jobs (later) |
+
+The api's request path uses one ioredis connection (`RedisService`: no offline queue, 1 s command timeout, reconnect
+with capped backoff); BullMQ, the Socket.IO adapter and the feed get connections of their own.
 
 ## Resilience
 - Market-feed leader election via Redis lease; standby replica reconnects within ~2 s and resubscribes from Redis `subs:*`.

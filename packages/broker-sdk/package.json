@@ -1,0 +1,56 @@
+{
+  "name": "@finlytics/broker-sdk",
+  "version": "0.0.1",
+  "private": true,
+  "description": "The broker contract for Finlytics: the 12-operation BrokerAdapter, normalised models, typed errors, the Redis rate limiter, the circuit breaker, BrokerGateway, BrokerRegistry and the in-memory PaperAdapter. Node only. ESM and CJS.",
+  "type": "module",
+  "engines": {
+    "node": ">=24.11"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.cjs",
+  "types": "./dist/index.d.cts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "test": "vitest run --coverage",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "check:pkg": "publint --strict && attw --pack . && node test/pkg/smoke.mjs && node test/pkg/smoke.cjs"
+  },
+  "dependencies": {
+    "@finlytics/shared": "workspace:*",
+    "decimal.js": "catalog:",
+    "ioredis": "^6.0.0",
+    "protobufjs": "^8.8.0",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@finlytics/tsconfig": "workspace:*",
+    "@testcontainers/redis": "catalog:",
+    "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "fast-check": "catalog:",
+    "testcontainers": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

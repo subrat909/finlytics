@@ -1,0 +1,20 @@
+/*
+ * The one stylesheet consumers import: `import "@finlytics/ui/globals.css"` (plan D3). It loads Tailwind once, the
+ * animation utilities shadcn components use, then the tokens, the theme and the base layer.
+ */
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./tokens.css";
+@import "./theme.css";
+@import "./base.css";
+
+/* Scan this package's sources for class names, also when a consumer (apps/web) builds the CSS: Tailwind skips
+   node_modules, where the workspace link puts this package. Relative to this file, so "../" is src/. */
+@source "../";
+
+/* Only what ships: stories, unit tests, test helpers and the Foundations stories never render in an app, so their
+   classes stay out of consumers' CSS. Storybook scans them through its own stylesheet, .storybook/preview.css. */
+@source not "../**/*.stories.tsx";
+@source not "../**/__tests__";
+@source not "../test";
+@source not "../foundations";

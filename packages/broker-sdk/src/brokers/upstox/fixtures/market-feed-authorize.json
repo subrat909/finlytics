@@ -1,0 +1,6 @@
+{
+  "status": "success",
+  "data": {
+    "authorized_redirect_uri": "wss://xyz.upstox.com/market-data-feeder/v3/upstox-developer-api/feeds?requestId=2f646f57-a097-4402-bb36-c44085c5f8e7&code=redacted-single-use-code"
+  }
+}

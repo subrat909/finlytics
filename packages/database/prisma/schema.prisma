@@ -1,9 +1,21 @@
 // Finlytics — PostgreSQL 16 + TimescaleDB
 // Conventions: cuid ids, userId scoping + (userId, createdAt) index on user-owned tables,
 // Decimal(18,4) for money/prices, Int for quantities, JSONB for flexible settings.
-// Hypertables (Tick, Candle, OptionChainSnapshot) are converted by migrations/*_timescale.sql.
+// Tenancy: every relation between two user-owned tables is a composite foreign key, fields [<fk>, userId] to
+// references [id, userId] (the parent declares @@unique([id, userId])), so the database keeps it within one user.
+// Optional ones use onDelete: NoAction, never SetNull: SET NULL would also null the required userId. NO ACTION is
+// checked at the end of the statement, so deleting a User still cascades through them; deleting, on its own, a parent
+// that one of them still references fails.
+// Hypertables (Tick, Candle, OptionChainSnapshot) are converted by migrations/<timestamp>_timescale; database guards
+// (AuditLog append-only triggers, GlobalControl singleton CHECK) live in migrations/<timestamp>_db_guards, and
+// migrations/<timestamp>_kill_switch_and_audit_guards makes GlobalControl permanent and those triggers fire in replica
+// mode; migrations/<timestamp>_audit_actor_checks adds the AuditLog actor CHECKs and
+// migrations/<timestamp>_lowercase_email_checks the lowercase CHECKs on User.email and VerificationToken.identifier;
+// migrations/<timestamp>_broker_vault_and_instrument_tokens adds the BrokerAccount vault CHECK.
+// Prisma never generates that DDL, so every statement in those migrations is hand-written and idempotent.
 
 // Prisma 7: connection URL lives in prisma.config.ts; client uses @prisma/adapter-pg (driver adapter).
+// Defaults: ESM output with extensionless imports (inferred from moduleResolution "bundler" in ../tsconfig.json).
 generator client {
   provider = "prisma-client"
   output   = "../src/generated"
@@ -15,70 +27,68 @@ datasource db {
 
 // ───────────────────────────── Identity & Auth (Auth.js) ─────────────────────────────
 
+// RBAC only. Paid tiers live in Plan (User.planId), never in Role.
 enum Role {
   USER
-  PRO
   ADMIN
 }
 
 model User {
-  id             String    @id @default(cuid())
-  email          String    @unique
-  emailVerified  DateTime?
-  name           String?
-  image          String?
-  role           Role      @default(USER)
-  planId         String?
-  plan           Plan?     @relation(fields: [planId], references: [id])
-  passwordHash   String?   // argon2id, optional (OAuth users)
-  totpSecretEnc  String?   // encrypted
-  totpEnabled    Boolean   @default(false)
-  backupCodes    String[]  @default([]) // hashed
-  failedLogins   Int       @default(0)
-  lockedUntil    DateTime?
-  timezone       String    @default("Asia/Kolkata")
-  settings       Json      @default("{}") // appearance, trading defaults, notification prefs (validated by Zod)
-  deletedAt      DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id            String    @id @default(cuid())
+  email         String    @unique // trimmed and lowercased before every write (normalizeEmail, @finlytics/shared); CHECK in _lowercase_email_checks
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  role          Role      @default(USER)
+  planId        String?
+  plan          Plan?     @relation(fields: [planId], references: [id])
+  passwordHash  String? // argon2id, optional (OAuth users)
+  totpSecretEnc String? // encrypted
+  totpEnabled   Boolean   @default(false)
+  backupCodes   String[]  @default([]) // hashed
+  failedLogins  Int       @default(0)
+  lockedUntil   DateTime?
+  timezone      String    @default("Asia/Kolkata")
+  settings      Json      @default("{}") // appearance, trading defaults, notification prefs (validated by Zod)
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  accounts         Account[]
-  sessions         Session[]
-  brokerAccounts   BrokerAccount[]
-  watchlists       Watchlist[]
-  strategies       Strategy[]
-  orders           Order[]
-  positions        Position[]
-  trades           Trade[]
-  alerts           Alert[]
-  notifications    Notification[]
-  channels         NotificationChannel[]
-  backtests        Backtest[]
-  agentRuns        AgentRun[]
-  agentSignals     AgentSignal[]
-  autoTradeConfig  AutoTradeConfig?
-  riskLimit        RiskLimit?
-  tradingControl   TradingControl?
-  auditLogs        AuditLog[]
-  dailyPnls        DailyPnl[]
-  apiKeys          ApiKey[]
+  accounts        Account[]
+  sessions        Session[]
+  brokerAccounts  BrokerAccount[]
+  watchlists      Watchlist[]
+  strategies      Strategy[]
+  deployments     StrategyDeployment[]
+  orders          Order[]
+  positions       Position[]
+  trades          Trade[]
+  alerts          Alert[]
+  notifications   Notification[]
+  channels        NotificationChannel[]
+  backtests       Backtest[]
+  agentRuns       AgentRun[]
+  agentSignals    AgentSignal[]
+  autoTradeConfig AutoTradeConfig?
+  riskLimit       RiskLimit?
+  tradingControl  TradingControl?
+  dailyPnls       DailyPnl[]
+  apiKeys         ApiKey[]
 
   @@index([planId])
 }
 
+// An OAuth sign-in link. No provider tokens at rest (refresh_token, access_token, id_token, session_state): Finlytics
+// never calls a provider's API after sign-in, so the web adapter strips them before every write.
 model Account {
   id                String  @id @default(cuid())
   userId            String
   type              String
   provider          String
   providerAccountId String
-  refresh_token     String?
-  access_token      String?
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String?
-  session_state     String?
   user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
@@ -87,12 +97,13 @@ model Account {
 
 model Session {
   id           String   @id @default(cuid())
-  sessionToken String   @unique
+  sessionToken String   @unique // SHA-256 (hex) of the cookie token, never the token itself (docs/06)
   userId       String
   expires      DateTime
   ip           String?
   userAgent    String?
   lastSeenAt   DateTime @default(now())
+  createdAt    DateTime @default(now()) // the api enforces the 30-day absolute lifetime from this column
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
@@ -100,7 +111,7 @@ model Session {
 }
 
 model VerificationToken {
-  identifier String
+  identifier String // the email address, lowercased (CHECK in _lowercase_email_checks)
   token      String   @unique
   expires    DateTime
 
@@ -123,20 +134,20 @@ model ApiKey {
 }
 
 model Plan {
-  id               String  @id @default(cuid())
-  code             String  @unique // free, pro, elite
-  name             String
-  priceInrMonthly  Decimal @db.Decimal(10, 2)
-  maxBrokerAccounts Int    @default(1)
-  maxWatchlists    Int     @default(3)
-  maxWatchlistItems Int    @default(50)
-  maxStrategiesLive Int    @default(1)
-  maxAlerts        Int     @default(10)
-  maxRtSubscriptions Int   @default(100)
-  backtestMinutesPerDay Int @default(30)
-  agentsEnabled    Boolean @default(false)
-  autoTradeEnabled Boolean @default(false)
-  users            User[]
+  id                    String  @id @default(cuid())
+  code                  String  @unique // free, pro, elite
+  name                  String
+  priceInrMonthly       Decimal @db.Decimal(10, 2)
+  maxBrokerAccounts     Int     @default(1)
+  maxWatchlists         Int     @default(3)
+  maxWatchlistItems     Int     @default(50)
+  maxStrategiesLive     Int     @default(1)
+  maxAlerts             Int     @default(10)
+  maxRtSubscriptions    Int     @default(100)
+  backtestMinutesPerDay Int     @default(30)
+  agentsEnabled         Boolean @default(false)
+  autoTradeEnabled      Boolean @default(false)
+  users                 User[]
 }
 
 // ───────────────────────────── Brokers ─────────────────────────────
@@ -160,33 +171,45 @@ enum BrokerAccountStatus {
   ERROR
 }
 
+// Vault (docs/06 "Crypto design", migrations/<timestamp>_broker_vault_and_instrument_tokens): AES-256-GCM envelope. Each
+// row has its own random 256-bit data key, stored wrapped by the master key (encKeyWrapped = ciphertext || tag, with
+// its own IV in encKeyIv). Every encrypted field is ciphertext || tag under that data key with a fresh 96-bit IV of its
+// own, and AAD `userId:brokerAccountId:<field>`. Only apps/api's VaultService encrypts or decrypts them.
 model BrokerAccount {
-  id                   String              @id @default(cuid())
+  id                   String               @id @default(cuid())
   userId               String
   broker               BrokerCode
   label                String
-  brokerClientIdEnc    String              // encrypted broker client/user id (PII)
-  encryptedCredentials Bytes               // envelope-encrypted JSON {accessToken, refreshToken?, apiKey?, ...}
-  encKeyWrapped        Bytes
-  encIv                Bytes
-  encKeyVersion        Int                 @default(1)
-  status               BrokerAccountStatus @default(PENDING)
+  brokerClientIdEnc    Bytes? // field "clientId": the broker client/user id (PII); null until known
+  brokerClientIdIv     Bytes?
+  encryptedCredentials Bytes? // field "credentials": BrokerCredentialsJson {accessToken, refreshToken?, …}; null while PENDING
+  credentialsIv        Bytes?
+  appCredentialsEnc    Bytes? // field "appCredentials": the user's own broker app {apiKey, apiSecret} (Upstox)
+  appCredentialsIv     Bytes?
+  encKeyWrapped        Bytes // the row's data key, wrapped by the master key (ciphertext || tag)
+  encKeyIv             Bytes
+  encKeyVersion        Int                  @default(1)
+  status               BrokerAccountStatus  @default(PENDING)
   tokenExpiresAt       DateTime?
+  expiryNotifiedAt     DateTime? // when the expiry reminder or re-login notice for the current token was written
   lastLoginAt          DateTime?
-  lastError            String?
-  isDefault            Boolean             @default(false)
-  algoId               String?             // SEBI/exchange algo id tagging
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
-  user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastError            String? // curated text only, never a broker's message
+  isDefault            Boolean              @default(false)
+  algoId               String? // SEBI/exchange algo id tagging
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   orders               Order[]
   positions            Position[]
   trades               Trade[]
   strategyDeployments  StrategyDeployment[]
+  autoTradeConfigs     AutoTradeConfig[]
 
+  @@unique([id, userId]) // target of the composite (tenancy) foreign keys
   @@unique([userId, broker, label])
   @@index([userId, status])
-  @@index([status, tokenExpiresAt]) // token refresh job
+  @@index([userId, createdAt]) // GET /v1/brokers
+  @@index([status, tokenExpiresAt]) // broker-token-expiry job
 }
 
 // ───────────────────────────── Instruments & Market Data ─────────────────────────────
@@ -200,13 +223,19 @@ enum Exchange {
   CDS
 }
 
+// Instrument kind. The asset class follows the exchange (MCX = commodity, CDS = currency).
 enum Segment {
   EQ
+  INDEX
   FUT
   OPT
-  INDEX
-  COMMODITY
-  CURRENCY
+}
+
+// The part of the trading day that is CLOSED. Only MCX closes a single session; other exchanges close FULL_DAY.
+enum HolidayClosure {
+  FULL_DAY
+  MORNING_SESSION
+  EVENING_SESSION
 }
 
 enum OptionType {
@@ -218,7 +247,8 @@ model Instrument {
   key           String      @id // canonical: NSE_FO|NIFTY|2025-10-30|24000|CE
   exchange      Exchange
   segment       Segment
-  symbol        String      // underlying/trading symbol
+  symbol        String // EQ/INDEX: trading symbol; FUT/OPT: underlying symbol (= key token 2)
+  tradingSymbol String? // the exchange's trading symbol (NIFTY25OCT24000CE); searched like symbol and name
   name          String
   isin          String?
   expiry        DateTime?   @db.Date
@@ -227,29 +257,48 @@ model Instrument {
   lotSize       Int         @default(1)
   tickSize      Decimal     @default(0.05) @db.Decimal(10, 4)
   freezeQty     Int?
-  brokerTokens  Json        // { UPSTOX: "NSE_FO|12345", DHAN: "12345" }
+  brokerTokens  Json // { UPSTOX: "NSE_FO|12345", DHAN: "12345" }
   isActive      Boolean     @default(true)
   updatedAt     DateTime    @updatedAt
 
   watchlistItems WatchlistItem[]
-  candles        Candle[]
-  ticks          Tick[]
+  tokens         InstrumentBrokerToken[]
 
   @@index([symbol, segment, expiry, strike, optionType])
   @@index([exchange, segment, isActive])
-  @@index([name]) // + pg_trgm GIN index in raw migration for search
+  // Instrument search: trigram GIN indexes (pg_trgm is created at the top of migrations/<timestamp>_init).
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "instrument_name_trgm")
+  @@index([symbol(ops: raw("gin_trgm_ops"))], type: Gin, map: "instrument_symbol_trgm")
+  @@index([tradingSymbol(ops: raw("gin_trgm_ops"))], type: Gin, map: "instrument_trading_symbol_trgm")
 }
 
-// Hypertable, chunk 1 day, compressed after 2 days, retention 30 days
+// Reverse map of the instrument master (plan P6): a broker's own instrument id (Upstox `instrument_key`, Dhan
+// `security_id`) → our canonical key, for the market feed. Written by the instrument-master-sync job: every row it sees
+// gets `seenAt` = the run's start and isActive = true; rows a complete run didn't see become inactive. Never deleted.
+model InstrumentBrokerToken {
+  broker        BrokerCode
+  token         String
+  instrumentKey String
+  isActive      Boolean    @default(true)
+  seenAt        DateTime   @default(now())
+  instrument    Instrument @relation(fields: [instrumentKey], references: [key], onDelete: Cascade)
+
+  @@id([broker, token])
+  @@index([instrumentKey, broker]) // key → token (feed subscribe)
+  @@index([broker, isActive, seenAt]) // deactivation after a sync
+}
+
+// Hypertable, chunk 1 day, compressed after 2 days, retention 30 days.
+// No foreign key to Instrument: FK checks would sit on the highest-volume insert path, and constraint DDL on
+// compressed hypertables is restricted. Ingest validates keys against the instrument master instead.
 model Tick {
   instrumentKey String
-  ts            DateTime  @db.Timestamptz(3)
-  ltp           Decimal   @db.Decimal(18, 4)
+  ts            DateTime @db.Timestamptz(3)
+  ltp           Decimal  @db.Decimal(18, 4)
   volume        BigInt?
   oi            BigInt?
-  bid           Decimal?  @db.Decimal(18, 4)
-  ask           Decimal?  @db.Decimal(18, 4)
-  instrument    Instrument @relation(fields: [instrumentKey], references: [key])
+  bid           Decimal? @db.Decimal(18, 4)
+  ask           Decimal? @db.Decimal(18, 4)
 
   @@id([instrumentKey, ts])
 }
@@ -264,18 +313,18 @@ enum Timeframe {
   D1
 }
 
-// Hypertable, chunk 7 days (M1) / continuous aggregates generate M5+ from M1
+// Hypertable, chunk 7 days (M1) / continuous aggregates generate M5+ from M1.
+// No foreign key to Instrument, for the same reasons as Tick.
 model Candle {
   instrumentKey String
   timeframe     Timeframe
-  ts            DateTime   @db.Timestamptz(0)
-  open          Decimal    @db.Decimal(18, 4)
-  high          Decimal    @db.Decimal(18, 4)
-  low           Decimal    @db.Decimal(18, 4)
-  close         Decimal    @db.Decimal(18, 4)
-  volume        BigInt     @default(0)
+  ts            DateTime  @db.Timestamptz(0)
+  open          Decimal   @db.Decimal(18, 4)
+  high          Decimal   @db.Decimal(18, 4)
+  low           Decimal   @db.Decimal(18, 4)
+  close         Decimal   @db.Decimal(18, 4)
+  volume        BigInt    @default(0)
   oi            BigInt?
-  instrument    Instrument @relation(fields: [instrumentKey], references: [key])
 
   @@id([instrumentKey, timeframe, ts])
   @@index([timeframe, ts])
@@ -288,7 +337,7 @@ model OptionChainSnapshot {
   ts         DateTime @db.Timestamptz(0)
   spot       Decimal  @db.Decimal(18, 4)
   futPrice   Decimal? @db.Decimal(18, 4)
-  rows       Json     // [{strike, ce:{ltp,iv,oi,vol,delta,gamma,theta,vega}, pe:{...}}]
+  rows       Json // [{strike, ce:{ltp,iv,oi,vol,delta,gamma,theta,vega}, pe:{...}}]
   pcr        Decimal? @db.Decimal(10, 4)
   maxPain    Decimal? @db.Decimal(18, 4)
 
@@ -296,10 +345,14 @@ model OptionChainSnapshot {
   @@index([underlying, ts])
 }
 
+// One row per exchange calendar and date: NSE and BSE close on the same dates.
 model MarketHoliday {
-  date     DateTime @id @db.Date
+  date     DateTime       @db.Date
   exchange Exchange
   name     String
+  closure  HolidayClosure @default(FULL_DAY)
+
+  @@id([exchange, date])
 }
 
 // ───────────────────────────── Watchlists ─────────────────────────────
@@ -380,40 +433,47 @@ enum OrderSource {
 }
 
 model Order {
-  id               String        @id @default(cuid())
-  userId           String
-  brokerAccountId  String
-  brokerOrderId    String?
-  idempotencyKey   String        @unique
-  instrumentKey    String
-  side             OrderSide
-  type             OrderType
-  product          ProductType
-  validity         Validity      @default(DAY)
-  qty              Int
-  filledQty        Int           @default(0)
-  price            Decimal?      @db.Decimal(18, 4)
-  triggerPrice     Decimal?      @db.Decimal(18, 4)
-  avgFillPrice     Decimal?      @db.Decimal(18, 4)
-  status           OrderStatus   @default(PENDING)
-  statusMessage    String?
-  source           OrderSource   @default(MANUAL)
+  id                   String              @id @default(cuid())
+  userId               String
+  brokerAccountId      String
+  brokerOrderId        String?
+  idempotencyKey       String // unique per user (see @@unique below), never globally
+  instrumentKey        String
+  side                 OrderSide
+  type                 OrderType
+  product              ProductType
+  validity             Validity            @default(DAY)
+  qty                  Int
+  filledQty            Int                 @default(0)
+  price                Decimal?            @db.Decimal(18, 4)
+  triggerPrice         Decimal?            @db.Decimal(18, 4)
+  avgFillPrice         Decimal?            @db.Decimal(18, 4)
+  status               OrderStatus         @default(PENDING)
+  statusMessage        String?
+  source               OrderSource         @default(MANUAL)
   strategyDeploymentId String?
-  agentRunId       String?
-  tag              String?       // algoId / user tag
-  isPaper          Boolean       @default(false)
-  placedAt         DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
-  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  brokerAccount    BrokerAccount @relation(fields: [brokerAccountId], references: [id], onDelete: Cascade)
-  deployment       StrategyDeployment? @relation(fields: [strategyDeploymentId], references: [id])
-  agentRun         AgentRun?     @relation(fields: [agentRunId], references: [id])
-  trades           Trade[]
+  agentRunId           String?
+  tag                  String? // algoId / user tag
+  isPaper              Boolean             @default(false)
+  placedAt             DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  brokerAccount        BrokerAccount       @relation(fields: [brokerAccountId, userId], references: [id, userId], onDelete: Cascade)
+  // NO ACTION (see the header): deleting a deployment (or its strategy) or an agent run that orders still reference
+  // fails, so clear strategyDeploymentId / agentRunId first. Deleting the user removes the orders in the same
+  // statement.
+  deployment           StrategyDeployment? @relation(fields: [strategyDeploymentId, userId], references: [id, userId], onDelete: NoAction)
+  agentRun             AgentRun?           @relation(fields: [agentRunId, userId], references: [id, userId], onDelete: NoAction)
+  trades               Trade[]
 
+  @@unique([id, userId]) // target of Trade's composite (tenancy) foreign key
   @@unique([brokerAccountId, brokerOrderId])
+  // Scoped per user: a global unique would let one user's key block, or probe for, another user's order.
+  @@unique([userId, idempotencyKey])
   @@index([userId, placedAt(sort: Desc)])
   @@index([userId, status])
   @@index([strategyDeploymentId])
+  @@index([agentRunId])
 }
 
 model Trade {
@@ -430,11 +490,12 @@ model Trade {
   executedAt      DateTime
   isPaper         Boolean       @default(false)
   user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  brokerAccount   BrokerAccount @relation(fields: [brokerAccountId], references: [id], onDelete: Cascade)
-  order           Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  brokerAccount   BrokerAccount @relation(fields: [brokerAccountId, userId], references: [id, userId], onDelete: Cascade)
+  order           Order         @relation(fields: [orderId, userId], references: [id, userId], onDelete: Cascade)
 
   @@unique([brokerAccountId, brokerTradeId])
   @@index([userId, executedAt(sort: Desc)])
+  @@index([orderId])
 }
 
 // Current open positions (upserted from broker feed); history derived from trades
@@ -454,7 +515,7 @@ model Position {
   tradingDate     DateTime      @db.Date
   updatedAt       DateTime      @updatedAt
   user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  brokerAccount   BrokerAccount @relation(fields: [brokerAccountId], references: [id], onDelete: Cascade)
+  brokerAccount   BrokerAccount @relation(fields: [brokerAccountId, userId], references: [id, userId], onDelete: Cascade)
 
   @@unique([brokerAccountId, instrumentKey, product, tradingDate, isPaper])
   @@index([userId, tradingDate])
@@ -462,15 +523,15 @@ model Position {
 
 // Materialised per-day P&L for the calendar (updated by job at EOD + on trade)
 model DailyPnl {
-  userId        String
-  date          DateTime @db.Date
-  isPaper       Boolean  @default(false)
-  realised      Decimal  @default(0) @db.Decimal(18, 4)
-  charges       Decimal  @default(0) @db.Decimal(18, 4)
-  net           Decimal  @default(0) @db.Decimal(18, 4)
-  tradesCount   Int      @default(0)
-  winCount      Int      @default(0)
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  date        DateTime @db.Date
+  isPaper     Boolean  @default(false)
+  realised    Decimal  @default(0) @db.Decimal(18, 4)
+  charges     Decimal  @default(0) @db.Decimal(18, 4)
+  net         Decimal  @default(0) @db.Decimal(18, 4)
+  tradesCount Int      @default(0)
+  winCount    Int      @default(0)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, date, isPaper])
 }
@@ -484,23 +545,24 @@ enum StrategyKind {
 }
 
 model Strategy {
-  id          String       @id @default(cuid())
+  id          String               @id @default(cuid())
   userId      String
   name        String
   description String?
   kind        StrategyKind
-  definition  Json         // validated by StrategyDefinitionSchema
-  code        String?      // for CODE_* kinds
-  version     Int          @default(1)
-  isTemplate  Boolean      @default(false)
-  tags        String[]     @default([])
+  definition  Json // validated by StrategyDefinitionSchema
+  code        String? // for CODE_* kinds
+  version     Int                  @default(1)
+  isTemplate  Boolean              @default(false)
+  tags        String[]             @default([])
   deletedAt   DateTime?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   deployments StrategyDeployment[]
   backtests   Backtest[]
 
+  @@unique([id, userId]) // target of the composite (tenancy) foreign keys
   @@unique([userId, name])
   @@index([userId, updatedAt(sort: Desc)])
   @@index([isTemplate])
@@ -516,23 +578,28 @@ enum DeploymentStatus {
 }
 
 model StrategyDeployment {
-  id              String           @id @default(cuid())
+  id              String             @id @default(cuid())
+  userId          String
   strategyId      String
   brokerAccountId String
-  isPaper         Boolean          @default(true)
-  status          DeploymentStatus @default(STARTING)
-  params          Json             @default("{}")
-  limits          Json             // {maxLossDay, maxPositions, maxOrderValue}
-  startedAt       DateTime         @default(now())
+  isPaper         Boolean            @default(true)
+  status          DeploymentStatus   @default(STARTING)
+  params          Json               @default("{}")
+  limits          Json // {maxLossDay, maxPositions, maxOrderValue}
+  startedAt       DateTime           @default(now())
   stoppedAt       DateTime?
   lastError       String?
-  stats           Json             @default("{}") // live pnl, trades, etc.
-  strategy        Strategy         @relation(fields: [strategyId], references: [id], onDelete: Cascade)
-  brokerAccount   BrokerAccount    @relation(fields: [brokerAccountId], references: [id], onDelete: Cascade)
+  stats           Json               @default("{}") // live pnl, trades, etc.
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  strategy        Strategy           @relation(fields: [strategyId, userId], references: [id, userId], onDelete: Cascade)
+  brokerAccount   BrokerAccount      @relation(fields: [brokerAccountId, userId], references: [id, userId], onDelete: Cascade)
   orders          Order[]
   runs            StrategyRunEvent[]
 
+  @@unique([id, userId]) // target of Order's composite (tenancy) foreign key
+  @@index([userId, startedAt(sort: Desc)])
   @@index([strategyId, status])
+  @@index([brokerAccountId])
   @@index([status]) // runner picks RUNNING
 }
 
@@ -540,7 +607,7 @@ model StrategyRunEvent {
   id           String             @id @default(cuid())
   deploymentId String
   ts           DateTime           @default(now())
-  level        String             // info|warn|error|signal|order
+  level        String // info|warn|error|signal|order
   message      String
   data         Json?
   deployment   StrategyDeployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
@@ -556,24 +623,25 @@ enum BacktestStatus {
 }
 
 model Backtest {
-  id           String         @id @default(cuid())
-  userId       String
-  strategyId   String
+  id             String         @id @default(cuid())
+  userId         String
+  strategyId     String
   definitionHash String
-  params       Json           // {from, to, capital, slippageBps, chargesProfile}
-  status       BacktestStatus @default(QUEUED)
-  progress     Int            @default(0)
-  metrics      Json?          // net, maxDD, winRate, sharpe, expectancy, profitFactor
-  equityCurve  Json?          // downsampled
-  dailyPnl     Json?          // calendar
-  tradesUrl    String?        // object storage for full trade list
-  error        String?
-  createdAt    DateTime       @default(now())
-  finishedAt   DateTime?
-  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  strategy     Strategy       @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+  params         Json // {from, to, capital, slippageBps, chargesProfile}
+  status         BacktestStatus @default(QUEUED)
+  progress       Int            @default(0)
+  metrics        Json? // net, maxDD, winRate, sharpe, expectancy, profitFactor
+  equityCurve    Json? // downsampled
+  dailyPnl       Json? // calendar
+  tradesUrl      String? // object storage for full trade list
+  error          String?
+  createdAt      DateTime       @default(now())
+  finishedAt     DateTime?
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  strategy       Strategy       @relation(fields: [strategyId, userId], references: [id, userId], onDelete: Cascade)
 
   @@index([userId, createdAt(sort: Desc)])
+  @@index([strategyId, createdAt(sort: Desc)])
   @@index([definitionHash])
 }
 
@@ -589,7 +657,7 @@ enum AgentRunStatus {
 model AgentRun {
   id         String         @id @default(cuid())
   userId     String
-  mode       String         // advise | auto
+  mode       String // advise | auto
   status     AgentRunStatus @default(RUNNING)
   universe   String[]
   regime     String?
@@ -603,71 +671,80 @@ model AgentRun {
   signals    AgentSignal[]
   orders     Order[]
 
+  @@unique([id, userId]) // target of the composite (tenancy) foreign keys
   @@index([userId, startedAt(sort: Desc)])
 }
 
 model AgentSignal {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   userId        String
   runId         String
-  agent         String   // news | global | crypto | commodities | chain | technical | orderflow | master
+  agent         String // news | global | crypto | commodities | chain | technical | orderflow | master
   instrumentKey String?
-  type          String   // BUY | SELL | EXIT | HOLD | INFO
-  score         Decimal  @db.Decimal(5, 4)
-  confidence    Decimal  @db.Decimal(5, 4)
+  type          String // BUY | SELL | EXIT | HOLD | INFO
+  score         Decimal   @db.Decimal(5, 4)
+  confidence    Decimal   @db.Decimal(5, 4)
   summary       String
   evidence      Json?
-  ts            DateTime @default(now())
+  ts            DateTime  @default(now())
   expiresAt     DateTime?
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  run           AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  run           AgentRun  @relation(fields: [runId, userId], references: [id, userId], onDelete: Cascade)
 
   @@index([userId, ts(sort: Desc)])
   @@index([runId])
 }
 
 model AutoTradeConfig {
-  userId             String   @id
-  enabled            Boolean  @default(false)
-  brokerAccountId    String?
-  isPaper            Boolean  @default(true)
-  instruments        String[] @default([])
-  maxLossDay         Decimal  @default(0) @db.Decimal(18, 4)
-  maxOrderValue      Decimal  @default(0) @db.Decimal(18, 4)
-  maxOpenLots        Int      @default(0)
-  maxTradesDay       Int      @default(0)
-  tradeWindowStart   String   @default("09:20")
-  tradeWindowEnd     String   @default("15:15")
-  minConfidence      Decimal  @default(0.7) @db.Decimal(5, 4)
-  updatedAt          DateTime @updatedAt
-  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId           String         @id
+  enabled          Boolean        @default(false)
+  brokerAccountId  String?
+  isPaper          Boolean        @default(true)
+  instruments      String[]       @default([])
+  maxLossDay       Decimal        @default(0) @db.Decimal(18, 4)
+  maxOrderValue    Decimal        @default(0) @db.Decimal(18, 4)
+  maxOpenLots      Int            @default(0)
+  maxTradesDay     Int            @default(0)
+  tradeWindowStart String         @default("09:20")
+  tradeWindowEnd   String         @default("15:15")
+  minConfidence    Decimal        @default(0.7) @db.Decimal(5, 4)
+  updatedAt        DateTime       @updatedAt
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // NO ACTION (see the header): the app must clear brokerAccountId before deleting that broker account on its own, or
+  // the delete fails. Deleting the user removes this row in the same statement, so that still succeeds. The foreign key
+  // needs no index of its own: its lookup also matches userId, the primary key.
+  brokerAccount    BrokerAccount? @relation(fields: [brokerAccountId, userId], references: [id, userId], onDelete: NoAction)
 }
 
 model RiskLimit {
-  userId          String   @id
-  maxLossDay      Decimal  @default(0) @db.Decimal(18, 4)
-  maxOrderValue   Decimal  @default(0) @db.Decimal(18, 4)
-  maxOpenPositions Int     @default(0)
-  maxOrdersPerSec Int      @default(5)
-  maxOrdersPerDay Int      @default(500)
-  updatedAt       DateTime @updatedAt
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId           String   @id
+  maxLossDay       Decimal  @default(0) @db.Decimal(18, 4)
+  maxOrderValue    Decimal  @default(0) @db.Decimal(18, 4)
+  maxOpenPositions Int      @default(0)
+  maxOrdersPerSec  Int      @default(5)
+  maxOrdersPerDay  Int      @default(500)
+  updatedAt        DateTime @updatedAt
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model TradingControl {
-  userId      String    @id
-  killSwitch  Boolean   @default(false)
-  reason      String?
-  trippedAt   DateTime?
-  trippedBy   String?   // user | risk | admin
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String    @id
+  killSwitch Boolean   @default(false)
+  reason     String?
+  trippedAt  DateTime?
+  trippedBy  String? // user | risk | admin
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+// Singleton (platform-wide kill switch): CHECK ("id" = 1) is enforced by migrations/<timestamp>_db_guards. Permanent:
+// triggers in migrations/<timestamp>_kill_switch_and_audit_guards reject DELETE and TRUNCATE, also in replica mode, so
+// the create-only seed can never recreate it with killSwitch = false. UPDATE (toggling the switch) is allowed. No
+// foreign key touches it, so no TRUNCATE ... CASCADE reaches it.
 model GlobalControl {
-  id          Int      @id @default(1)
-  killSwitch  Boolean  @default(false)
-  reason      String?
-  updatedAt   DateTime @updatedAt
+  id         Int      @id @default(1)
+  killSwitch Boolean  @default(false)
+  reason     String?
+  updatedAt  DateTime @updatedAt
 }
 
 // ───────────────────────────── Alerts & Notifications ─────────────────────────────
@@ -690,22 +767,22 @@ enum AlertStatus {
 }
 
 model Alert {
-  id            String      @id @default(cuid())
+  id            String       @id @default(cuid())
   userId        String
   kind          AlertKind
   name          String
   instrumentKey String?
-  condition     Json        // {field:"ltp", op:">=", value:"24000"} | indicator expr | chain expr
-  repeat        Boolean     @default(false)
-  cooldownSec   Int         @default(60)
-  channels      String[]    @default(["IN_APP"]) // IN_APP, PUSH, EMAIL, TELEGRAM, SOUND
-  action        Json?       // optional auto action: {type:"ORDER", payload}
-  status        AlertStatus @default(ACTIVE)
+  condition     Json // {field:"ltp", op:">=", value:"24000"} | indicator expr | chain expr
+  repeat        Boolean      @default(false)
+  cooldownSec   Int          @default(60)
+  channels      String[]     @default(["IN_APP"]) // IN_APP, PUSH, EMAIL, TELEGRAM, SOUND
+  action        Json? // optional auto action: {type:"ORDER", payload}
+  status        AlertStatus  @default(ACTIVE)
   expiresAt     DateTime?
   lastTriggered DateTime?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   history       AlertEvent[]
 
   @@index([userId, status])
@@ -723,16 +800,16 @@ model AlertEvent {
 }
 
 model Notification {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
   title     String
   body      String
-  severity  String   @default("info") // info|success|warning|error
-  category  String   // order|alert|agent|broker|system
+  severity  String    @default("info") // info|success|warning|error
+  category  String // order|alert|agent|broker|system
   data      Json?
   readAt    DateTime?
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([userId, readAt])
@@ -741,8 +818,8 @@ model Notification {
 model NotificationChannel {
   id        String   @id @default(cuid())
   userId    String
-  type      String   // PUSH | EMAIL | TELEGRAM
-  configEnc Bytes    // encrypted {endpoint, keys} | {chatId}
+  type      String // PUSH | EMAIL | TELEGRAM
+  configEnc Bytes // encrypted {endpoint, keys} | {chatId}
   enabled   Boolean  @default(true)
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -752,12 +829,16 @@ model NotificationChannel {
 
 // ───────────────────────────── Audit ─────────────────────────────
 
-// Append-only, partitioned by month via raw migration
+// Append-only: triggers in migrations/<timestamp>_db_guards reject UPDATE, DELETE and TRUNCATE, and
+// migrations/<timestamp>_kill_switch_and_audit_guards makes them fire with session_replication_role = replica too.
+// No foreign key to User (append-only and ON DELETE SET NULL contradict each other); userId keeps the actor id after
+// the user is deleted. Monthly partitioning is deferred (pg_partman, production; needs PK (id, createdAt)).
 model AuditLog {
   id         BigInt   @id @default(autoincrement())
-  userId     String?
-  actorType  String   // user | system | agent | admin
-  action     String   // order.place, broker.connect, killswitch.on ...
+  userId     String? // subject: whose data the action concerns
+  actorType  String // user | admin | system | agent (CHECK in migrations/<timestamp>_audit_actor_checks)
+  actorId    String? // who acted (user, admin or agent-run id); null only for system (CHECK)
+  action     String // order.place, broker.connect, killswitch.on ...
   entityType String?
   entityId   String?
   ip         String?
@@ -765,8 +846,8 @@ model AuditLog {
   requestId  String?
   data       Json?
   createdAt  DateTime @default(now())
-  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([action, createdAt(sort: Desc)])
+  @@index([actorId, createdAt(sort: Desc)])
 }

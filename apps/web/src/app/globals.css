@@ -1,0 +1,20 @@
+/*
+ * The app's stylesheet: the design system (Tailwind, tokens, theme, base layer; it registers its own sources), plus
+ * this app's sources. Tokens only: no colours are defined here.
+ */
+@import "@finlytics/ui/globals.css";
+
+@source "../";
+@source not "../**/__tests__";
+
+/*
+ * The app shell is fixed to the viewport (navbar, sidebar and footer never move; only <main> scrolls). On those pages
+ * the document itself never scrolls, and anything a library appends to the body in flow (Next's dev tools badge, whose
+ * styles the strict CSP blocks in development) lands below the fold instead of over the navbar.
+ */
+@layer base {
+  body:has([data-slot="app-content"]) {
+    overflow: hidden;
+    padding-top: 100dvh;
+  }
+}

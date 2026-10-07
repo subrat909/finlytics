@@ -1,0 +1,11 @@
+{
+  "dhanClientId": 1000000001,
+  "tokenValidity": "08/10/2025 21:30:30",
+  "activeSegment": null,
+  "ddpi": null,
+  "mtf": "Active",
+  "dataPlan": "Deactive",
+  "dataValidity": null,
+  "dhanClientName": "REDACTED",
+  "givenPowerOfAttorney": false
+}

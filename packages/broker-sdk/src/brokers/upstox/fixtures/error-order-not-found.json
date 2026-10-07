@@ -1,0 +1,14 @@
+{
+  "status": "error",
+  "errors": [
+    {
+      "errorCode": "UDAPI100010",
+      "message": "Order not found",
+      "propertyPath": null,
+      "invalidValue": null,
+      "error_code": "UDAPI100010",
+      "property_path": null,
+      "invalid_value": null
+    }
+  ]
+}

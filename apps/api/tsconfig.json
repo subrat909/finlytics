@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // Typecheck, lint and editor config for everything in apps/api (src, tests, scripts, Vitest configs); the build uses
+  // tsconfig.build.json. The node preset is referenced by workspace path, like the other packages.
+  //
+  // A CommonJS app (plan D1): under nodenext, @finlytics/* resolve through their `require` condition (the .cjs and
+  // .d.cts pair that attw checks), and *.mts files (scripts, Vitest configs) are ES modules. tsc emits the decorator
+  // metadata Nest's dependency injection reads; Vitest's Oxc transform does the same in tests (test/unit/oxc-canary).
+  "extends": "../../packages/config/tsconfig/node.json",
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "noEmit": true
+  },
+  "include": ["src", "test", "scripts", "vitest.config.mts", "vitest.integration.config.mts"],
+  "exclude": ["dist", "coverage", "node_modules"]
+}

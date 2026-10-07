@@ -1,0 +1,13 @@
+{
+  "name": "@finlytics/prettier-config",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Prettier config, referenced from the root package.json \"prettier\" field.",
+  "main": "index.json",
+  "exports": {
+    ".": "./index.json"
+  },
+  "files": [
+    "index.json"
+  ]
+}

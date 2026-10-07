@@ -11,7 +11,7 @@ Every broker implements `BrokerAdapter` (`packages/broker-sdk/src/adapter.ts`). 
 | # | Operation                 | When called                                  |
 |---|---------------------------|----------------------------------------------|
 | 1 | `getAuthUrl` / `exchangeToken` | Once per login (OAuth) — one-time login UX   |
-| 2 | `refreshToken`            | Scheduled job before expiry                  |
+| 2 | `refreshToken`            | Scheduled job before expiry (`broker-token-renew`, Dhan) |
 | 3 | `getProfile`              | Once on connect                              |
 | 4 | `getFunds`                | On dashboard open + after fills (cached 5 s) |
 | 5 | `downloadInstrumentMaster`| Once per day at 08:00 IST (job)              |
@@ -32,7 +32,9 @@ Quotes, LTP, option chain, depth, OI → **always from the market feed WS → Re
 - Rate limits: 50 req/s, 500/min, 2000/30 min per user — enforce 25 req/s in our limiter.
 
 ## Dhan specifics (DhanHQ v2)
-- Static access token (30-day) generated from the Dhan dashboard; user pastes once → encrypted vault; renewal reminder 3 days before expiry.
+- Access token generated on the Dhan dashboard; **valid 24 hours** (DhanHQ v2.4). The user pastes it once (the client id is optional: the adapter reads it from the token and the profile, and cleans quotes, whitespace and a `Bearer ` prefix) → checked with `getProfile` → encrypted vault. Connect copy: "valid 24 hours, renewed automatically".
+- Renewal: the `broker-token-renew` BullMQ job (every 30 min, payload `{}`) renews every ACTIVE Dhan token expiring within 3 h through `refreshToken` (`GET /RenewToken`: the old token stops working, a new 24-hour one comes back), re-seals it with the vault (fresh IV, same AAD) and updates `tokenExpiresAt`; audited `broker.renew`, then `broker.account.activated`. A refused renewal or an already expired token → `NEEDS_RELOGIN` + our own `lastError` + in-app notification + `broker.account.deactivated` (the user pastes a new token with the same label). No expiry reminder: renewal is automatic.
+- Instruments: Dhan names instruments by `(exchangeSegment, securityId)`; the api's BrokerGateways gives the adapter a `DhanInstrumentMap` loaded from `InstrumentBrokerToken` (tokens `<exchangeSegment>:<securityId>`) before an account is used, reloaded on `instruments.synced` (Upstox gets a resolver over the same table).
 - Market feed: binary WSS with packet codes (ticker/quote/full/depth); max 5000 instruments per connection; option chain REST exists but is rate-limited (1 req/3 s) → we use the feed instead.
 - Order update WSS ("Live Order Update").
 

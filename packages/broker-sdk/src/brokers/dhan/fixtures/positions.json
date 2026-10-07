@@ -1,0 +1,40 @@
+[
+  {
+    "dhanClientId": "1000000001",
+    "tradingSymbol": "TCS",
+    "securityId": "11536",
+    "positionType": "LONG",
+    "exchangeSegment": "NSE_EQ",
+    "productType": "CNC",
+    "buyAvg": 3345.8,
+    "buyQty": 40,
+    "costPrice": 3215.0,
+    "sellAvg": 0.0,
+    "sellQty": 0,
+    "netQty": 40,
+    "realizedProfit": 0.0,
+    "unrealizedProfit": 6122.0,
+    "drvExpiryDate": "0001-01-01",
+    "drvOptionType": null,
+    "drvStrikePrice": 0.0
+  },
+  {
+    "dhanClientId": "1000000001",
+    "tradingSymbol": "BANKNIFTY-Oct2025-55000-PE",
+    "securityId": "61234",
+    "positionType": "SHORT",
+    "exchangeSegment": "NSE_FNO",
+    "productType": "MARGIN",
+    "buyAvg": 0.0,
+    "buyQty": 0,
+    "costPrice": 0.0,
+    "sellAvg": 212.35,
+    "sellQty": 35,
+    "netQty": -35,
+    "realizedProfit": 0.0,
+    "unrealizedProfit": -420.25,
+    "drvExpiryDate": "2025-10-28",
+    "drvOptionType": "PUT",
+    "drvStrikePrice": 55000.0
+  }
+]

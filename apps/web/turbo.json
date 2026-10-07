@@ -1,0 +1,29 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      // next.config.ts reads the repo-root .env itself; the build bakes only API_INTERNAL_URL (the /v1 rewrite).
+      "env": ["API_INTERNAL_URL"],
+      "outputs": [".next/**", "!.next/cache/**", "!.next/dev/**"]
+    },
+    // Playwright starts the built api (dist/main.js) and `next dev`, or reuses them locally. The variables pass
+    // through so CI can configure both servers from the job's environment (turbo's strict env mode drops them).
+    "test:e2e": {
+      "dependsOn": ["^build", "@finlytics/api#build"],
+      "cache": false,
+      "passThroughEnv": [
+        "NODE_ENV",
+        "APP_ROLE",
+        "DATABASE_URL",
+        "DATABASE_DIRECT_URL",
+        "DB_*",
+        "REDIS_URL",
+        "AUTH_*",
+        "EMAIL_*",
+        "API_*",
+        "MAILPIT_URL"
+      ]
+    }
+  }
+}

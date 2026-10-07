@@ -1,203 +1,148 @@
 /**
- * BrokerAdapter — the ONLY contract through which Finlytics talks to any broker.
- * Exactly 12 operations (see .claude/rules/broker.md). Adding a method here is an architecture decision.
+ * BrokerAdapter: the ONLY contract through which Finlytics talks to a broker (.claude/rules/broker.md). Exactly 12
+ * operations; adding a method here is an architecture decision, and the type test plus the contract suite fail until
+ * {@link BROKER_METHODS} lists it.
+ *
+ * Nothing calls an adapter directly: `BrokerGateway` wraps every call with validation, the circuit breaker, the rate
+ * limiter, a timeout and error redaction. Adapters keep helpers in module functions or `#private` members, so their
+ * public surface is the contract and nothing else.
+ *
+ * Network methods receive a {@link CallContext} with an `AbortSignal` that fires on timeout or caller cancellation;
+ * adapters pass it to `fetch`/the WebSocket and throw typed `BrokerError`s (./errors.ts).
  */
-import type { EventEmitter } from "node:events";
+import type { BrokerCode } from "@finlytics/shared";
 
-export type BrokerCode = "UPSTOX" | "DHAN" | "ZERODHA" | "ANGELONE" | "FYERS" | "SHOONYA" | "PAPER";
-export type InstrumentKey = string; // canonical: NSE_FO|NIFTY|2025-10-30|24000|CE
+import type { BrokerCredentials } from "./credentials";
+import type { MarketFeed, OrderFeed } from "./feed/feed";
+import type {
+  AuthStart,
+  BrokerHolding,
+  BrokerOrder,
+  BrokerPosition,
+  Candle,
+  CandleQuery,
+  ExchangeTokenInput,
+  FeedMode,
+  Funds,
+  InstrumentRow,
+  ModifyOrderInput,
+  PlaceOrderInput,
+  PlaceOrderResult,
+  Profile,
+} from "./models";
 
-export interface BrokerCredentials {
-  accessToken: string;
-  refreshToken?: string;
-  expiresAt?: string; // ISO
-  clientId?: string;
-  extra?: Record<string, string>;
+/** What every network call receives. */
+export interface CallContext {
+  /** Fires on timeout or caller cancellation; pass it to every request. */
+  readonly signal: AbortSignal;
 }
 
-export interface AuthStart {
-  mode: "oauth" | "token";
-  url?: string; // oauth authorize URL
-  fields?: { name: string; label: string; secret: boolean }[]; // for token mode
+/** A call made for one connected account. */
+export interface AccountCallContext extends CallContext {
+  readonly creds: BrokerCredentials;
 }
 
-export interface Profile {
-  clientId: string;
-  name: string;
-  email?: string;
-  exchangesEnabled: string[];
+/**
+ * How many instruments one market-feed connection carries per feed mode. `single`: every key uses that one mode;
+ * `mixed`: the cap for each mode while several modes share the connection (Upstox: `full` 2000 alone, 1500 next to
+ * `ltp`). The total is also capped by {@link BrokerCapabilities.maxFeedInstruments}. A feed refuses a subscription
+ * beyond them with BROKER_REJECTED (`FEED_CAPACITY`), so plan the modes with these numbers first.
+ */
+export interface FeedLimits {
+  readonly single: Readonly<Record<FeedMode, number>>;
+  readonly mixed: Readonly<Record<FeedMode, number>>;
 }
 
-export interface Funds {
-  availableCash: string;
-  usedMargin: string;
-  collateral: string;
-  totalBalance: string;
-}
-
-export interface InstrumentRow {
-  key: InstrumentKey;
-  brokerToken: string;
-  exchange: string;
-  segment: string;
-  symbol: string;
-  name: string;
-  expiry?: string;
-  strike?: string;
-  optionType?: "CE" | "PE";
-  lotSize: number;
-  tickSize: string;
-  freezeQty?: number;
-}
-
-export interface PlaceOrderInput {
-  key: InstrumentKey;
-  side: "BUY" | "SELL";
-  type: "MARKET" | "LIMIT" | "SL" | "SL_M";
-  product: "INTRADAY" | "DELIVERY" | "MARGIN" | "CO" | "BO";
-  validity: "DAY" | "IOC";
-  qty: number;
-  price?: string;
-  triggerPrice?: string;
-  tag?: string; // algoId / correlation
-}
-
-export interface ModifyOrderInput {
-  brokerOrderId: string;
-  qty?: number;
-  price?: string;
-  triggerPrice?: string;
-  type?: PlaceOrderInput["type"];
-}
-
-export interface BrokerOrder {
-  brokerOrderId: string;
-  key: InstrumentKey;
-  side: PlaceOrderInput["side"];
-  type: PlaceOrderInput["type"];
-  product: PlaceOrderInput["product"];
-  qty: number;
-  filledQty: number;
-  price?: string;
-  triggerPrice?: string;
-  avgPrice?: string;
-  status: "PENDING" | "OPEN" | "PARTIALLY_FILLED" | "FILLED" | "CANCELLED" | "REJECTED" | "EXPIRED";
-  message?: string;
-  placedAt: string;
-  updatedAt: string;
-  tag?: string;
-}
-
-export interface BrokerPosition {
-  key: InstrumentKey;
-  product: PlaceOrderInput["product"];
-  netQty: number;
-  buyQty: number;
-  sellQty: number;
-  buyAvg: string;
-  sellAvg: string;
-  realisedPnl: string;
-  ltp?: string;
-}
-
-export interface BrokerHolding {
-  key: InstrumentKey;
-  qty: number;
-  avgPrice: string;
-  ltp?: string;
-}
-
-export interface CandleRow {
-  ts: number; // epoch seconds
-  o: string;
-  h: string;
-  l: string;
-  c: string;
-  v: number;
-  oi?: number;
-}
-
-export type FeedMode = "ltp" | "quote" | "full";
-
-export interface Tick {
-  k: InstrumentKey;
-  ltp: number;
-  ts: number;
-  v?: number;
-  oi?: number;
-  bid?: number;
-  ask?: number;
-  bq?: number;
-  aq?: number;
-  depth?: { b: [number, number][]; a: [number, number][] };
-  greeks?: { iv: number; delta: number; gamma: number; theta: number; vega: number };
-}
-
-export interface MarketFeed extends EventEmitter {
-  connect(): Promise<void>;
-  subscribe(keys: InstrumentKey[], mode: FeedMode): Promise<void>;
-  unsubscribe(keys: InstrumentKey[]): Promise<void>;
-  close(): Promise<void>;
-  // events: "tick" (Tick), "status" ("up"|"degraded"|"down"), "error"
-}
-
-export interface OrderFeed extends EventEmitter {
-  connect(): Promise<void>;
-  close(): Promise<void>;
-  // events: "order" (BrokerOrder), "trade", "status", "error"
-}
-
-export class BrokerError extends Error {
-  constructor(
-    public readonly code:
-      | "AUTH"
-      | "RATE_LIMIT"
-      | "REJECTED"
-      | "NETWORK"
-      | "TIMEOUT"
-      | "NOT_FOUND"
-      | "UNKNOWN",
-    message: string,
-    public readonly retryable = false,
-    public readonly brokerCode?: string,
-  ) {
-    super(message);
-  }
+/** Fixed facts about a broker integration. */
+export interface BrokerCapabilities {
+  /** How users connect (Upstox: oauth; Dhan: token; Paper: none). */
+  readonly authMode: AuthStart["mode"];
+  /** Whether `refreshToken` can renew a session (false: it throws NeedsReloginError). */
+  readonly refreshable: boolean;
+  /** The most instruments one market-feed connection carries (Dhan: 5000). */
+  readonly maxFeedInstruments: number;
+  /** Per-mode limits within {@link maxFeedInstruments}; absent: every mode may use all of it. */
+  readonly feedLimits?: FeedLimits | undefined;
+  /** `app`: one order-feed connection for every account; `account`: one per account (docs/01). */
+  readonly orderFeedScope: "app" | "account";
 }
 
 export interface BrokerAdapter {
   readonly code: BrokerCode;
-  readonly limits: { reqPerSec: number; reqPerMin: number; maxFeedInstruments: number };
+  readonly capabilities: BrokerCapabilities;
 
-  // 1. auth
-  startAuth(state: string, redirectUri: string): AuthStart;
-  exchangeToken(input: { code?: string; fields?: Record<string, string>; redirectUri?: string }): Promise<BrokerCredentials>;
-  // 2.
-  refreshToken(creds: BrokerCredentials): Promise<BrokerCredentials>;
-  // 3.
-  getProfile(creds: BrokerCredentials): Promise<Profile>;
-  // 4.
-  getFunds(creds: BrokerCredentials): Promise<Funds>;
-  // 5.
-  downloadInstrumentMaster(): Promise<AsyncIterable<InstrumentRow>>;
-  // 6–8.
-  placeOrder(creds: BrokerCredentials, input: PlaceOrderInput): Promise<{ brokerOrderId: string }>;
-  modifyOrder(creds: BrokerCredentials, input: ModifyOrderInput): Promise<void>;
-  cancelOrder(creds: BrokerCredentials, brokerOrderId: string): Promise<void>;
-  // 9.
-  getOrderBook(creds: BrokerCredentials): Promise<BrokerOrder[]>;
-  // 10.
-  getPositions(creds: BrokerCredentials): Promise<BrokerPosition[]>;
-  getHoldings(creds: BrokerCredentials): Promise<BrokerHolding[]>;
-  // 11.
-  getHistoricalCandles(
-    creds: BrokerCredentials,
-    key: InstrumentKey,
-    timeframe: "M1" | "M5" | "M15" | "M30" | "H1" | "D1",
-    from: Date,
-    to: Date,
-  ): Promise<CandleRow[]>;
-  // 12. shared feeds (one per broker process; creds = any active account's token designated as "feed account")
-  createMarketFeed(creds: BrokerCredentials): MarketFeed;
-  createOrderFeed(creds: BrokerCredentials): OrderFeed;
+  // 1. One-time login. `getAuthUrl` makes no network call.
+  getAuthUrl(input: { readonly state: string; readonly redirectUri: string }): AuthStart;
+  exchangeToken(ctx: CallContext, input: ExchangeTokenInput): Promise<BrokerCredentials>;
+  // 2. Scheduled before expiry.
+  refreshToken(ctx: AccountCallContext): Promise<BrokerCredentials>;
+  // 3. Once on connect.
+  getProfile(ctx: AccountCallContext): Promise<Profile>;
+  // 4. Dashboard open and after fills (cached 5 s by the api).
+  getFunds(ctx: AccountCallContext): Promise<Funds>;
+  // 5. Once a day (08:00 IST job). `creds` is optional: some brokers publish the master without auth.
+  downloadInstrumentMaster(
+    ctx: CallContext & { readonly creds?: BrokerCredentials | undefined },
+  ): AsyncIterable<InstrumentRow>;
+  // 6–8. User or strategy action.
+  placeOrder(ctx: AccountCallContext, input: PlaceOrderInput): Promise<PlaceOrderResult>;
+  modifyOrder(ctx: AccountCallContext, input: ModifyOrderInput): Promise<void>;
+  cancelOrder(ctx: AccountCallContext, brokerOrderId: string): Promise<void>;
+  // 9. Reconcile on reconnect, or every 60 s while the order feed is down.
+  getOrderBook(ctx: AccountCallContext): Promise<BrokerOrder[]>;
+  // 10. Page open and after fills (cached 5 s by the api).
+  getPositions(ctx: AccountCallContext): Promise<BrokerPosition[]>;
+  getHoldings(ctx: AccountCallContext): Promise<BrokerHolding[]>;
+  // 11. Chart backfill (cached in Timescale; never re-fetch what we have).
+  getHistoricalCandles(ctx: AccountCallContext, query: CandleQuery): Promise<Candle[]>;
+  // 12. ONE connection each per broker, shared by all users; the gateway enforces it.
+  connectMarketFeed(ctx: AccountCallContext): Promise<MarketFeed>;
+  connectOrderFeed(ctx: AccountCallContext): Promise<OrderFeed>;
 }
+
+/** Each adapter method and the broker.md operation number (1–12) it belongs to. */
+export const BROKER_METHODS = Object.freeze({
+  getAuthUrl: 1,
+  exchangeToken: 1,
+  refreshToken: 2,
+  getProfile: 3,
+  getFunds: 4,
+  downloadInstrumentMaster: 5,
+  placeOrder: 6,
+  modifyOrder: 7,
+  cancelOrder: 8,
+  getOrderBook: 9,
+  getPositions: 10,
+  getHoldings: 10,
+  getHistoricalCandles: 11,
+  connectMarketFeed: 12,
+  connectOrderFeed: 12,
+} as const);
+
+/** A method of {@link BrokerAdapter}. */
+export type BrokerMethod = keyof typeof BROKER_METHODS;
+
+/** Methods that change state at the broker: never retried, and a failure without an answer leaves the outcome unknown. */
+export const MUTATING_METHODS: ReadonlySet<BrokerMethod> = new Set([
+  "exchangeToken",
+  "refreshToken",
+  "placeOrder",
+  "modifyOrder",
+  "cancelOrder",
+]);
+
+/** Read-only methods the gateway may retry on a retryable error (plan B10). */
+export const RETRYABLE_METHODS: ReadonlySet<BrokerMethod> = new Set([
+  "getProfile",
+  "getFunds",
+  "getOrderBook",
+  "getPositions",
+  "getHoldings",
+  "getHistoricalCandles",
+]);
+
+/** The method names of an adapter interface, for the compile-time check that BROKER_METHODS lists exactly them. */
+type FunctionKeys<T> = { [K in keyof T]-?: T[K] extends (...args: never[]) => unknown ? K : never }[keyof T];
+type Exactly<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+/** Compile-time: true only when {@link BROKER_METHODS} lists exactly the methods of {@link BrokerAdapter}. */
+export type BrokerMethodsMatchInterface = Exactly<FunctionKeys<BrokerAdapter>, BrokerMethod>;

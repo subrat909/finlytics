@@ -1,0 +1,48 @@
+/*
+ * Document and control defaults (plan D3, D7). In the base layer, so any utility overrides them.
+ */
+@layer base {
+  html {
+    @apply bg-bg font-sans text-fg;
+  }
+
+  /* Controls start with no border and no shadow (frontend.md), also against user-agent and generated styles. Buttons
+     stay that way: affordance comes from filled surfaces, the hover tint and the focus outline. Inputs add their 1px
+     `border-border-strong` edge back with a utility (Input), which wins over this layer. */
+  :where(button, input, select, textarea) {
+    border: 0;
+    box-shadow: none;
+  }
+
+  /* Focus: a 2px solid outline in --ring (solid primary), 2px outside the control (plan D7). An outline, not a
+     box-shadow ring, because forced-colours mode keeps outlines and removes shadows. Controls show no outline at rest
+     (the user agent draws one only on :focus-visible, and this replaces it), so in forced-colours mode the outline
+     still marks focus alone. */
+  :where(
+    a[href],
+    button,
+    input,
+    select,
+    textarea,
+    summary,
+    [role="button"],
+    [role="radio"],
+    [tabindex]:not([tabindex^="-"])
+  ):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  /* Reduced motion: animations finish at once and run once (an infinite animation at 0.01ms would strobe), and no
+     smooth scrolling. In the base layer, !important wins over later layers' !important declarations. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

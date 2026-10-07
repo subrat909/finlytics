@@ -27,7 +27,7 @@ Core capabilities:
 | Layer        | Choice                                                                                   |
 |--------------|------------------------------------------------------------------------------------------|
 | Monorepo     | pnpm workspaces + Turborepo                                                               |
-| Frontend     | Next.js 15 (App Router, RSC), React 19, TypeScript strict, Tailwind CSS v4, shadcn/ui, MUI (icons + data-grid only), TanStack Query, Zustand, Zod, react-hook-form, lucide-react |
+| Frontend     | Next.js 16 (App Router, RSC, Turbopack, `proxy.ts`), Auth.js v5, React 19, TypeScript strict, Tailwind CSS v4, shadcn/ui, MUI (icons + data-grid only), TanStack Query, Zustand, Zod, react-hook-form, lucide-react |
 | Charts       | TradingView Advanced Charts (vendored, licensed) with our UDF-compatible datafeed; Lightweight Charts fallback |
 | Backend API  | NestJS 11 (Fastify adapter), Prisma 7, Zod DTO validation, BullMQ (Redis) jobs, Socket.IO gateway (uWS engine) |
 | Realtime     | Redis Streams + Pub/Sub for tick fan-out; **max 1 broker market WS + 1 broker order WS per broker on the server, 1 client WS per browser tab** |
@@ -79,7 +79,7 @@ docs/            architecture decisions (read before building a feature)
 - Conventional Commits. Small PRs. Every PR runs `/review` and `/security-audit` commands.
 
 ### UI (full spec: `.claude/rules/frontend.md`, `docs/05-UI-ARCHITECTURE.md`)
-- Design tokens only (no hard-coded colours). Light + dark via `data-theme`. **No borders or shadows on buttons/inputs**; use filled surfaces (`bg-surface-2`) and focus rings for affordance.
+- Design tokens only (no hard-coded colours). Light + dark via `data-theme`. **No borders or shadows on buttons**; cards, inputs and surfaces use a 1px border token (`border-border`; inputs `border-border-strong`, ≥ 3:1). Buttons get affordance from filled surfaces (`bg-surface-2`) and focus outlines. No shadows. Small radius everywhere (`rounded-sm`). Full-width pages; navbar, sidebar and footer fixed on `bg-surface-1` with borders.
 - Every page implements: loading skeleton matching layout shape, empty state with icon + CTA, error state with retry, responsive (mobile ≥ 360px), keyboard navigation + ARIA.
 - Sidebar collapse is a CSS-width transition on a persisted Zustand store; it must not re-mount page content.
 - Icons: lucide-react; colourful semantic accents (profit green, loss rose, warning amber, info sky, primary indigo).
@@ -89,10 +89,21 @@ docs/            architecture decisions (read before building a feature)
 ```
 pnpm i                     install
 pnpm dev                   turbo dev (web :3000, api :4000, ai-engine :8000)
-pnpm db:migrate            prisma migrate dev
+pnpm db:migrate            prisma migrate dev (args pass through: pnpm db:migrate --create-only --name <name>)
+pnpm db:seed               prisma db seed (idempotent; safe to re-run)
+pnpm db:status / db:deploy prisma migrate status / deploy
 pnpm db:studio             prisma studio
-pnpm lint / pnpm typecheck / pnpm test
-docker compose up -d       postgres+timescale, redis, grafana
+pnpm format:check / pnpm lint / pnpm typecheck / pnpm test
+pnpm test:integration      Testcontainers integration tests (needs Docker)
+pnpm check:pkg             publint + attw + require/import smoke tests on built packages
+pnpm storybook             packages/ui Storybook at http://127.0.0.1:6006 (theme toolbar: light/dark)
+pnpm test:storybook        every story as a test in Chromium: render, play, a11y, design checks (light, dark, 360 px)
+pnpm test:visual           screenshots vs baselines in the pinned Playwright image (Docker): CI ONLY; never run it locally
+                           (too heavy). After ui visual changes, run the CI workflow with update_snapshots and commit the artifact
+pnpm test:e2e              apps/web Playwright e2e (magic-link sign-in via mailpit, shell, sign-out); needs compose up and
+                           migrations applied; builds deps + api, starts both servers. With `pnpm dev` already running,
+                           use `pnpm --filter @finlytics/web test:e2e` (reuses :3000/:4000, rebuilds nothing under them)
+docker compose up -d       postgres+timescale, redis, mailpit (grafana/prometheus: --profile observability)
 ```
 
 ## 6. How to work in this repo (for Claude)

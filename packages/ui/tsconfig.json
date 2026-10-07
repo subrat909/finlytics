@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // The @finlytics/tsconfig react-library preset, referenced by workspace path like shared and database do (tools with
+  // a bundled get-tsconfig don't realpath the pnpm symlink in node_modules).
+  "extends": "../config/tsconfig/react-library.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // vitest.config.ts imports "./vite.config.ts" with its extension, which Vite's native config loader needs.
+    "allowImportingTsExtensions": true
+  },
+  // One program for source, tests, Storybook and tooling configs. Browser safety in src is enforced by lint (the
+  // reactLibrary preset), not by types. Dot folders aren't matched by "*" globs, so .storybook is listed explicitly.
+  "include": ["src", "test", ".storybook/**/*", "*.config.ts"],
+  "exclude": ["node_modules", "coverage", "storybook-static", "test-results", "playwright-report"]
+}

@@ -1,0 +1,9 @@
+{
+  "status": "failure",
+  "remarks": {
+    "error_code": "DH-901",
+    "error_type": "Invalid_Authentication",
+    "error_message": "Client ID or user generated access token is invalid or expired."
+  },
+  "data": ""
+}

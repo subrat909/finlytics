@@ -1,13 +1,39 @@
 {
-  "$schema": "https://turbo.build/schema.json",
-  "globalDependencies": [".env", "tsconfig.base.json"],
+  "$schema": "https://turborepo.dev/schema.json",
+  "agentGuidance": false,
+  "globalDependencies": [
+    ".env",
+    "tsconfig.base.json",
+    "eslint.config.mjs",
+    "packages/config/*/*.js",
+    "packages/config/*/*.json"
+  ],
+  "globalPassThroughEnv": [
+    "CI",
+    "GITHUB_ACTIONS",
+    "HUSKY",
+    "DOCKER_HOST",
+    "TESTCONTAINERS_*",
+    "PLAYWRIGHT_BROWSERS_PATH"
+  ],
   "tasks": {
     "build": { "dependsOn": ["^build", "generate"], "outputs": [".next/**", "!.next/cache/**", "dist/**"] },
     "generate": { "cache": false },
-    "dev": { "cache": false, "persistent": true, "dependsOn": ["generate"] },
-    "lint": { "dependsOn": ["^build"] },
+    "dev": { "cache": false, "persistent": true, "dependsOn": ["^build", "generate"] },
+    "lint": { "dependsOn": ["^build", "generate"] },
+    "//#lint:root": { "inputs": ["*.js", "*.mjs", "*.cjs", "scripts/*.mjs"] },
     "typecheck": { "dependsOn": ["^build", "generate"] },
     "test": { "dependsOn": ["^build", "generate"], "outputs": ["coverage/**"] },
-    "test:e2e": { "dependsOn": ["build"], "cache": false }
+    "test:integration": { "dependsOn": ["^build", "generate"], "cache": false },
+    "test:e2e": { "dependsOn": ["build"], "cache": false },
+    "check:pkg": { "dependsOn": ["build"] },
+    "storybook": { "cache": false, "persistent": true, "dependsOn": ["^build"] },
+    "build-storybook": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", "!test/**"],
+      "outputs": ["storybook-static/**"]
+    },
+    "test:storybook": { "dependsOn": ["^build"], "cache": false },
+    "test:visual": { "dependsOn": ["build-storybook"], "cache": false }
   }
 }

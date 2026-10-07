@@ -1,0 +1,35 @@
+{
+  "status": "success",
+  "data": [
+    {
+      "exchange": "NFO",
+      "multiplier": 1.0,
+      "value": 39.75,
+      "pnl": 26.25,
+      "product": "D",
+      "instrument_token": "NSE_FO|52618",
+      "average_price": 2.65,
+      "buy_value": 0.0,
+      "overnight_quantity": 15,
+      "day_buy_value": 0.0,
+      "day_buy_price": 0.0,
+      "overnight_buy_amount": 39.75,
+      "overnight_buy_quantity": 15,
+      "day_buy_quantity": 0,
+      "day_sell_value": 0.0,
+      "day_sell_price": 0.0,
+      "overnight_sell_amount": 0.0,
+      "overnight_sell_quantity": 0,
+      "day_sell_quantity": 0,
+      "quantity": 15,
+      "last_price": 1.75,
+      "unrealised": -658304.25,
+      "realised": -0.0,
+      "sell_value": 0.0,
+      "trading_symbol": "BANKNIFTY23OCT38000PE",
+      "close_price": 1.95,
+      "buy_price": 2.65,
+      "sell_price": 0.0
+    }
+  ]
+}

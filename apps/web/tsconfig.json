@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // One program for the app, its tests, the e2e suite and the tooling configs. Next.js checks this file on `next dev`
+  // and `next build` and rewrites what it requires, so the Next-specific options below are spelled out.
+  "extends": "../../packages/config/tsconfig/react-library.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": true,
+    // next.config.ts imports src/lib/env.ts with its extension (Node's native TypeScript loader needs it).
+    "allowImportingTsExtensions": true,
+    "allowJs": false,
+    "jsx": "react-jsx",
+    "plugins": [{ "name": "next" }],
+    "paths": { "@/*": ["./src/*"] }
+  },
+  "include": [
+    "next-env.d.ts",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "src",
+    "e2e",
+    "*.config.ts",
+    "*.config.mts"
+  ],
+  "exclude": ["node_modules", ".next/cache", "coverage", "test-results", "playwright-report"]
+}

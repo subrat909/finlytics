@@ -9,31 +9,44 @@ description: How to build any Finlytics UI component or page — tokens, palette
 | Token            | Light      | Dark       | Use                                  |
 |------------------|------------|------------|--------------------------------------|
 | `--primary`      | #4F46E5    | #818CF8    | brand, primary buttons, active nav   |
-| `--accent`       | #06B6D4    | #22D3EE    | highlights, links, chips             |
-| `--profit`       | #059669    | #34D399    | positive P&L, buy                    |
-| `--loss`         | #E11D48    | #FB7185    | negative P&L, sell                   |
-| `--warning`      | #D97706    | #FBBF24    | risk, expiring tokens                |
-| `--info`         | #0284C7    | #38BDF8    | informational                        |
-| `--bg`           | #F8FAFC    | #0B0F19    | page background                      |
-| `--surface-1`    | #FFFFFF    | #111827    | cards                                |
-| `--surface-2`    | #F1F5F9    | #1F2937    | inputs, secondary buttons            |
-| `--surface-3`    | #E2E8F0    | #374151    | hover state                          |
-| `--fg`           | #0F172A    | #F1F5F9    | primary text                         |
-| `--fg-muted`     | #64748B    | #9CA3AF    | secondary text                       |
-| `--ring`         | primary/60 | primary/60 | focus ring                           |
+| `--primary-fg`   | #FFFFFF    | #0B0F19    | text on primary                      |
+| `--highlight`    | #0B6B85    | #22D3EE    | highlights, links, chips (was `--accent`; shadcn's `accent` is the hover surface) |
+| `--profit`       | #047052    | #34D399    | positive P&L, buy                    |
+| `--profit-fg`    | #FFFFFF    | #0B0F19    | text on Buy (profit fill)            |
+| `--loss`         | #BE123C    | #FB7185    | negative P&L, sell                   |
+| `--loss-fg`      | #FFFFFF    | #0B0F19    | text on Sell (loss fill)             |
+| `--warning`      | #A24A06    | #FBBF24    | risk, expiring tokens                |
+| `--info`         | #0369A1    | #38BDF8    | informational                        |
+| `--violet`       | #7334E0    | #A78BFA    | AI agents                            |
+| `--orange`       | #B13C0A    | #FB923C    | brokers                              |
+| `--bg`           | #F5F7FA    | #090C12    | page background                      |
+| `--surface-1`    | #FFFFFF    | #0F141C    | panels: cards, navbar, sidebar, status bar |
+| `--surface-2`    | #F1F4F8    | #171E29    | inputs, secondary buttons            |
+| `--surface-3`    | #E4E9F0    | #232C3A    | hover state                          |
+| `--fg`           | #0F172A    | #EEF2F6    | primary text                         |
+| `--fg-muted`     | #536175    | #A7B1BF    | secondary text                       |
+| `--border`       | #D9DFE8    | #283242    | 1px edges of cards, panels, menus    |
+| `--border-strong` | #7A8699   | #687589    | input edges (≥ 3:1)                  |
+| `--ring`         | primary    | primary    | focus outline (solid, 2px)           |
 
 Category accents for icons/chips: indigo (strategies), cyan (watchlist), emerald (P&L), amber (alerts), rose (risk), violet (AI agents), sky (option chain), orange (brokers).
 
-## Button / Input recipe (no border, no shadow)
+## Button / Input / Card recipe (no border on buttons, no shadows)
 ```tsx
 // packages/ui/src/components/button.tsx (cva variants)
-primary:   "bg-primary text-white hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring"
+primary:   "bg-primary text-primary-fg hover:bg-primary/90"
 secondary: "bg-surface-2 text-fg hover:bg-surface-3"
 ghost:     "bg-transparent hover:bg-surface-2"
-profit:    "bg-profit text-white hover:bg-profit/90"
-loss:      "bg-loss text-white hover:bg-loss/90"
-// all: rounded-xl h-10 px-4 font-medium transition-colors disabled:opacity-50 — NO border, NO shadow
-// input: bg-surface-2 rounded-xl h-10 px-3 focus-visible:ring-2 ring-ring placeholder:text-fg-muted — NO border
+profit:    "bg-profit text-profit-fg hover:bg-profit/90"
+loss:      "bg-loss text-loss-fg hover:bg-loss/90"
+// all: rounded-sm h-10 px-4 font-medium transition-[color,background-color] disabled:opacity-50
+//      focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid
+//      — NO border, NO shadow, no outline-hidden; never transition-colors (it fades the outline in from the text colour)
+// input: border border-border-strong bg-surface-2 rounded-sm h-10 px-3 placeholder:text-fg-muted aria-invalid:border-loss
+//      transition-[color,background-color]
+//      focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid
+//      — 1px border-strong (≥ 3:1), NO shadow
+// card:  rounded-sm border border-border bg-surface-1 p-4 sm:p-6 — NO shadow
 ```
 
 ## Page skeleton recipe
@@ -45,8 +58,10 @@ src/features/<feature>/components/* → client leaves
 ```
 
 ## State components (packages/ui)
+Import each from its own module, `@finlytics/ui/components/<name>` (no barrel):
+`import { PageLoader } from "@finlytics/ui/components/page-loader"`.
 - `<PageLoader variant="dashboard|chart|table|form|chain|calendar"/>`
-- `<EmptyState icon={<Icon className="text-accent"/>} title description action/>`
+- `<EmptyState icon={<Icon className="text-highlight"/>} title description action/>`
 - `<ErrorState title description onRetry/>`
 - `<StaleBadge since={ts}/>` for data older than 5 s
 - `<BrokerBanner status="NEEDS_RELOGIN|DISCONNECTED"/>`
@@ -58,7 +73,7 @@ const tick = useTick(instrumentKey);           // zustand selector, rAF-throttle
 ```
 
 ## Checklist before finishing a UI task
-- [ ] tokens only, no hex; no border/shadow on buttons & inputs
+- [ ] tokens only, no hex; no border/shadow on buttons; 1px border token on cards, inputs and surfaces; no shadows
 - [ ] loading / empty / error / stale / disconnected states
 - [ ] mobile (360px), tablet, desktop
 - [ ] keyboard nav, labels, aria-live for live numbers, contrast both themes
